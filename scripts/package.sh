@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/manifest.json")"
-OUT="$ROOT/dist/harmonic-hn-$VERSION.zip"
+cd "$(dirname "$0")/.."
 
-mkdir -p "$ROOT/dist"
-rm -f "$OUT"
+version="$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")"
+name="harmonic-hn-browser-$version"
+out="dist/$name"
 
-cd "$ROOT"
-zip -q "$OUT" manifest.json content.js background.js styles.css README.md LICENSE
-printf 'Created %s\n' "$OUT"
+rm -rf dist
+mkdir -p "$out"
+
+cp manifest.json content.js styles.css background.js README.md LICENSE "$out/"
+
+(
+  cd dist
+  zip -qr "$name.zip" "$name"
+)
+
+printf 'Created dist/%s.zip\n' "$name"
