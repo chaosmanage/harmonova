@@ -5,3 +5,4 @@ ref/
 *.zip
 *.png
 .DS_Store
+test-results*/
