@@ -292,21 +292,21 @@
     const storyScale = storySetting / 17.5;
     const commentSetting = Number(state.settings.commentTextSize || 15);
     app.dataset.cardClickComments = String(state.settings.cardClickComments);
-    // Harmonic uses compact dp/sp metrics on a dense mobile canvas. On a laptop, render those
-    // proportions at a larger CSS scale so the cards and discussion preserve the app's visual
-    // weight instead of collapsing into a conventional desktop news list.
-    app.style.setProperty("--story-text-size", ((16 + (storySetting - 17.5)) * contentScale) + "px");
-    app.style.setProperty("--story-index-size", ((15 + (storySetting - 17.5)) * contentScale) + "px");
-    app.style.setProperty("--story-meta-size", (13 * storyScale * contentScale) + "px");
-    app.style.setProperty("--story-comment-count-size", (13.5 * storyScale * contentScale) + "px");
-    app.style.setProperty("--comment-text-size", ((13.75 + (commentSetting - 15)) * contentScale) + "px");
-    app.style.setProperty("--story-pad-y", (10 * contentScale) + "px");
-    app.style.setProperty("--story-pad-x", (9 * contentScale) + "px");
-    app.style.setProperty("--story-gap", (4 * contentScale) + "px");
-    app.style.setProperty("--comment-pad-y", (10 * contentScale) + "px");
-    app.style.setProperty("--comment-pad-x", (12 * contentScale) + "px");
-    app.style.setProperty("--thread-title-size", (26 * contentScale) + "px");
-    app.style.setProperty("--thread-meta-size", (13.5 * contentScale) + "px");
+    // Harmonic's semantic settings rendered at desktop density. The Android app's dp/sp
+    // values are physically larger on a high-density display, so this preserves the same
+    // visual scale on a standard-density laptop instead of shrinking the UI.
+    app.style.setProperty("--story-text-size", ((23 + (storySetting - 17.5) * 1.25) * contentScale) + "px");
+    app.style.setProperty("--story-index-size", ((22 + (storySetting - 17.5) * 1.2) * contentScale) + "px");
+    app.style.setProperty("--story-meta-size", (16.5 * storyScale * contentScale) + "px");
+    app.style.setProperty("--story-comment-count-size", (19 * storyScale * contentScale) + "px");
+    app.style.setProperty("--comment-text-size", ((19 + (commentSetting - 15) * 1.2) * contentScale) + "px");
+    app.style.setProperty("--story-pad-y", (15 * contentScale) + "px");
+    app.style.setProperty("--story-pad-x", (13 * contentScale) + "px");
+    app.style.setProperty("--story-gap", (9 * contentScale) + "px");
+    app.style.setProperty("--comment-pad-y", (14 * contentScale) + "px");
+    app.style.setProperty("--comment-pad-x", (16 * contentScale) + "px");
+    app.style.setProperty("--thread-title-size", (38 * contentScale) + "px");
+    app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
   }
 
   function showToast(message) {

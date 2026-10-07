@@ -160,7 +160,8 @@ async function getMetadata(url) {
     const base = response.url || url;
     const image = absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base);
     const favicon = absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base);
-    value = { image, favicon, pageUrl: base, tint: await imageTint(image) };
+    // Harmonic tints from the preview image first, then the favicon when a story has no preview.
+    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon) };
   } catch {} finally {
     clearTimeout(timer);
   }

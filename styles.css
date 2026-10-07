@@ -267,7 +267,7 @@ html.harmonic-hn *{box-sizing:border-box}
   overflow:hidden;
   border:0;
   border-radius:10px;
-  background:rgba(0,0,0,.16);
+  background:transparent;
   color:inherit;
   cursor:pointer;
 }
