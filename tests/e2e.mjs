@@ -32,23 +32,28 @@ try {
   const layout = await page.evaluate(() => {
     const title = document.querySelector(".feed-title-button").getBoundingClientRect();
     const first = document.querySelector(".story-card").getBoundingClientRect();
-    const refresh = document.querySelector(".refresh-pill").getBoundingClientRect();
-    const cards = Array.from(document.querySelectorAll(".story-card")).slice(0, 12).map((card) => ({
+    const refresh = document.querySelector('.feed-toolbar-actions .icon-button[aria-label="Refresh"]').getBoundingClientRect();
+    const cardNodes = Array.from(document.querySelectorAll(".story-card")).slice(0, 12);
+    const cards = cardNodes.map((card) => ({
       clientHeight: card.clientHeight,
       scrollHeight: card.scrollHeight,
       height: card.getBoundingClientRect().height
     }));
+    const cardRects = cardNodes.map((card) => card.getBoundingClientRect());
+    const cardGaps = cardRects.slice(1).map((rect, index) => rect.top - cardRects[index].bottom);
     return {
       titleTop: title.top,
       firstCardLeft: first.left,
       refreshWidth: refresh.width,
       refreshHeight: refresh.height,
+      cardGaps,
       cards
     };
   });
   assert.ok(layout.titleTop <= 26, "Top Stories should sit near the top");
   assert.ok(layout.firstCardLeft <= 20, "story gutter should be compact");
-  assert.ok(layout.refreshWidth <= 160 && layout.refreshHeight <= 46, "refresh control should stay compact");
+  assert.ok(layout.refreshWidth >= 40 && layout.refreshWidth <= 46 && layout.refreshHeight >= 40 && layout.refreshHeight <= 46, "refresh button should match the top action buttons");
+  assert.ok(layout.cardGaps.every((gap) => Math.abs(gap - 10) <= 0.5), "story cards should keep a consistent 10px gap");
   assert.ok(layout.cards.every((card) => card.scrollHeight <= card.clientHeight + 1 && card.height >= 64), "story cards should grow with content without clipping");
 
   const left = page.locator(".story-list");
@@ -58,6 +63,11 @@ try {
   await page.waitForTimeout(250);
   const leftAfter = await left.evaluate((e) => e.scrollTop);
   assert.ok(leftAfter > leftBefore, "left feed should scroll");
+
+  await left.evaluate((e) => { e.scrollTop = e.scrollHeight; });
+  await page.waitForFunction(() => document.querySelectorAll(".story-card").length > 40, null, { timeout: 20000 });
+  const loadedCount = await page.locator(".story-card").count();
+  assert.ok(loadedCount > 40, "scrolling near the end should load more than 40 stories");
 
   const right = page.locator(".thread-pane");
   const rightBefore = await right.evaluate((e) => e.scrollTop);
@@ -133,12 +143,42 @@ try {
   // Restore Harmonic defaults before the visual regression screenshot.
   await zoomSlider.fill("100");
   await commentSizeSlider.fill("15");
+  const cardClickRow = page.locator(".setting-row").filter({ hasText: "Card click opens comments" });
+  const cardClickInput = cardClickRow.locator('input[type="checkbox"]');
+  await cardClickInput.check();
   await page.waitForTimeout(150);
 
   await page.locator(".settings-header .icon-button").click();
   await page.locator(".settings-overlay").waitFor({ state: "detached" });
 
+  const titleCard = page.locator(".story-card").nth(3);
+  const titleCardId = await titleCard.getAttribute("data-story-id");
+  const pageCountBeforeTitleClick = context.pages().length;
+  await titleCard.locator(".story-card-title").click();
+  await page.waitForURL(new RegExp("item\\?id=" + titleCardId), { timeout: 10000 });
+  await page.waitForTimeout(250);
+  assert.equal(context.pages().length, pageCountBeforeTitleClick, "title click should stay in Harmonic when card-click comments is enabled");
+
+  await page.waitForFunction(() => document.querySelectorAll(".story-card.has-preview").length > 0, null, { timeout: 10000 }).catch(() => {});
+  const previewCard = page.locator(".story-card.has-preview").first();
+  if (await previewCard.count()) {
+    const previewCardId = await previewCard.getAttribute("data-story-id");
+    const pageCountBeforePreviewClick = context.pages().length;
+    await previewCard.locator(".story-preview").click();
+    await page.waitForURL(new RegExp("item\\?id=" + previewCardId), { timeout: 10000 });
+    await page.waitForTimeout(250);
+    assert.equal(context.pages().length, pageCountBeforePreviewClick, "preview image click should stay in Harmonic when card-click comments is enabled");
+  }
+
+  await page.locator(".feed-toolbar-actions .icon-button").last().click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.locator(".settings-overlay").waitFor({ state: "visible" });
+  await page.locator(".setting-row").filter({ hasText: "Card click opens comments" }).locator('input[type="checkbox"]').uncheck();
+  await page.locator(".settings-header .icon-button").click();
+  await page.locator(".settings-overlay").waitFor({ state: "detached" });
+
   const firstComment = page.locator(".comment-row").first();
+  await firstComment.waitFor({ state: "visible", timeout: 15000 });
   const commentCard = firstComment.locator(":scope > .comment-card");
   const commentBox = await commentCard.boundingBox();
   assert.ok(commentBox, "first comment should have a visible card");
@@ -147,11 +187,17 @@ try {
   assert.ok(await firstComment.evaluate((e) => e.classList.contains("collapsed")), "comment click should collapse thread");
 
   const quoteCount = await page.locator(".harmonic-quote").count();
+  const unnormalizedQuoteParagraphs = await page.locator(".comment-body p").evaluateAll((nodes) =>
+    nodes.filter((node) => (node.textContent || "").trimStart().startsWith(">")).length
+  );
+  assert.equal(unnormalizedQuoteParagraphs, 0, "literal > quote paragraphs should be normalized");
   if (quoteCount > 0) {
     const quoteStyle = await page.locator(".harmonic-quote").first().evaluate((e) => {
       const s = getComputedStyle(e);
       return { background: s.backgroundColor, borderLeft: s.borderLeftWidth, paddingLeft: s.paddingLeft };
     });
+    const firstQuoteText = (await page.locator(".harmonic-quote").first().textContent()) || "";
+    assert.ok(!firstQuoteText.trimStart().startsWith(">"), "normalized quote should not keep a leading > marker");
     assert.notEqual(quoteStyle.background, "rgba(0, 0, 0, 0)", "quotes should have a visible background");
     assert.ok(parseFloat(quoteStyle.borderLeft) >= 2, "quotes should have a visible left rule");
     assert.ok(parseFloat(quoteStyle.paddingLeft) >= 8, "quotes should have readable inset spacing");

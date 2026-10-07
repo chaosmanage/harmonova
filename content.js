@@ -1,6 +1,7 @@
 (() => {
   const HN_API = "https://hacker-news.firebaseio.com/v0";
   const ALGOLIA_API = "https://hn.algolia.com/api/v1";
+  const FEED_BATCH_SIZE = 40;
   const FEEDS = {
     top: { path: "/news", label: "Top Stories", endpoint: "topstories" },
     new: { path: "/newest", label: "New Stories", endpoint: "newstories" },
@@ -90,6 +91,10 @@
     settings: { ...DEFAULT_SETTINGS },
     updatedAt: new Date(),
     feedGeneration: 0,
+    feedIds: [],
+    feedCursor: 0,
+    loadingMore: false,
+    hasMoreStories: true,
   };
 
   document.documentElement.classList.add("harmonic-hn");
@@ -156,17 +161,38 @@
   };
 
   const normalizeQuotedParagraphs = (target) => {
+    const stripQuoteMarkers = (quote) => {
+      const walker = document.createTreeWalker(quote, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        node.textContent = (node.textContent || "").replace(/(^|\n)(\s*)>\s?/g, "$1$2");
+      }
+    };
+
+    target.querySelectorAll("blockquote").forEach((quote) => {
+      quote.classList.add("harmonic-quote");
+      stripQuoteMarkers(quote);
+    });
+
     target.querySelectorAll("p").forEach((paragraph) => {
       const text = paragraph.textContent || "";
       if (!text.trimStart().startsWith(">")) return;
       const quote = document.createElement("blockquote");
       quote.className = "harmonic-quote";
       while (paragraph.firstChild) quote.appendChild(paragraph.firstChild);
-      const walker = document.createTreeWalker(quote, NodeFilter.SHOW_TEXT);
-      const firstText = walker.nextNode();
-      if (firstText) firstText.textContent = firstText.textContent.replace(/^\s*>\s?/, "");
+      stripQuoteMarkers(quote);
       paragraph.replaceWith(quote);
     });
+
+    for (const node of [...target.childNodes]) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      const text = node.textContent || "";
+      if (!text.trimStart().startsWith(">")) continue;
+      const quote = document.createElement("blockquote");
+      quote.className = "harmonic-quote";
+      quote.textContent = text.replace(/(^|\n)(\s*)>\s?/g, "$1$2");
+      node.replaceWith(quote);
+    }
   };
 
   const appendSanitizedHtml = (target, html) => {
@@ -270,7 +296,7 @@
     } catch { return null; }
   };
 
-  let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, refreshPill, searchWrap, searchInput;
+  let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
 
   function applySettings() {
     if (!app) return;
@@ -332,9 +358,11 @@
     const actions = el("div", "feed-toolbar-actions");
     const searchButton = button("search", "Search");
     searchButton.addEventListener("click", toggleSearch);
+    const refreshButton = button("refresh", "Refresh");
+    refreshButton.addEventListener("click", refreshFeed);
     const moreButton = button("more", "More");
     moreButton.addEventListener("click", (event) => openMoreMenu(event.currentTarget));
-    actions.append(searchButton, moreButton);
+    actions.append(searchButton, refreshButton, moreButton);
     row.append(titleButton, actions);
 
     updatedLabel = el("div", "last-updated", "Last updated: " + formatTime(state.updatedAt));
@@ -387,7 +415,6 @@
 
   function openMoreMenu(anchor) {
     openPopup(anchor, [
-      { label: "Refresh", icon: "refresh", action: refreshFeed },
       { label: "Settings", icon: "settings", action: openSettings },
       { label: "Open original Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com" + FEEDS[state.feed].path, "_blank", "noopener") },
     ]);
@@ -416,14 +443,6 @@
     feedTitle.textContent = FEEDS[key].label;
     history.pushState({ harmonicFeed: key }, "", FEEDS[key].path);
     await refreshFeed();
-  }
-
-  function createRefreshPill() {
-    refreshPill = el("button", "refresh-pill");
-    refreshPill.type = "button";
-    refreshPill.append(svg("refresh"), el("span", "", "Tap to update"));
-    refreshPill.addEventListener("click", refreshFeed);
-    return refreshPill;
   }
 
   function storyMeta(story) {
@@ -455,7 +474,12 @@
     title.addEventListener("click", (event) => {
       event.stopPropagation();
       markRead(story.id);
-      if (state.settings.alwaysOpenComments) setTimeout(() => selectStory(story, false), 0);
+      if (state.settings.cardClickComments || !story.url) {
+        event.preventDefault();
+        selectStory(story);
+      } else if (state.settings.alwaysOpenComments) {
+        setTimeout(() => selectStory(story, false), 0);
+      }
     });
     const rank = el("span", "story-index", (index + 1) + ".");
     const titleLine = el("div", "story-title-line");
@@ -477,7 +501,7 @@
     preview.addEventListener("click", (event) => {
       event.stopPropagation();
       markRead(story.id);
-      if (!story.url) {
+      if (state.settings.cardClickComments || !story.url) {
         event.preventDefault();
         selectStory(story);
       } else if (state.settings.alwaysOpenComments) {
@@ -529,15 +553,56 @@
     return wrap;
   }
 
+  async function loadMoreStories() {
+    if (state.loadingMore || !state.hasMoreStories || !state.feedIds.length) return;
+    const generation = state.feedGeneration;
+    const batchIds = state.feedIds.slice(state.feedCursor, state.feedCursor + FEED_BATCH_SIZE);
+    if (!batchIds.length) {
+      state.hasMoreStories = false;
+      return;
+    }
+
+    state.loadingMore = true;
+    state.feedCursor += batchIds.length;
+    const loading = createLoading("Loading more stories…");
+    loading.classList.add("load-more-stories");
+    storyList.appendChild(loading);
+    try {
+      const stories = await fetchItems(batchIds);
+      if (generation !== state.feedGeneration) return;
+      loading.remove();
+      const startIndex = state.stories.length;
+      state.stories.push(...stories);
+      stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, startIndex + index)));
+      state.hasMoreStories = state.feedCursor < state.feedIds.length;
+      filterStories();
+    } catch {
+      loading.remove();
+      state.feedCursor -= batchIds.length;
+      showToast("Couldn’t load more stories");
+    } finally {
+      if (generation === state.feedGeneration) state.loadingMore = false;
+    }
+  }
+
   async function refreshFeed() {
     const generation = ++state.feedGeneration;
+    state.loadingMore = false;
+    state.feedIds = [];
+    state.feedCursor = 0;
+    state.hasMoreStories = true;
     storyList.replaceChildren(createLoading("Loading stories…"));
     const key = state.feed;
     try {
       const ids = await fetchJson(HN_API + "/" + FEEDS[key].endpoint + ".json");
-      const stories = await fetchItems(ids.slice(0, 40));
+      if (generation !== state.feedGeneration) return;
+      state.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
+      const batchIds = state.feedIds.slice(0, FEED_BATCH_SIZE);
+      state.feedCursor = batchIds.length;
+      const stories = await fetchItems(batchIds);
       if (generation !== state.feedGeneration) return;
       state.stories = stories;
+      state.hasMoreStories = state.feedCursor < state.feedIds.length;
       state.updatedAt = new Date();
       updatedLabel.textContent = "Last updated: " + formatTime(state.updatedAt);
       storyList.replaceChildren();
@@ -938,9 +1003,9 @@
     const behaviorSection = el("div", "settings-section");
     behaviorSection.append(
       el("h3", "", "Behavior"),
-      settingToggle("Card click opens comments", "cardClickComments", "Clicking the body of a story card opens its discussion. Turn off to make card clicks open the article."),
+      settingToggle("Card click opens comments", "cardClickComments", "Clicking anywhere on a story card, including its title or image, opens the discussion. Open the article from the story title inside the discussion."),
       settingToggle("Article links also open comments", "alwaysOpenComments", "When a title or preview opens an article in a new tab, also load its discussion here."),
-      el("p", "settings-note", "Title and preview links open articles in a new tab. The large comment button always opens the discussion. Bookmarks and read state stay local to this Chrome profile.")
+      el("p", "settings-note", "The large comment button always opens the discussion. With card-click comments enabled, open the article from the title inside the discussion. Bookmarks and read state stay local to this Chrome profile.")
     );
 
     panel.append(header, storySection, commentsSection, headerDisplaySection, behaviorSection);
@@ -956,8 +1021,12 @@
     feedPane = el("section", "feed-pane");
     const feedInner = el("div", "feed-inner");
     storyList = el("div", "story-list");
+    storyList.addEventListener("scroll", () => {
+      const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;
+      if (remaining < 900) loadMoreStories();
+    }, { passive: true });
     feedInner.append(createToolbar(), storyList);
-    feedPane.append(feedInner, createRefreshPill());
+    feedPane.append(feedInner);
 
     threadPane = el("section", "thread-pane");
     threadPane.appendChild(createThreadPlaceholder());
