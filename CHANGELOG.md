@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.7.2] - 2026-10-07
+
+### Changed
+
+- Compacted the discussion story header with a shorter preview image, smaller title, tighter spacing, and 44px action buttons so more comments fit onscreen.
+
 ## [0.7.1] - 2026-10-07
 
 ### Added

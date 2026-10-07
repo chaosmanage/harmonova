@@ -392,7 +392,7 @@
     app.style.setProperty("--story-gap", (9 * contentScale) + "px");
     app.style.setProperty("--comment-pad-y", (14 * contentScale) + "px");
     app.style.setProperty("--comment-pad-x", (16 * contentScale) + "px");
-    app.style.setProperty("--thread-title-size", (38 * contentScale) + "px");
+    app.style.setProperty("--thread-title-size", (32 * contentScale) + "px");
     app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
   }
 

@@ -384,13 +384,13 @@ html.harmonic-hn *{box-sizing:border-box}
 .thread-header{
   --header-tint:#151527;
   position:relative;
-  padding-bottom:36px;
+  padding-bottom:16px;
   background:linear-gradient(180deg,var(--header-tint) 0 78%,#000 100%);
 }
 .harmonic-app[data-header-tint="false"] .thread-header{--header-tint:#000!important}
 .thread-hero{
   width:100%;
-  height:286px;
+  height:192px;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -400,7 +400,7 @@ html.harmonic-hn *{box-sizing:border-box}
 .harmonic-app[data-header-image="false"] .thread-hero{display:none}
 .thread-hero-image{
   width:min(78%,650px);
-  height:238px;
+  height:168px;
   object-fit:contain;
   filter:saturate(.88) brightness(1.04);
 }
@@ -409,7 +409,7 @@ html.harmonic-hn *{box-sizing:border-box}
   position:relative;
   width:min(100%,1020px);
   margin:0 auto;
-  padding:24px 30px 42px;
+  padding:18px 26px 12px;
 }
 .thread-title{
   display:block;
@@ -450,10 +450,10 @@ html.harmonic-hn *{box-sizing:border-box}
   align-items:center;
   gap:4px;
   max-width:860px;
-  margin-top:22px;
+  margin-top:12px;
 }
 .thread-action{
-  height:56px;
+  height:44px;
   display:grid;
   place-items:center;
   padding:0;
@@ -748,10 +748,10 @@ html.harmonic-hn *{box-sizing:border-box}
   .harmonic-body .feed-title-button{font-size:29px}
   .last-updated{margin-left:88px}
   .story-card{min-height:0}
-  .thread-hero{height:230px}
-  .thread-hero-image{height:190px}
-  .thread-header-body{padding:16px 18px 38px}
-  .thread-title{font-size:30px}
+  .thread-hero{height:170px}
+  .thread-hero-image{height:146px}
+  .thread-header-body{padding:14px 18px 12px}
+  .thread-title{font-size:28px}
   .thread-actions{grid-template-columns:repeat(7,minmax(48px,1fr));overflow-x:auto}
   .comments-heading{padding-left:14px;padding-right:14px}
   .comments{padding-left:10px;padding-right:10px}

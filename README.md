@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.7.1**.
+The current extension version is **0.7.2**.
 
-Version 0.7.1 completes cancellation, prompt reset, bounded streaming, and summary lifecycle fixes on top of one-click OpenRouter article summarization, streaming summary cards, Harmonic's upstream summary prompt, and private API-key storage with persistent and session-only modes. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.7.2 compacts the discussion story header so more comments fit onscreen, while retaining one-click OpenRouter summaries and private API-key storage. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Feed experience
 
@@ -230,7 +230,7 @@ dist/harmonic-hn-browser/
 The zip filename remains versioned:
 
 ```text
-dist/harmonic-hn-browser-0.7.1.zip
+dist/harmonic-hn-browser-0.7.2.zip
 ```
 
 The zip itself contains the stable top-level folder `harmonic-hn-browser/`. Keeping that extracted folder in the same filesystem location and replacing its contents for upgrades helps Chrome keep the same unpacked-extension identity.
