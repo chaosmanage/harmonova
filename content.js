@@ -13,19 +13,22 @@
   PATH_TO_FEED["/"] = "top";
 
   const DEFAULT_SETTINGS = {
-    previewImages: "medium",
+    previewImages: "small",
     tintedCards: true,
     showFavicons: true,
     showPoints: true,
     showComments: true,
-    showIndex: false,
+    showIndex: true,
     dimRead: true,
     commentStyle: "outlined",
     depthMode: "colors",
     roundedRails: true,
     continuousRails: false,
-    storyTextSize: 22,
-    commentTextSize: 19,
+    storyTextSize: 17.5,
+    commentTextSize: 15,
+    contentScale: 100,
+    commentSort: "Default",
+    cardClickComments: false,
     alwaysOpenComments: false,
     headerTint: true,
     headerImage: true,
@@ -152,6 +155,20 @@
     } catch { return null; }
   };
 
+  const normalizeQuotedParagraphs = (target) => {
+    target.querySelectorAll("p").forEach((paragraph) => {
+      const text = paragraph.textContent || "";
+      if (!text.trimStart().startsWith(">")) return;
+      const quote = document.createElement("blockquote");
+      quote.className = "harmonic-quote";
+      while (paragraph.firstChild) quote.appendChild(paragraph.firstChild);
+      const walker = document.createTreeWalker(quote, NodeFilter.SHOW_TEXT);
+      const firstText = walker.nextNode();
+      if (firstText) firstText.textContent = firstText.textContent.replace(/^\s*>\s?/, "");
+      paragraph.replaceWith(quote);
+    });
+  };
+
   const appendSanitizedHtml = (target, html) => {
     if (!html) return;
     const parsed = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
@@ -180,10 +197,31 @@
       }
     };
     copy(parsed.body, target);
+    normalizeQuotedParagraphs(target);
   };
 
   const chromeGet = (defaults) => new Promise((resolve) => chrome.storage.local.get(defaults, resolve));
   const chromeSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
+
+  async function loadHarmonicFont() {
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: "HARMONIC_FONT" }, (result) => resolve(result));
+      });
+      if (!response?.ok || !response.dataUrl || typeof FontFace !== "function") return false;
+      const face = new FontFace("Google Sans Flex Rounded", `url(${response.dataUrl})`, {
+        style: "normal",
+        weight: "100 900",
+        display: "swap",
+      });
+      await face.load();
+      document.fonts.add(face);
+      document.documentElement.classList.add("harmonic-font-loaded");
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   async function loadPersistentState() {
     const stored = await chromeGet({
@@ -249,8 +287,26 @@
     app.dataset.continuousRails = String(state.settings.continuousRails);
     app.dataset.headerTint = String(state.settings.headerTint);
     app.dataset.headerImage = String(state.settings.headerImage);
-    app.style.setProperty("--story-text-size", state.settings.storyTextSize + "px");
-    app.style.setProperty("--comment-text-size", state.settings.commentTextSize + "px");
+    const contentScale = Math.max(0.75, Math.min(1.25, Number(state.settings.contentScale || 100) / 100));
+    const storySetting = Number(state.settings.storyTextSize || 17.5);
+    const storyScale = storySetting / 17.5;
+    const commentSetting = Number(state.settings.commentTextSize || 15);
+    app.dataset.cardClickComments = String(state.settings.cardClickComments);
+    // Harmonic uses compact dp/sp metrics on a dense mobile canvas. On a laptop, render those
+    // proportions at a larger CSS scale so the cards and discussion preserve the app's visual
+    // weight instead of collapsing into a conventional desktop news list.
+    app.style.setProperty("--story-text-size", ((16 + (storySetting - 17.5)) * contentScale) + "px");
+    app.style.setProperty("--story-index-size", ((15 + (storySetting - 17.5)) * contentScale) + "px");
+    app.style.setProperty("--story-meta-size", (13 * storyScale * contentScale) + "px");
+    app.style.setProperty("--story-comment-count-size", (13.5 * storyScale * contentScale) + "px");
+    app.style.setProperty("--comment-text-size", ((13.75 + (commentSetting - 15)) * contentScale) + "px");
+    app.style.setProperty("--story-pad-y", (10 * contentScale) + "px");
+    app.style.setProperty("--story-pad-x", (9 * contentScale) + "px");
+    app.style.setProperty("--story-gap", (4 * contentScale) + "px");
+    app.style.setProperty("--comment-pad-y", (10 * contentScale) + "px");
+    app.style.setProperty("--comment-pad-x", (12 * contentScale) + "px");
+    app.style.setProperty("--thread-title-size", (26 * contentScale) + "px");
+    app.style.setProperty("--thread-meta-size", (13.5 * contentScale) + "px");
   }
 
   function showToast(message) {
@@ -402,7 +458,9 @@
       if (state.settings.alwaysOpenComments) setTimeout(() => selectStory(story, false), 0);
     });
     const rank = el("span", "story-index", (index + 1) + ".");
-    main.append(rank, title, storyMeta(story));
+    const titleLine = el("div", "story-title-line");
+    titleLine.append(rank, title);
+    main.append(titleLine, storyMeta(story));
 
     const preview = el("a", "story-preview");
     preview.href = story.url || ("https://news.ycombinator.com/item?id=" + story.id);
@@ -411,6 +469,10 @@
     preview.title = story.url ? "Open article" : "Open comments";
     const previewImg = el("img", "story-preview-image");
     previewImg.alt = "";
+    previewImg.addEventListener("error", () => {
+      card.classList.remove("has-preview");
+      card.classList.add("no-preview");
+    });
     preview.appendChild(previewImg);
     preview.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -436,11 +498,10 @@
     card.addEventListener("click", (event) => {
       if (event.target.closest("a,button")) return;
       markRead(story.id);
-      if (story.url) {
-        window.open(story.url, "_blank", "noopener");
-        if (state.settings.alwaysOpenComments) selectStory(story, false);
-      } else {
+      if (state.settings.cardClickComments || !story.url) {
         selectStory(story);
+      } else {
+        window.open(story.url, "_blank", "noopener");
       }
     });
 
@@ -495,20 +556,62 @@
     }
   }
 
-  const descendantCount = (comment) => (comment.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
+  const replyCountCache = new WeakMap();
+  const descendantCount = (comment) => {
+    if (!comment || typeof comment !== "object") return 0;
+    if (replyCountCache.has(comment)) return replyCountCache.get(comment);
+    const count = (comment.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
+    replyCountCache.set(comment, count);
+    return count;
+  };
+
+  const sortedComments = (comments) => {
+    const list = [...(comments || [])];
+    switch (state.settings.commentSort) {
+      case "Newest first":
+        list.sort((a, b) => (b.created_at_i || 0) - (a.created_at_i || 0));
+        break;
+      case "Oldest first":
+        list.sort((a, b) => (a.created_at_i || 0) - (b.created_at_i || 0));
+        break;
+      case "Reply count":
+        list.sort((a, b) => descendantCount(b) - descendantCount(a));
+        break;
+      default:
+        break;
+    }
+    return list;
+  };
+
   const COLOR_RAILS = ["#5E97F6", "#9CCC65", "#FFB74D", "#BA68C8", "#4DD0E1", "#EF5350", "#FFD54F"];
   const MATERIAL_RAILS = ["#526A78", "#7B94A2", "#6D7F89", "#8DA5B2", "#9AAEBB", "#41545F", "#72828B"];
 
+  function authorRailColor(author) {
+    let hash = 2166136261 >>> 0;
+    for (let i = 0; i < String(author || "").length; i++) {
+      hash ^= String(author || "").charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    const hue = hash % 360;
+    const saturation = 50 + (Math.floor(hash / 360) % 21);
+    const lightness = 46 + (Math.floor(hash / (360 * 21)) % 17);
+    return `hsl(${hue} ${saturation}% ${lightness}%)`;
+  }
+
   function railColor(depth, author) {
-    if (state.settings.depthMode === "none") return "transparent";
-    if (state.settings.depthMode === "mono") return "#808080";
-    const palette = state.settings.depthMode === "material" ? MATERIAL_RAILS : COLOR_RAILS;
+    const mode = state.settings.depthMode;
+    if (mode === "none") return "transparent";
+    if (mode === "mono" || mode === "monochrome") return "#808080";
+    if (mode === "author") return authorRailColor(author);
+    const palette = mode === "material" || mode === "material_you" ? MATERIAL_RAILS : COLOR_RAILS;
     return palette[Math.abs(depth) % palette.length];
   }
 
   function renderComment(comment, depth = 0) {
     const row = el("div", "comment-row");
     row.dataset.depth = String(depth);
+    row.dataset.createdAt = String(comment.created_at_i || 0);
+    row.dataset.replies = String(descendantCount(comment));
     row.style.setProperty("--depth", String(depth));
     row.style.setProperty("--rail", railColor(depth, comment.author || ""));
 
@@ -541,7 +644,7 @@
     row.appendChild(card);
 
     const children = el("div", "comment-children");
-    for (const child of comment.children || []) children.appendChild(renderComment(child, depth + 1));
+    for (const child of sortedComments(comment.children || [])) children.appendChild(renderComment(child, depth + 1));
     if (children.childElementCount) row.appendChild(children);
 
     card.addEventListener("click", (event) => {
@@ -607,6 +710,10 @@
     hero.rel = "noopener";
     const heroImg = el("img", "thread-hero-image");
     heroImg.alt = "";
+    heroImg.addEventListener("error", () => {
+      header.classList.remove("has-hero");
+      hero.remove();
+    });
     hero.appendChild(heroImg);
 
     const headerBody = el("div", "thread-header-body");
@@ -660,6 +767,7 @@
     );
     const more = threadAction("more", "More", (event) => {
       openPopup(event.currentTarget, [
+        { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + item.id, "_blank", "noopener") },
         { label: "Collapse all comments", action: () => setAllCommentsCollapsed(true) },
         { label: "Expand all comments", action: () => setAllCommentsCollapsed(false) },
@@ -685,7 +793,7 @@
     threadPane.appendChild(heading);
 
     const comments = el("section", "comments");
-    for (const comment of item.children || []) comments.appendChild(renderComment(comment, 0));
+    for (const comment of sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
     if (!comments.childElementCount) comments.appendChild(el("div", "empty-comments", "No comments yet."));
     threadPane.appendChild(comments);
 
@@ -709,6 +817,22 @@
     document.querySelectorAll(".comment-row").forEach((row) => row.classList.toggle("collapsed", collapsed));
   }
 
+  function openSortMenu(anchor) {
+    const modes = ["Default", "Newest first", "Oldest first", "Reply count"];
+    openPopup(anchor, modes.map((mode) => ({
+      label: (state.settings.commentSort === mode ? "✓  " : "   ") + mode,
+      action: async () => {
+        const previousScroll = threadPane.scrollTop;
+        state.settings.commentSort = mode;
+        await chromeSet({ harmonicSettings: state.settings });
+        if (state.thread) {
+          await renderThread(state.thread);
+          threadPane.scrollTop = previousScroll;
+        }
+      },
+    })));
+  }
+
   function settingToggle(label, key, description) {
     const row = el("label", "setting-row");
     const text = el("span", "setting-copy");
@@ -721,6 +845,27 @@
       await chromeSet({ harmonicSettings: state.settings });
       applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
+    });
+    row.append(text, input);
+    return row;
+  }
+
+  function settingSlider(label, key, min, max, step, suffix = "") {
+    const row = el("label", "setting-row setting-slider-row");
+    const text = el("span", "setting-copy");
+    const valueLabel = el("small", "setting-value", String(state.settings[key]) + suffix);
+    text.append(el("strong", "", label), valueLabel);
+    const input = el("input", "setting-slider");
+    input.type = "range";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(state.settings[key]);
+    input.addEventListener("input", async () => {
+      state.settings[key] = Number(input.value);
+      valueLabel.textContent = String(state.settings[key]) + suffix;
+      await chromeSet({ harmonicSettings: state.settings });
+      applySettings();
     });
     row.append(text, input);
     return row;
@@ -742,7 +887,7 @@
       state.settings[key] = numeric ? Number(select.value) : select.value;
       await chromeSet({ harmonicSettings: state.settings });
       applySettings();
-      if (state.thread && ["commentStyle", "depthMode"].includes(key)) renderThread(state.thread);
+      if (state.thread && ["commentStyle", "depthMode", "commentSort"].includes(key)) renderThread(state.thread);
     });
     row.append(text, select);
     return row;
@@ -768,17 +913,19 @@
       settingToggle("Comment count", "showComments", "Show the large comments control"),
       settingToggle("Story number", "showIndex", "Show story position in the feed"),
       settingToggle("Dim read stories", "dimRead", "Fade stories after opening them"),
-      settingSelect("Story text size", "storyTextSize", [[19, "Small"], [22, "Default"], [24, "Large"], [26, "Extra large"]])
+      settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
+      settingSlider("Content zoom", "contentScale", 75, 125, 5, "%")
     );
 
     const commentsSection = el("div", "settings-section");
     commentsSection.append(
       el("h3", "", "Comments"),
       settingSelect("Comment style", "commentStyle", [["outlined", "Outlined"], ["raised", "Raised"], ["standard", "Standard"], ["flat", "Flat"]]),
-      settingSelect("Thread colors", "depthMode", [["colors", "Colors"], ["material", "Material"], ["mono", "Monochrome"], ["none", "None"]]),
+      settingSelect("Comment sorting", "commentSort", [["Default", "Default"], ["Newest first", "Newest first"], ["Oldest first", "Oldest first"], ["Reply count", "Reply count"]]),
+      settingSelect("Thread colors", "depthMode", [["theme_default", "Theme default"], ["material_you", "Material You"], ["colors", "Colorful"], ["author", "Author"], ["monochrome", "Monochrome"], ["none", "None"]]),
       settingToggle("Rounded depth indicators", "roundedRails", "Round the thread indicator ends"),
       settingToggle("Continuous depth indicators", "continuousRails", "Continue ancestor rails through replies"),
-      settingSelect("Comment text size", "commentTextSize", [[17, "Small"], [19, "Default"], [21, "Large"], [23, "Extra large"]])
+      settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp")
     );
 
     const headerDisplaySection = el("div", "settings-section");
@@ -791,8 +938,9 @@
     const behaviorSection = el("div", "settings-section");
     behaviorSection.append(
       el("h3", "", "Behavior"),
-      settingToggle("Always open comments", "alwaysOpenComments", "Also load the discussion when an article link is opened"),
-      el("p", "settings-note", "Article and comment links open in new tabs. Bookmarks and read state stay local to this Chrome profile.")
+      settingToggle("Card click opens comments", "cardClickComments", "Clicking the body of a story card opens its discussion. Turn off to make card clicks open the article."),
+      settingToggle("Article links also open comments", "alwaysOpenComments", "When a title or preview opens an article in a new tab, also load its discussion here."),
+      el("p", "settings-note", "Title and preview links open articles in a new tab. The large comment button always opens the discussion. Bookmarks and read state stay local to this Chrome profile.")
     );
 
     panel.append(header, storySection, commentsSection, headerDisplaySection, behaviorSection);
@@ -845,7 +993,7 @@
   const supported = Boolean(PATH_TO_FEED[location.pathname]) || (location.pathname === "/item" && Number(new URLSearchParams(location.search).get("id")));
   if (!supported) return;
 
-  loadPersistentState().then(() => {
+  Promise.all([loadPersistentState(), loadHarmonicFont()]).then(() => {
     if (document.body) mount();
     else document.addEventListener("DOMContentLoaded", mount, { once: true });
   });

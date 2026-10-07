@@ -1,3 +1,26 @@
+const HARMONIC_FONT_URL = "https://raw.githubusercontent.com/SimonHalvdansson/Harmonic-HN/main/resources/src/commonMain/composeResources/font/google_sans_flex_rounded_variable_latin.ttf";
+let harmonicFontDataPromise = null;
+
+async function getHarmonicFontDataUrl() {
+  if (!harmonicFontDataPromise) {
+    harmonicFontDataPromise = (async () => {
+      const response = await fetch(HARMONIC_FONT_URL);
+      if (!response.ok) throw new Error("font HTTP " + response.status);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return "data:font/ttf;base64," + btoa(binary);
+    })().catch((error) => {
+      harmonicFontDataPromise = null;
+      throw error;
+    });
+  }
+  return harmonicFontDataPromise;
+}
+
 const metadataCache = new Map();
 const paletteCache = new Map();
 
@@ -146,7 +169,14 @@ async function getMetadata(url) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "HARMONIC_PREVIEW" || typeof message.url !== "string") return;
+  if (!message) return;
+  if (message.type === "HARMONIC_FONT") {
+    getHarmonicFontDataUrl()
+      .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type !== "HARMONIC_PREVIEW" || typeof message.url !== "string") return;
   getMetadata(message.url)
     .then((value) => sendResponse({ ok: true, ...value }))
     .catch(() => sendResponse({ ok: false }));

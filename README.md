@@ -11,6 +11,7 @@ This is **not** intended to be a generic "modern Hacker News redesign."
 The target is a faithful browser adaptation of Harmonic:
 
 - the same AMOLED-first dark reading surface
+- Google Sans Flex Rounded, matching Harmonic's default UI font
 - the same colorful/tinted story cards
 - preview images and favicons
 - large comment-count affordances
@@ -89,6 +90,11 @@ The extension currently exposes Harmonic-inspired settings for:
 - whether article clicks should also open the discussion
 
 Settings and read state are stored locally in the Chrome profile.
+
+
+### Font
+
+Harmonic defaults to **Google Sans Flex Rounded**. The extension loads the same public font at runtime from Harmonic's upstream repository and does not bundle a font binary in this repository or release archive. If the runtime fetch is unavailable, it falls back to Google Sans/Product Sans/system UI fonts.
 
 ## Intentionally out of scope for the MVP
 
@@ -187,8 +193,8 @@ A build should not be handed off for manual testing unless **the exact packaged 
 
 ## Near-term roadmap
 
-- closer typography matching to Harmonic's packaged font choices without redistributing font files
-- better parity for every story-card layout mode
+- more parity for every Harmonic story-card layout mode
+- mobile/narrow-browser interaction parity beyond the current reading MVP
 - mobile/narrow-browser back navigation polish
 - more exact menu/settings organization
 - keyboard navigation
