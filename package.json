@@ -1,0 +1,13 @@
+{
+  "name": "harmonic-hn-browser",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "node tests/e2e.mjs",
+    "package": "bash scripts/package.sh"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.55.1"
+  }
+}
