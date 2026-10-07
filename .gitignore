@@ -1,0 +1,22 @@
+# Generated packages
+/dist/
+*.zip
+
+# Browser-test artifacts
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Local visual references
+/ref/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+*.tmp

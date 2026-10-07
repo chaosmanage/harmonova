@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Harmonic for Hacker News",
+  "version": "0.3.0",
+  "description": "Hacker News with the Harmonic reading experience.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://news.ycombinator.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
