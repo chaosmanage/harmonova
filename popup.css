@@ -1,0 +1,18 @@
+:root{color-scheme:dark;font-family:"Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;min-width:318px;background:#0b0b0d;color:#eceaf0}
+button,input{font:inherit}
+.popup-shell{padding:14px}
+.brand{display:flex;align-items:center;gap:11px;padding:2px 2px 12px}
+.brand img{border-radius:11px;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+.brand h1{margin:0;font-size:17px;line-height:1.2}
+.brand p{margin:3px 0 0;color:#9895a0;font-size:12px}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 13px;border:1px solid #2c2a31;border-radius:12px;background:#17171b;font-size:14px;font-weight:600}
+.toggle-row input{appearance:none;position:relative;width:42px;height:24px;margin:0;border:1px solid #66636d;border-radius:999px;background:#303036;cursor:pointer;transition:120ms ease}
+.toggle-row input::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#bdb9c3;transition:120ms ease}
+.toggle-row input:checked{border-color:#99595e;background:#99595e}
+.toggle-row input:checked::after{left:21px;background:#ffd9dc}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.actions button{min-height:38px;padding:8px 10px;border:1px solid #302e36;border-radius:10px;background:#1b1a1f;color:#e5e2e9;cursor:pointer}
+.actions button:hover{background:#242229}
+.actions button:disabled{opacity:.45;cursor:default}

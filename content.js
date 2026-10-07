@@ -2,6 +2,10 @@
   const HN_API = "https://hacker-news.firebaseio.com/v0";
   const ALGOLIA_API = "https://hn.algolia.com/api/v1";
   const FEED_BATCH_SIZE = 40;
+  const SETTINGS_BACKUP_KEY = "harmonic:settings:v1";
+  const ENABLED_BACKUP_KEY = "harmonic:enabled:v1";
+  const SETTINGS_HASH = "#harmonic-settings";
+  const ORIGINAL_HASH = "#harmonic-original";
   const FEEDS = {
     top: { path: "/news", label: "Top Stories", endpoint: "topstories" },
     new: { path: "/newest", label: "New Stories", endpoint: "newstories" },
@@ -49,7 +53,8 @@
     share: '<path d="M18 16a3 3 0 00-2.4 1.2L8.9 13.4a3.4 3.4 0 000-2.8l6.7-3.8A3 3 0 1014.9 5L8.2 8.8a3 3 0 100 6.4l6.7 3.8A3 3 0 1018 16z"/>',
     link: '<path d="M9.2 15.8l-1.4 1.4a3.4 3.4 0 01-4.8-4.8l3-3a3.4 3.4 0 014.8 0l.8.8-1.3 1.3-.8-.8a1.6 1.6 0 00-2.2 0l-3 3a1.6 1.6 0 002.2 2.2l1.4-1.4 1.3 1.3zm5.6-7.6l1.4-1.4a3.4 3.4 0 014.8 4.8l-3 3a3.4 3.4 0 01-4.8 0l-.8-.8 1.3-1.3.8.8a1.6 1.6 0 002.2 0l3-3a1.6 1.6 0 00-2.2-2.2l-1.4 1.4-1.3-1.3zM8.6 14.1l5.5-5.5 1.3 1.3-5.5 5.5-1.3-1.3z"/>',
     settings: '<path d="M19.4 13a7.7 7.7 0 000-2l2-1.5-2-3.4-2.4 1a7 7 0 00-1.8-1L15 3.5h-4L10.6 6a7 7 0 00-1.8 1l-2.4-1-2 3.4 2 1.5a7.7 7.7 0 000 2l-2 1.5 2 3.4 2.4-1a7 7 0 001.8 1l.4 2.5h4l.4-2.5a7 7 0 001.8-1l2.4 1 2-3.4-2-1.5zM13 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"/>',
-    refresh: '<path d="M18.7 6.3A8 8 0 104 17l1.5-1.2A6 6 0 1118 9h-4V7h7v7h-2V9.3l-.3-3z"/>',
+    refresh: '<path d="M12 20a8 8 0 1 1 5.65-13.65L20 4v7h-7l2.65-2.65A5.15 5.15 0 1 0 17.05 14h2.2A7.35 7.35 0 0 1 12 20z"/>',
+    power: '<path d="M11 3h2v9h-2V3zm5.66 2.34 1.42-1.42A9 9 0 1 1 5.92 3.92l1.42 1.42A7 7 0 1 0 16.66 5.34z"/>',
     close: '<path d="M6.4 5L12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5z"/>',
     external: '<path d="M13 4h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4zM5 6h6v2H7v9h9v-4h2v6H5V6z"/>',
   };
@@ -96,8 +101,6 @@
     loadingMore: false,
     hasMoreStories: true,
   };
-
-  document.documentElement.classList.add("harmonic-hn");
 
   const fetchJson = async (url) => {
     const response = await fetch(url, { headers: { Accept: "application/json" } });
@@ -226,8 +229,47 @@
     normalizeQuotedParagraphs(target);
   };
 
-  const chromeGet = (defaults) => new Promise((resolve) => chrome.storage.local.get(defaults, resolve));
+  const chromeGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
   const chromeSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
+  const chromeSyncGet = (keys) => new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
+  const chromeSyncSet = (value) => new Promise((resolve) => chrome.storage.sync.set(value, resolve));
+
+  function pageStorageGet(key) {
+    try {
+      const value = localStorage.getItem(key);
+      return value === null ? undefined : JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  function pageStorageSet(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  }
+
+  async function loadEnabledPreference() {
+    const synced = await chromeSyncGet(["harmonicEnabled"]);
+    let enabled = typeof synced.harmonicEnabled === "boolean" ? synced.harmonicEnabled : pageStorageGet(ENABLED_BACKUP_KEY);
+    if (typeof enabled !== "boolean") enabled = true;
+    if (typeof synced.harmonicEnabled !== "boolean") await chromeSyncSet({ harmonicEnabled: enabled });
+    pageStorageSet(ENABLED_BACKUP_KEY, enabled);
+    return enabled;
+  }
+
+  async function isOriginalTab() {
+    if (location.hash === ORIGINAL_HASH) return true;
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "HARMONIC_TAB_MODE" }, (response) => {
+        resolve(Boolean(response?.original));
+      });
+    });
+  }
+
+  async function saveSettings() {
+    const settings = { ...state.settings };
+    pageStorageSet(SETTINGS_BACKUP_KEY, settings);
+    await chromeSyncSet({ harmonicSettings: settings });
+  }
 
   async function loadHarmonicFont() {
     try {
@@ -250,27 +292,34 @@
   }
 
   async function loadPersistentState() {
-    const stored = await chromeGet({
-      readStoryIds: [],
-      harmonicBookmarks: [],
-      harmonicSettings: DEFAULT_SETTINGS,
-    });
-    state.readIds = new Set(stored.readStoryIds || []);
-    state.bookmarks = new Set(stored.harmonicBookmarks || []);
-    state.settings = { ...DEFAULT_SETTINGS, ...(stored.harmonicSettings || {}) };
+    const [stored, synced] = await Promise.all([
+      chromeGet(["readStoryIds", "harmonicBookmarks", "harmonicSettings"]),
+      chromeSyncGet(["harmonicSettings"]),
+    ]);
+    const backedUpSettings = pageStorageGet(SETTINGS_BACKUP_KEY);
+    const readIds = Array.isArray(stored.readStoryIds) ? stored.readStoryIds : [];
+    const bookmarks = Array.isArray(stored.harmonicBookmarks) ? stored.harmonicBookmarks : [];
+    const settings = synced.harmonicSettings || backedUpSettings || stored.harmonicSettings || DEFAULT_SETTINGS;
+    state.readIds = new Set(readIds);
+    state.bookmarks = new Set(bookmarks);
+    state.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
+    if (!synced.harmonicSettings) await chromeSyncSet({ harmonicSettings: state.settings });
   }
 
   async function markRead(id) {
     if (!id) return;
     state.readIds.add(id);
-    await chromeSet({ readStoryIds: [...state.readIds].slice(-1500) });
+    const readStoryIds = [...state.readIds].slice(-1500);
+    await chromeSet({ readStoryIds });
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("is-read");
   }
 
   async function toggleBookmark(id) {
     if (state.bookmarks.has(id)) state.bookmarks.delete(id);
     else state.bookmarks.add(id);
-    await chromeSet({ harmonicBookmarks: [...state.bookmarks] });
+    const harmonicBookmarks = [...state.bookmarks];
+    await chromeSet({ harmonicBookmarks });
     document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) => {
       node.classList.toggle("active", state.bookmarks.has(id));
     });
@@ -413,10 +462,25 @@
     })));
   }
 
+  function openOriginalHackerNews(path) {
+    const url = "https://news.ycombinator.com" + path;
+    chrome.runtime.sendMessage({ type: "HARMONIC_OPEN_ORIGINAL", url }, (response) => {
+      if (response?.ok) return;
+      window.open(url + ORIGINAL_HASH, "_blank", "noopener");
+    });
+  }
+
+  async function disableHarmonic() {
+    pageStorageSet(ENABLED_BACKUP_KEY, false);
+    await chromeSyncSet({ harmonicEnabled: false });
+    location.reload();
+  }
+
   function openMoreMenu(anchor) {
     openPopup(anchor, [
       { label: "Settings", icon: "settings", action: openSettings },
-      { label: "Open original Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com" + FEEDS[state.feed].path, "_blank", "noopener") },
+      { label: "Open original Hacker News", icon: "external", action: () => openOriginalHackerNews(FEEDS[state.feed].path) },
+      { label: "Disable Harmonic", icon: "power", action: disableHarmonic },
     ]);
   }
 
@@ -833,10 +897,11 @@
     const more = threadAction("more", "More", (event) => {
       openPopup(event.currentTarget, [
         { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
-        { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + item.id, "_blank", "noopener") },
+        { label: "Open on Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
         { label: "Collapse all comments", action: () => setAllCommentsCollapsed(true) },
         { label: "Expand all comments", action: () => setAllCommentsCollapsed(false) },
         { label: "Settings", icon: "settings", action: openSettings },
+        { label: "Disable Harmonic", icon: "power", action: disableHarmonic },
       ]);
     });
     actions.appendChild(more);
@@ -889,7 +954,7 @@
       action: async () => {
         const previousScroll = threadPane.scrollTop;
         state.settings.commentSort = mode;
-        await chromeSet({ harmonicSettings: state.settings });
+        await saveSettings();
         if (state.thread) {
           await renderThread(state.thread);
           threadPane.scrollTop = previousScroll;
@@ -907,7 +972,7 @@
     input.checked = Boolean(state.settings[key]);
     input.addEventListener("change", async () => {
       state.settings[key] = input.checked;
-      await chromeSet({ harmonicSettings: state.settings });
+      await saveSettings();
       applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
     });
@@ -929,7 +994,7 @@
     input.addEventListener("input", async () => {
       state.settings[key] = Number(input.value);
       valueLabel.textContent = String(state.settings[key]) + suffix;
-      await chromeSet({ harmonicSettings: state.settings });
+      await saveSettings();
       applySettings();
     });
     row.append(text, input);
@@ -950,7 +1015,7 @@
     select.addEventListener("change", async () => {
       const numeric = typeof state.settings[key] === "number";
       state.settings[key] = numeric ? Number(select.value) : select.value;
-      await chromeSet({ harmonicSettings: state.settings });
+      await saveSettings();
       applySettings();
       if (state.thread && ["commentStyle", "depthMode", "commentSort"].includes(key)) renderThread(state.thread);
     });
@@ -1014,6 +1079,22 @@
     document.body.appendChild(overlay);
   }
 
+  function handleSettingsHash() {
+    if (location.hash !== SETTINGS_HASH || !app) return;
+    history.replaceState(history.state, "", location.pathname + location.search);
+    openSettings();
+  }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "HARMONIC_OPEN_SETTINGS") return;
+    if (!app) {
+      sendResponse({ ok: false });
+      return;
+    }
+    openSettings();
+    sendResponse({ ok: true });
+  });
+
   function mount() {
     document.body.className = "harmonic-body";
     document.body.replaceChildren();
@@ -1041,6 +1122,8 @@
 
     refreshFeed();
     if (state.selectedId) loadThread(state.selectedId);
+    handleSettingsHash();
+    window.addEventListener("hashchange", handleSettingsHash);
 
     window.addEventListener("popstate", () => {
       const params = new URLSearchParams(location.search);
@@ -1062,8 +1145,12 @@
   const supported = Boolean(PATH_TO_FEED[location.pathname]) || (location.pathname === "/item" && Number(new URLSearchParams(location.search).get("id")));
   if (!supported) return;
 
-  Promise.all([loadPersistentState(), loadHarmonicFont()]).then(() => {
+  (async () => {
+    if (await isOriginalTab()) return;
+    if (!(await loadEnabledPreference())) return;
+    document.documentElement.classList.add("harmonic-hn");
+    await Promise.all([loadPersistentState(), loadHarmonicFont()]);
     if (document.body) mount();
     else document.addEventListener("DOMContentLoaded", mount, { once: true });
-  });
+  })();
 })();

@@ -26,6 +26,10 @@ try {
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   await page.locator(".thread-title").waitFor({ state: "visible", timeout: 20000 });
 
+  const extensionWorker = context.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"))
+    || await context.waitForEvent("serviceworker", { timeout: 10000 });
+  const extensionId = new URL(extensionWorker.url()).host;
+
   const count = await page.locator(".story-card").count();
   assert.ok(count >= 30, "expected at least 30 story cards");
 
@@ -53,6 +57,8 @@ try {
   assert.ok(layout.titleTop <= 26, "Top Stories should sit near the top");
   assert.ok(layout.firstCardLeft <= 20, "story gutter should be compact");
   assert.ok(layout.refreshWidth >= 40 && layout.refreshWidth <= 46 && layout.refreshHeight >= 40 && layout.refreshHeight <= 46, "refresh button should match the top action buttons");
+  const refreshPath = await page.locator('.feed-toolbar-actions .icon-button[aria-label="Refresh"] path').getAttribute("d");
+  assert.equal(refreshPath, "M12 20a8 8 0 1 1 5.65-13.65L20 4v7h-7l2.65-2.65A5.15 5.15 0 1 0 17.05 14h2.2A7.35 7.35 0 0 1 12 20z", "refresh icon should use the repaired closed-loop path");
   assert.ok(layout.cardGaps.every((gap) => Math.abs(gap - 10) <= 0.5), "story cards should keep a consistent 10px gap");
   assert.ok(layout.cards.every((card) => card.scrollHeight <= card.clientHeight + 1 && card.height >= 64), "story cards should grow with content without clipping");
 
@@ -133,6 +139,16 @@ try {
   await zoomSlider.fill("80");
   await page.waitForTimeout(150);
   assert.ok((await zoomRow.textContent()).includes("80%"), "content zoom setting should update live");
+  const syncedZoom = await extensionWorker.evaluate(async () => {
+    const stored = await chrome.storage.sync.get(["harmonicSettings"]);
+    return stored.harmonicSettings?.contentScale;
+  });
+  assert.equal(syncedZoom, 80, "settings should persist to chrome.storage.sync");
+  const backedUpZoom = await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("harmonic:settings:v1") || "{}");
+    return stored.contentScale;
+  });
+  assert.equal(backedUpZoom, 80, "settings should keep the unpacked-update backup on the Hacker News origin");
 
   const commentSizeRow = page.locator(".setting-row").filter({ hasText: "Comment text size" });
   const commentSizeSlider = commentSizeRow.locator('input[type="range"]');
@@ -214,6 +230,40 @@ try {
 
   await page.screenshot({ path: path.join(outDir, "harmonic-1919x872.png"), fullPage: false });
 
+  const originalPagePromise = context.waitForEvent("page", { timeout: 10000 });
+  await page.locator(".feed-toolbar-actions .icon-button").last().click();
+  await page.getByRole("button", { name: "Open original Hacker News" }).click();
+  const originalPage = await originalPagePromise;
+  await originalPage.waitForLoadState("domcontentloaded", { timeout: 15000 });
+  await originalPage.locator("#hnmain").waitFor({ state: "visible", timeout: 15000 });
+  assert.equal(await originalPage.locator(".harmonic-app").count(), 0, "Open original Hacker News should bypass the Harmonic renderer");
+  await originalPage.goto("https://news.ycombinator.com/newest", { waitUntil: "domcontentloaded" });
+  await originalPage.locator("#hnmain").waitFor({ state: "visible", timeout: 15000 });
+  assert.equal(await originalPage.locator(".harmonic-app").count(), 0, "original-HN mode should persist while navigating in the same tab");
+  await originalPage.close();
+
+  const disableNavigation = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
+  await page.locator(".feed-toolbar-actions .icon-button").last().click();
+  await page.getByRole("button", { name: "Disable Harmonic" }).click();
+  await disableNavigation;
+  await page.locator("#hnmain").waitFor({ state: "visible", timeout: 15000 });
+  assert.equal(await page.locator(".harmonic-app").count(), 0, "Disable Harmonic should reload stock Hacker News without disabling the Chrome extension");
+
+  const popupPage = await context.newPage();
+  await popupPage.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+  const popupToggle = popupPage.locator("#enabled");
+  await popupToggle.waitFor({ state: "visible", timeout: 10000 });
+  assert.equal(await popupToggle.isChecked(), false, "extension popup should reflect the disabled state");
+  await popupToggle.check();
+  await popupPage.waitForFunction(() => document.querySelector("#status")?.textContent?.includes("Enabled"));
+  const enabledAfterPopup = await extensionWorker.evaluate(async () => (await chrome.storage.sync.get(["harmonicEnabled"])).harmonicEnabled);
+  assert.equal(enabledAfterPopup, true, "extension popup should re-enable Harmonic in storage");
+  await popupPage.close();
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
+  assert.equal(await page.locator(".harmonic-app").count(), 1, "reloading after popup re-enable should restore Harmonic");
+
   console.log(JSON.stringify({
     storyCards: count,
     fontLoaded,
@@ -230,6 +280,9 @@ try {
     commentCollapse: true,
     quoteBlocks: quoteCount,
     externalTab: articlePage.url(),
+    originalTabBypass: true,
+    popupReenable: true,
+    extensionId,
     screenshot: path.join(outDir, "harmonic-1919x872.png")
   }, null, 2));
 } finally {

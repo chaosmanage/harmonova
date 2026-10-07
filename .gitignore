@@ -6,3 +6,5 @@ ref/
 *.png
 .DS_Store
 test-results*/
+
+!icons/*.png

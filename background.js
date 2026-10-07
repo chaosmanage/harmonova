@@ -1,3 +1,44 @@
+const ORIGINAL_TAB_STORAGE_KEY = "harmonicOriginalTabIds";
+
+const sessionGet = (keys) => new Promise((resolve) => chrome.storage.session.get(keys, resolve));
+const sessionSet = (value) => new Promise((resolve) => chrome.storage.session.set(value, resolve));
+
+async function originalTabIds() {
+  const stored = await sessionGet({ [ORIGINAL_TAB_STORAGE_KEY]: [] });
+  return Array.isArray(stored[ORIGINAL_TAB_STORAGE_KEY]) ? stored[ORIGINAL_TAB_STORAGE_KEY].filter(Number.isInteger) : [];
+}
+
+async function setOriginalTab(tabId, enabled) {
+  if (!Number.isInteger(tabId)) return;
+  const ids = new Set(await originalTabIds());
+  if (enabled) ids.add(tabId);
+  else ids.delete(tabId);
+  await sessionSet({ [ORIGINAL_TAB_STORAGE_KEY]: [...ids] });
+}
+
+function safeHackerNewsUrl(value) {
+  try {
+    const url = new URL(value || "https://news.ycombinator.com/news");
+    if (url.origin !== "https://news.ycombinator.com") throw new Error("invalid origin");
+    url.hash = "";
+    return url.href;
+  } catch {
+    return "https://news.ycombinator.com/news";
+  }
+}
+
+async function openOriginalTab(url) {
+  const tab = await chrome.tabs.create({ url: "about:blank", active: true });
+  if (!Number.isInteger(tab.id)) throw new Error("missing tab id");
+  await setOriginalTab(tab.id, true);
+  await chrome.tabs.update(tab.id, { url: safeHackerNewsUrl(url) });
+  return tab.id;
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  setOriginalTab(tabId, false).catch(() => {});
+});
+
 const HARMONIC_FONT_URL = "https://raw.githubusercontent.com/SimonHalvdansson/Harmonic-HN/main/resources/src/commonMain/composeResources/font/google_sans_flex_rounded_variable_latin.ttf";
 let harmonicFontDataPromise = null;
 
@@ -169,8 +210,28 @@ async function getMetadata(url) {
   return value;
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
+  if (message.type === "HARMONIC_TAB_MODE") {
+    const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
+    originalTabIds()
+      .then((ids) => sendResponse({ ok: true, original: Number.isInteger(tabId) && ids.includes(tabId) }))
+      .catch(() => sendResponse({ ok: false, original: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_OPEN_ORIGINAL") {
+    openOriginalTab(message.url)
+      .then((tabId) => sendResponse({ ok: true, tabId }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_ENABLE_TAB") {
+    const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
+    setOriginalTab(tabId, false)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message.type === "HARMONIC_FONT") {
     getHarmonicFontDataUrl()
       .then((dataUrl) => sendResponse({ ok: true, dataUrl }))

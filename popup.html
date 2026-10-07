@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harmonic</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="brand">
+      <img src="icons/icon48.png" width="40" height="40" alt="">
+      <div>
+        <h1>Harmonic</h1>
+        <p id="status">Checking status…</p>
+      </div>
+    </header>
+
+    <label class="toggle-row">
+      <span>Enable Harmonic</span>
+      <input id="enabled" type="checkbox" role="switch">
+    </label>
+
+    <div class="actions">
+      <button id="settings" type="button">Settings</button>
+      <button id="original" type="button">Open original HN</button>
+    </div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
