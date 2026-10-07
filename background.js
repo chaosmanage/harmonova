@@ -1,7 +1,24 @@
 const ORIGINAL_TAB_STORAGE_KEY = "harmonicOriginalTabIds";
+const AI_KEY_LOCAL_STORAGE_KEY = "harmonicAiApiKey";
+const AI_KEY_SESSION_STORAGE_KEY = "harmonicAiApiKeySession";
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
+const MAX_ARTICLE_CHARACTERS = 15_000;
+const MAX_SUMMARY_CHARACTERS = 64 * 1024;
 
+const localGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+const localSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
+const localRemove = (keys) => new Promise((resolve) => chrome.storage.local.remove(keys, resolve));
 const sessionGet = (keys) => new Promise((resolve) => chrome.storage.session.get(keys, resolve));
 const sessionSet = (value) => new Promise((resolve) => chrome.storage.session.set(value, resolve));
+const sessionRemove = (keys) => new Promise((resolve) => chrome.storage.session.remove(keys, resolve));
+const syncGet = (keys) => new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
+
+for (const area of [chrome.storage.local, chrome.storage.session]) {
+  if (typeof area.setAccessLevel === "function") {
+    area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
+  }
+}
 
 async function originalTabIds() {
   const stored = await sessionGet({ [ORIGINAL_TAB_STORAGE_KEY]: [] });
@@ -210,8 +227,317 @@ async function getMetadata(url) {
   return value;
 }
 
+
+function decodeHtmlText(value) {
+  const named = {
+    amp: "&", apos: "'", gt: ">", lt: "<", nbsp: " ", quot: '"',
+    ndash: "–", mdash: "—", hellip: "…", rsquo: "’", lsquo: "‘",
+    rdquo: "”", ldquo: "“",
+  };
+  return String(value || "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, token) => {
+    if (token[0] === "#") {
+      const hex = token[1]?.toLowerCase() === "x";
+      const code = Number.parseInt(token.slice(hex ? 2 : 1), hex ? 16 : 10);
+      if (Number.isFinite(code)) {
+        try { return String.fromCodePoint(code); } catch {}
+      }
+      return match;
+    }
+    return named[token.toLowerCase()] ?? match;
+  });
+}
+
+function articleTextFromHtml(html) {
+  let value = String(html || "");
+  const body = value.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (body) value = body[1];
+  value = value
+    .replace(/<(script|style|noscript|template|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|article|section|main|header|footer|li|h[1-6]|blockquote|pre)>/gi, "\n")
+    .replace(/<li\b[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, " ");
+  return decodeHtmlText(value)
+    .replace(/\r/g, "")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function readResponseTextLimited(response, maxBytes) {
+  const reader = response.body?.getReader();
+  if (!reader) return (await response.text()).slice(0, maxBytes);
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) throw new Error("Response exceeded size limit");
+    text += decoder.decode(value, { stream: true });
+  }
+  text += decoder.decode();
+  return text;
+}
+
+async function fetchArticleText(url, signal) {
+  const parsed = new URL(url);
+  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Unsupported article URL");
+  const response = await fetch(parsed.href, {
+    redirect: "follow",
+    signal,
+    headers: { Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
+  });
+  if (!response.ok) throw new Error("Article returned HTTP " + response.status);
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  if (contentType && !contentType.includes("html") && !contentType.includes("text/plain") && !contentType.includes("xml")) {
+    throw new Error("Article is not readable text");
+  }
+  const raw = await readResponseTextLimited(response, MAX_ARTICLE_BYTES);
+  const text = contentType.includes("text/plain") ? raw.trim() : articleTextFromHtml(raw);
+  if (!text) throw new Error("Could not extract article text");
+  return text.slice(0, MAX_ARTICLE_CHARACTERS);
+}
+
+async function aiKeyStorageMode() {
+  const synced = await syncGet({ harmonicAiKeyStorage: "persistent" });
+  return synced.harmonicAiKeyStorage === "session" ? "session" : "persistent";
+}
+
+async function getAiKey() {
+  const mode = await aiKeyStorageMode();
+  const key = mode === "session"
+    ? (await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: "" }))[AI_KEY_SESSION_STORAGE_KEY]
+    : (await localGet({ [AI_KEY_LOCAL_STORAGE_KEY]: "" }))[AI_KEY_LOCAL_STORAGE_KEY];
+  return { mode, key: typeof key === "string" ? key : "" };
+}
+
+async function aiKeyStatus() {
+  const { mode, key } = await getAiKey();
+  return {
+    ok: true,
+    storage: mode,
+    hasKey: Boolean(key),
+    preview: key ? key.slice(0, 8) + "…" : "Not set",
+  };
+}
+
+async function saveAiKey(value, storage) {
+  const key = String(value || "").trim();
+  const mode = storage === "session" ? "session" : "persistent";
+  if (!key) throw new Error("API key is required");
+  if (mode === "session") {
+    await sessionSet({ [AI_KEY_SESSION_STORAGE_KEY]: key });
+    await localRemove(AI_KEY_LOCAL_STORAGE_KEY);
+  } else {
+    await localSet({ [AI_KEY_LOCAL_STORAGE_KEY]: key });
+    await sessionRemove(AI_KEY_SESSION_STORAGE_KEY);
+  }
+  await chrome.storage.sync.set({ harmonicAiKeyStorage: mode });
+  return aiKeyStatus();
+}
+
+async function clearAiKey() {
+  await Promise.all([
+    localRemove(AI_KEY_LOCAL_STORAGE_KEY),
+    sessionRemove(AI_KEY_SESSION_STORAGE_KEY),
+  ]);
+  return aiKeyStatus();
+}
+
+function openRouterError(body, fallback) {
+  try {
+    const parsed = JSON.parse(body);
+    return parsed?.error?.message || parsed?.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function openRouterContent(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.map((part) => {
+    if (typeof part === "string") return part;
+    if (part?.type === "text" && typeof part.text === "string") return part.text;
+    return "";
+  }).join("");
+}
+
+async function streamOpenRouter(response, onProgress) {
+  if (!response.body) throw new Error("OpenRouter returned no response body");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let summary = "";
+
+  const consumeEvent = (event) => {
+    const data = event.split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .join("\n");
+    if (!data || data === "[DONE]") return data === "[DONE]";
+    let parsed;
+    try { parsed = JSON.parse(data); }
+    catch { throw new Error("OpenRouter returned invalid streaming data"); }
+    if (parsed?.error) throw new Error(parsed.error.message || "OpenRouter request failed");
+    const chunk = openRouterContent(parsed?.choices?.[0]?.delta?.content);
+    if (chunk) {
+      if (summary.length + chunk.length > MAX_SUMMARY_CHARACTERS) throw new Error("Summary exceeded size limit");
+      summary += chunk;
+      onProgress(summary);
+    }
+    return false;
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const event = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (consumeEvent(event)) {
+        if (!summary) throw new Error("OpenRouter returned an empty summary");
+        return summary;
+      }
+    }
+    if (done) break;
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) consumeEvent(buffer);
+  if (!summary) throw new Error("OpenRouter returned an empty summary");
+  return summary;
+}
+
+async function summarizeWithOpenRouter(port, message, controller) {
+  const storyId = Number(message.storyId);
+  const model = String(message.model || "").trim();
+  const prompt = String(message.systemPrompt || "").trim();
+  if (!Number.isInteger(storyId) || !message.url) throw new Error("Invalid summary request");
+  if (!model) throw new Error("Choose an OpenRouter model in Settings");
+  if (!prompt) throw new Error("System prompt is empty");
+
+  const { key } = await getAiKey();
+  if (!key) throw new Error("OpenRouter API key is not configured");
+
+  port.postMessage({ type: "status", storyId, status: "extracting" });
+  const articleText = await fetchArticleText(message.url, controller.signal);
+  port.postMessage({ type: "status", storyId, status: "generating", inputCharacters: articleText.length });
+
+  const stream = message.streamResponses !== false;
+  const response = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    signal: controller.signal,
+    headers: {
+      "Authorization": "Bearer " + key,
+      "Content-Type": "application/json",
+      "Accept": stream ? "text/event-stream" : "application/json",
+      "X-Title": "Harmonic for Hacker News",
+    },
+    body: JSON.stringify({
+      model,
+      stream,
+      max_tokens: 1000,
+      messages: [
+        { role: "system", content: prompt },
+        { role: "user", content: articleText },
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(openRouterError(body.slice(0, 16_000), "OpenRouter returned HTTP " + response.status));
+  }
+
+  let summary;
+  if (stream) {
+    summary = await streamOpenRouter(response, (text) => {
+      port.postMessage({ type: "progress", storyId, text });
+    });
+  } else {
+    const json = await response.json();
+    if (json?.error) throw new Error(json.error.message || "OpenRouter request failed");
+    summary = openRouterContent(json?.choices?.[0]?.message?.content).trim();
+    if (!summary) throw new Error("OpenRouter returned an empty summary");
+  }
+  port.postMessage({ type: "success", storyId, text: summary });
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "harmonic-ai") return;
+  let controller = null;
+  port.onMessage.addListener((message) => {
+    if (message?.type === "cancel") {
+      controller?.abort();
+      controller = null;
+      return;
+    }
+    if (message?.type !== "summarize") return;
+    controller?.abort();
+    controller = new AbortController();
+    summarizeWithOpenRouter(port, message, controller)
+      .catch((error) => {
+        if (error?.name === "AbortError") return;
+        try {
+          port.postMessage({
+            type: "error",
+            storyId: Number(message.storyId),
+            message: error?.message || "Summary failed",
+          });
+        } catch {}
+      })
+      .finally(() => { controller = null; });
+  });
+  port.onDisconnect.addListener(() => controller?.abort());
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
+  if (message.type === "HARMONIC_LOCAL_STATE_GET") {
+    localGet({ readStoryIds: [], harmonicBookmarks: [], harmonicSettings: null })
+      .then((stored) => sendResponse({
+        ok: true,
+        readStoryIds: Array.isArray(stored.readStoryIds) ? stored.readStoryIds : [],
+        harmonicBookmarks: Array.isArray(stored.harmonicBookmarks) ? stored.harmonicBookmarks : [],
+        harmonicSettings: stored.harmonicSettings || null,
+      }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_READ_IDS_SET") {
+    const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger).slice(-1500) : [];
+    localSet({ readStoryIds: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_BOOKMARKS_SET") {
+    const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger) : [];
+    localSet({ harmonicBookmarks: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_AI_STATUS") {
+    aiKeyStatus().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Status unavailable" }));
+    return true;
+  }
+  if (message.type === "HARMONIC_AI_SAVE_KEY") {
+    saveAiKey(message.apiKey, message.storage)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, message: error?.message || "Could not save API key" }));
+    return true;
+  }
+  if (message.type === "HARMONIC_AI_CLEAR_KEY") {
+    clearAiKey().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Could not clear API key" }));
+    return true;
+  }
+  if (message.type === "HARMONIC_OPEN_AI_SETTINGS") {
+    chrome.runtime.openOptionsPage()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message.type === "HARMONIC_TAB_MODE") {
     const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
     originalTabIds()

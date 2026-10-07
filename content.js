@@ -37,6 +37,11 @@
     alwaysOpenComments: false,
     headerTint: true,
     headerImage: true,
+    aiEnabled: true,
+    aiModel: "openrouter/free",
+    aiSystemPrompt: "You are a helpful assistant that is an expert on summarizing articles into an information-dense, concise and brief bullet-point list. Focus on key takeaways and most important/note-worthy points in the article. Keep the summary under 500 characters where possible. Respond in markdown format. Respond with only the summarized content - nothing else before or after.",
+    aiStreamResponses: true,
+    aiAutoSummarize: false,
   };
 
   const ICONS = {
@@ -100,6 +105,8 @@
     feedCursor: 0,
     loadingMore: false,
     hasMoreStories: true,
+    summaries: new Map(),
+    activeSummary: null,
   };
 
   const fetchJson = async (url) => {
@@ -229,10 +236,14 @@
     normalizeQuotedParagraphs(target);
   };
 
-  const chromeGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
-  const chromeSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
   const chromeSyncGet = (keys) => new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
   const chromeSyncSet = (value) => new Promise((resolve) => chrome.storage.sync.set(value, resolve));
+  const runtimeMessage = (message) => new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) return resolve({ ok: false, message: chrome.runtime.lastError.message });
+      resolve(response || { ok: false });
+    });
+  });
 
   function pageStorageGet(key) {
     try {
@@ -293,13 +304,13 @@
 
   async function loadPersistentState() {
     const [stored, synced] = await Promise.all([
-      chromeGet(["readStoryIds", "harmonicBookmarks", "harmonicSettings"]),
+      runtimeMessage({ type: "HARMONIC_LOCAL_STATE_GET" }),
       chromeSyncGet(["harmonicSettings"]),
     ]);
     const backedUpSettings = pageStorageGet(SETTINGS_BACKUP_KEY);
-    const readIds = Array.isArray(stored.readStoryIds) ? stored.readStoryIds : [];
-    const bookmarks = Array.isArray(stored.harmonicBookmarks) ? stored.harmonicBookmarks : [];
-    const settings = synced.harmonicSettings || backedUpSettings || stored.harmonicSettings || DEFAULT_SETTINGS;
+    const readIds = Array.isArray(stored?.readStoryIds) ? stored.readStoryIds : [];
+    const bookmarks = Array.isArray(stored?.harmonicBookmarks) ? stored.harmonicBookmarks : [];
+    const settings = synced.harmonicSettings || backedUpSettings || stored?.harmonicSettings || DEFAULT_SETTINGS;
     state.readIds = new Set(readIds);
     state.bookmarks = new Set(bookmarks);
     state.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
@@ -311,7 +322,7 @@
     if (!id) return;
     state.readIds.add(id);
     const readStoryIds = [...state.readIds].slice(-1500);
-    await chromeSet({ readStoryIds });
+    await runtimeMessage({ type: "HARMONIC_READ_IDS_SET", ids: readStoryIds });
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("is-read");
   }
 
@@ -319,7 +330,7 @@
     if (state.bookmarks.has(id)) state.bookmarks.delete(id);
     else state.bookmarks.add(id);
     const harmonicBookmarks = [...state.bookmarks];
-    await chromeSet({ harmonicBookmarks });
+    await runtimeMessage({ type: "HARMONIC_BOOKMARKS_SET", ids: harmonicBookmarks });
     document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) => {
       node.classList.toggle("active", state.bookmarks.has(id));
     });
@@ -783,10 +794,186 @@
     return row;
   }
 
+  function appendSummaryInline(target, text) {
+    const pattern = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g;
+    let cursor = 0;
+    for (const match of String(text || "").matchAll(pattern)) {
+      if (match.index > cursor) target.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+      const token = match[0];
+      if (token.startsWith("**")) {
+        target.appendChild(el("strong", "", token.slice(2, -2)));
+      } else if (token.startsWith("[")) {
+        const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        const href = parts ? safeHref(parts[2]) : null;
+        if (parts && href) {
+          const link = el("a", "", parts[1]);
+          link.href = href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          target.appendChild(link);
+        } else {
+          target.appendChild(document.createTextNode(token));
+        }
+      } else {
+        target.appendChild(el("em", "", token.slice(1, -1)));
+      }
+      cursor = match.index + token.length;
+    }
+    if (cursor < text.length) target.appendChild(document.createTextNode(text.slice(cursor)));
+  }
+
+  function renderSummaryMarkdown(target, markdown) {
+    target.replaceChildren();
+    const lines = String(markdown || "").replace(/\r/g, "").split("\n");
+    let list = null;
+    const flushList = () => {
+      if (!list) return;
+      target.appendChild(list);
+      list = null;
+    };
+    for (const line of lines) {
+      const bullet = line.match(/^\s*[-*•]\s+(.+)$/);
+      if (bullet) {
+        if (!list) list = el("ul", "summary-list");
+        const item = el("li");
+        appendSummaryInline(item, bullet[1]);
+        list.appendChild(item);
+        continue;
+      }
+      flushList();
+      if (!line.trim()) continue;
+      const paragraph = el("p");
+      appendSummaryInline(paragraph, line.trim());
+      target.appendChild(paragraph);
+    }
+    flushList();
+  }
+
+  function summaryStateFor(storyId) {
+    return state.summaries.get(storyId) || { status: "idle", text: "", error: "" };
+  }
+
+  function updateSummarySurface(storyId) {
+    const surface = document.querySelector('[data-summary-story-id="' + storyId + '"]');
+    if (!surface) return;
+    const current = summaryStateFor(storyId);
+    surface.dataset.status = current.status;
+    const status = surface.querySelector(".story-summary-status");
+    const body = surface.querySelector(".story-summary-body");
+    if (current.status === "extracting") status.textContent = "Reading article…";
+    else if (current.status === "generating") status.textContent = "Summarizing…";
+    else if (current.status === "error") status.textContent = "Summary failed";
+    else status.textContent = "";
+    if (current.status === "error") {
+      body.replaceChildren(el("p", "story-summary-error", current.error || "Summary failed"));
+    } else {
+      renderSummaryMarkdown(body, current.text);
+    }
+    surface.hidden = current.status === "idle" && !current.text;
+    const action = document.querySelector('[data-summary-action-id="' + storyId + '"]');
+    if (action) {
+      const running = current.status === "extracting" || current.status === "generating";
+      action.disabled = running;
+      action.classList.toggle("loading", running);
+      action.classList.toggle("active", current.status === "success");
+      action.title = running ? "Summarizing article…" : (current.status === "success" ? "Regenerate summary" : "Story tools");
+      action.setAttribute("aria-label", action.title);
+    }
+  }
+
+  function createSummarySurface(storyId) {
+    const card = el("section", "story-summary");
+    card.dataset.summaryStoryId = String(storyId);
+    const heading = el("div", "story-summary-heading");
+    heading.append(svg("sparkle"), el("strong", "", "Summary"));
+    const status = el("span", "story-summary-status");
+    heading.appendChild(status);
+    const body = el("div", "story-summary-body");
+    card.append(heading, body);
+    updateSummarySurface(storyId);
+    return card;
+  }
+
+  function stopActiveSummary() {
+    if (!state.activeSummary) return;
+    try { state.activeSummary.port.postMessage({ type: "cancel" }); } catch {}
+    try { state.activeSummary.port.disconnect(); } catch {}
+    state.activeSummary = null;
+  }
+
+  async function startStorySummary(item, options = {}) {
+    const automatic = Boolean(options.automatic);
+    if (!item?.url) {
+      if (!automatic) showToast("This story has no linked article to summarize");
+      return;
+    }
+    if (!state.settings.aiEnabled) {
+      if (!automatic) {
+        showToast("AI summarization is disabled in Settings");
+        openSettings({ focusAi: true });
+      }
+      return;
+    }
+    if (!String(state.settings.aiModel || "").trim() || !String(state.settings.aiSystemPrompt || "").trim()) {
+      if (!automatic) {
+        showToast("Finish AI summarization setup in Settings");
+        openSettings({ focusAi: true });
+      }
+      return;
+    }
+    const keyStatus = await runtimeMessage({ type: "HARMONIC_AI_STATUS" });
+    if (!keyStatus?.hasKey) {
+      if (!automatic) {
+        showToast("Add your OpenRouter API key in Settings");
+        openSettings({ focusAi: true });
+      }
+      return;
+    }
+
+    stopActiveSummary();
+    const storyId = Number(item.id);
+    state.summaries.set(storyId, { status: "extracting", text: "", error: "" });
+    updateSummarySurface(storyId);
+    const port = chrome.runtime.connect({ name: "harmonic-ai" });
+    state.activeSummary = { storyId, port };
+
+    port.onMessage.addListener((message) => {
+      if (Number(message?.storyId) !== storyId) return;
+      if (message.type === "status") {
+        const current = summaryStateFor(storyId);
+        state.summaries.set(storyId, { ...current, status: message.status, error: "" });
+      } else if (message.type === "progress") {
+        state.summaries.set(storyId, { status: "generating", text: String(message.text || ""), error: "" });
+      } else if (message.type === "success") {
+        state.summaries.set(storyId, { status: "success", text: String(message.text || ""), error: "" });
+        if (state.activeSummary?.port === port) state.activeSummary = null;
+        try { port.disconnect(); } catch {}
+      } else if (message.type === "error") {
+        state.summaries.set(storyId, { status: "error", text: "", error: String(message.message || "Summary failed") });
+        if (state.activeSummary?.port === port) state.activeSummary = null;
+        try { port.disconnect(); } catch {}
+      }
+      updateSummarySurface(storyId);
+    });
+    port.onDisconnect.addListener(() => {
+      if (state.activeSummary?.port === port) state.activeSummary = null;
+    });
+    port.postMessage({
+      type: "summarize",
+      storyId,
+      url: item.url,
+      model: state.settings.aiModel,
+      systemPrompt: state.settings.aiSystemPrompt,
+      streamResponses: state.settings.aiStreamResponses,
+    });
+  }
+
   function threadAction(iconName, label, action, options = {}) {
     const b = button(iconName, label, "thread-action");
     if (options.id) b.dataset.bookmarkId = options.id;
+    if (options.summaryId) b.dataset.summaryActionId = options.summaryId;
     if (options.active) b.classList.add("active");
+    if (options.disabled) b.disabled = true;
     b.addEventListener("click", action);
     return b;
   }
@@ -816,6 +1003,7 @@
   }
 
   async function loadThread(id) {
+    if (state.activeSummary && state.activeSummary.storyId !== id) stopActiveSummary();
     threadPane.replaceChildren(createLoading("Loading discussion…"));
     try {
       const item = await fetchJson(ALGOLIA_API + "/items/" + id);
@@ -884,7 +1072,7 @@
         window.open("https://news.ycombinator.com/item?id=" + item.id, "_blank", "noopener");
       }),
       threadAction("star", "Bookmark", () => toggleBookmark(item.id), { id: item.id, active: state.bookmarks.has(item.id) }),
-      threadAction("sparkle", "Story tools", () => showToast("Story tools are coming next")),
+      threadAction("sparkle", "Story tools", () => startStorySummary(item), { summaryId: item.id, disabled: !item.url }),
       threadAction("share", "Share", async () => {
         const url = item.url || ("https://news.ycombinator.com/item?id=" + item.id);
         if (navigator.share) {
@@ -908,14 +1096,21 @@
     const article = threadAction("link", "Open article", () => window.open(title.href, "_blank", "noopener"), { active: false });
     article.classList.add("article-link-action");
 
-    headerBody.append(title, domain, meta, article, actions);
+    headerBody.append(title, domain, meta, article);
     if (item.text) {
       const storyText = el("div", "thread-story-text");
       appendSanitizedHtml(storyText, item.text);
       headerBody.appendChild(storyText);
     }
+    headerBody.append(createSummarySurface(item.id), actions);
+    updateSummarySurface(item.id);
     header.append(hero, headerBody);
     threadPane.appendChild(header);
+    updateSummarySurface(item.id);
+    const existingSummary = summaryStateFor(item.id);
+    if (item.url && state.settings.aiAutoSummarize && existingSummary.status === "idle") {
+      startStorySummary(item, { automatic: true });
+    }
 
     const total = (item.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
     const heading = el("div", "comments-heading");
@@ -1023,7 +1218,44 @@
     return row;
   }
 
-  function openSettings() {
+  function settingText(label, key, description, options = {}) {
+    const multiline = Boolean(options.multiline);
+    const row = el("label", "setting-row setting-text-row");
+    const text = el("span", "setting-copy");
+    text.append(el("strong", "", label), el("small", "", description));
+    const input = el(multiline ? "textarea" : "input", multiline ? "setting-textarea" : "setting-text");
+    if (!multiline) input.type = "text";
+    input.value = String(state.settings[key] ?? "");
+    if (multiline) input.rows = 5;
+    input.addEventListener("change", async () => {
+      state.settings[key] = input.value.trim();
+      await saveSettings();
+    });
+    row.append(text, input);
+    return row;
+  }
+
+  function aiKeySettingRow() {
+    const row = el("div", "setting-row setting-action-row ai-key-row");
+    const text = el("span", "setting-copy");
+    const summary = el("small", "ai-key-status", "Checking…");
+    text.append(el("strong", "", "OpenRouter API key"), summary);
+    const manage = el("button", "setting-button", "Configure");
+    manage.type = "button";
+    manage.addEventListener("click", async () => {
+      const result = await runtimeMessage({ type: "HARMONIC_OPEN_AI_SETTINGS" });
+      if (!result?.ok) showToast("Couldn’t open secure API key settings");
+    });
+    row.append(text, manage);
+    runtimeMessage({ type: "HARMONIC_AI_STATUS" }).then((status) => {
+      summary.textContent = status?.hasKey
+        ? status.preview + (status.storage === "session" ? " · session only" : " · saved locally")
+        : "Not set · stored separately from synced settings";
+    });
+    return row;
+  }
+
+  function openSettings(options = {}) {
     document.querySelector(".settings-overlay")?.remove();
     const overlay = el("div", "settings-overlay");
     const panel = el("section", "settings-panel");
@@ -1065,6 +1297,18 @@
       settingToggle("Preview image", "headerImage", "Show the story preview above the discussion title")
     );
 
+    const aiSection = el("div", "settings-section ai-settings-section");
+    aiSection.append(
+      el("h3", "", "AI summarization"),
+      settingToggle("Use AI summarization", "aiEnabled", "One click on Story tools summarizes the linked article"),
+      aiKeySettingRow(),
+      settingText("OpenRouter model", "aiModel", "Use openrouter/free for the free-model router or enter any OpenRouter model ID"),
+      settingText("System prompt", "aiSystemPrompt", "Harmonic’s concise article-summary instruction", { multiline: true }),
+      settingToggle("Stream responses", "aiStreamResponses", "Show the summary as OpenRouter generates it"),
+      settingToggle("Automatically summarize articles", "aiAutoSummarize", "Start summarizing when a discussion with a linked article opens"),
+      el("p", "settings-note", "OpenRouter is the only cloud provider in this lightweight release. The default model is openrouter/free. API keys never sync and never enter Hacker News page storage.")
+    );
+
     const behaviorSection = el("div", "settings-section");
     behaviorSection.append(
       el("h3", "", "Behavior"),
@@ -1073,10 +1317,15 @@
       el("p", "settings-note", "The large comment button always opens the discussion. With card-click comments enabled, open the article from the title inside the discussion. Bookmarks and read state stay local to this Chrome profile.")
     );
 
-    panel.append(header, storySection, commentsSection, headerDisplaySection, behaviorSection);
+    panel.append(header, storySection, commentsSection, headerDisplaySection, aiSection, behaviorSection);
     overlay.appendChild(panel);
     overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
+    if (options.focusAi) {
+      aiSection.scrollIntoView({ block: "start" });
+      aiSection.classList.add("settings-section-highlight");
+      setTimeout(() => aiSection.classList.remove("settings-section-highlight"), 1200);
+    }
   }
 
   function handleSettingsHash() {

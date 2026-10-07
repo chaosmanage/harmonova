@@ -20,12 +20,13 @@ The extension targets the parts of Harmonic that matter most for reading:
 - native new-tab behavior for external articles
 - an explicit way to open untouched Hacker News when desired
 - an extension-toolbar popup for enabling/disabling Harmonic without disabling the Chrome extension itself
+- one-click OpenRouter article summaries using Harmonic's upstream summarization prompt and streaming behavior
 
 ## Current release
 
-The current extension version is **0.6.0**.
+The current extension version is **0.7.0**.
 
-Version 0.6.0 adds the browser-action popup, an application icon, reliable original-Hacker-News tabs, preference migration/persistence, and a repaired refresh icon. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.7.0 adds one-click OpenRouter article summarization, streaming summary cards, Harmonic's upstream summary prompt, and private API-key storage with persistent and session-only modes. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Feed experience
 
@@ -69,6 +70,8 @@ The discussion pane includes:
 - sanitized Hacker News HTML
 - normalized quote rendering
 - external links that open in a new tab
+- one-click **Story tools** summarization for linked articles
+- a streaming Harmonic-style summary card inside the discussion header
 
 ## Extension toolbar popup
 
@@ -124,8 +127,66 @@ The extension currently exposes Harmonic-inspired controls for:
 - comment text size
 - discussion-header tint
 - discussion-header preview image
+- AI summarization enable/disable
+- OpenRouter model ID, defaulting to `openrouter/free`
+- Harmonic's article-summary system prompt
+- streamed AI responses
+- automatic article summarization
+- secure API-key configuration through an extension-owned settings page
 - card-click behavior
 - whether article links should also open comments
+
+## AI summarization
+
+AI summarization intentionally starts with **OpenRouter only** to keep the extension small. No AI SDK, application framework, or project-owned backend is required.
+
+After an OpenRouter API key is configured, clicking the existing sparkle **Story tools** action immediately starts summarizing the linked article. There is no intermediate tools menu. While generation is running the action shows a loading state; after completion it becomes a one-click regenerate action.
+
+The default model is:
+
+```text
+openrouter/free
+```
+
+This uses OpenRouter's free-model router. You can replace it with any OpenRouter model ID in Harmonic settings.
+
+The summary pipeline mirrors Harmonic's upstream implementation:
+
+1. the background worker fetches the linked article
+2. script/style/template markup is discarded and readable body text is normalized
+3. input is capped at 15,000 characters, matching Harmonic's cloud-summary budget
+4. the configured Harmonic system prompt and article text are posted to OpenRouter's OpenAI-compatible `/chat/completions` endpoint
+5. streaming SSE chunks are accumulated in the background worker
+6. progressive text is sent to the Hacker News content script over a long-lived extension port
+7. the summary card updates in place until the request completes
+
+The default system prompt is adapted directly from Harmonic's cloud summarizer and asks for a concise, information-dense Markdown summary focused on the article's key takeaways.
+
+### API-key storage
+
+The API key is deliberately **not** stored with normal Harmonic preferences.
+
+- It is never placed in `chrome.storage.sync`.
+- It is never written to Hacker News `localStorage`.
+- It is never sent to the Hacker News page.
+- It is never included in summary DOM, logs, URLs, or synced preference backups.
+- The background worker restricts `chrome.storage.local` and `chrome.storage.session` to trusted extension contexts.
+- Article requests and OpenRouter requests are made by the extension background worker.
+
+The API-key editor is an extension-owned options page rather than an input injected into Hacker News. This prevents the Hacker News document from reading the key while it is being typed.
+
+Two storage modes are available:
+
+- **Remember in this Chrome profile** — persists the key in Harmonic's private `chrome.storage.local` namespace and never syncs it.
+- **This browser session only** — stores the key in `chrome.storage.session`; it must be entered again after Chrome restarts.
+
+Chrome does not expose a general OS-keychain API to extensions, so persistent mode is not equivalent to Harmonic Android's Android Keystore-backed credential store. If protection against local profile-file access is required, use session-only mode.
+
+### Summary data handling
+
+When you request a summary, extracted article text and the configured system prompt are sent directly from the extension to OpenRouter. The project has no relay server and does not receive the article, key, prompt, or generated summary.
+
+Generated summaries are kept only in the current extension page's memory. They are not written to Chrome Sync or Hacker News origin storage.
 
 ## Preference persistence and migration
 
@@ -154,7 +215,7 @@ To protect UI preferences during local development, Harmonic also keeps a namesp
 
 When a build starts with an empty extension storage namespace, it can recover those preferences from `news.ycombinator.com` local storage and immediately copy them into `chrome.storage.sync` for the new installation.
 
-Read history and bookmarks remain in `chrome.storage.local`; they are not copied into page-origin local storage.
+Read history and bookmarks remain in `chrome.storage.local`; they are not copied into page-origin local storage. Because local extension storage is restricted to trusted extension contexts in 0.7.0, the content script reads and updates those non-secret values through the background worker.
 
 ### Packaging path stability
 
@@ -167,7 +228,7 @@ dist/harmonic-hn-browser/
 The zip filename remains versioned:
 
 ```text
-dist/harmonic-hn-browser-0.6.0.zip
+dist/harmonic-hn-browser-0.7.0.zip
 ```
 
 The zip itself contains the stable top-level folder `harmonic-hn-browser/`. Keeping that extracted folder in the same filesystem location and replacing its contents for upgrades helps Chrome keep the same unpacked-extension identity.
@@ -266,6 +327,10 @@ The suite verifies the areas that have historically regressed, including:
 - sort controls and settings are present
 - settings update live
 - settings persist through a reload and are backed up on the Hacker News origin
+- OpenRouter credentials remain out of Chrome Sync and Hacker News origin storage
+- the extension-owned credential page securely saves and clears the API key
+- one-click Story tools sends the Harmonic prompt and extracted article text to OpenRouter
+- streamed OpenRouter chunks render into the summary card
 - quotes are normalized and visibly styled
 - external articles open in a separate tab
 - **Open original Hacker News** creates a tab without the Harmonic UI
@@ -280,10 +345,11 @@ A screenshot from the test viewport is written to the selected test output direc
 The project deliberately stays small and uses no application framework.
 
 - `manifest.json` — Manifest V3 configuration, permissions, extension action, and icon declarations
-- `content.js` — feed, reader, interactions, settings, persistence migration, and Hacker News/Algolia loading
-- `styles.css` — Harmonic desktop adaptation scoped to `html.harmonic-hn`
-- `background.js` — preview metadata, image palette extraction, font retrieval, and per-tab original-HN state
+- `content.js` — feed, reader, interactions, settings, streaming summary presentation, persistence migration, and Hacker News/Algolia loading
+- `styles.css` — Harmonic desktop adaptation and summary/settings presentation scoped to `html.harmonic-hn`
+- `background.js` — preview metadata, image palette extraction, font retrieval, private local state, article extraction, OpenRouter streaming, and per-tab original-HN state
 - `popup.html` / `popup.css` / `popup.js` — toolbar popup for enable/disable, settings, and original-HN actions
+- `ai-settings.html` / `ai-settings.css` / `ai-settings.js` — extension-owned OpenRouter credential editor
 - `icons/` — Harmonic browser-action icon assets
 - `tests/e2e.mjs` — Chromium interaction and regression test
 - `scripts/package.sh` — creates the stable unpacked release folder and versioned zip
@@ -297,10 +363,11 @@ The Hacker News Firebase API supplies story feeds/items. The Algolia HN API is u
 
 Used for:
 
-- synchronized settings
+- synchronized non-secret settings
 - the global enabled/disabled preference
 - local read state and bookmarks
-- session-only original-tab IDs
+- private OpenRouter API-key storage
+- session-only original-tab IDs and optional session-only OpenRouter credentials
 
 ### `activeTab`
 
@@ -308,7 +375,7 @@ Used by the extension popup after the user clicks the toolbar icon so the popup 
 
 ### Broad HTTP/HTTPS host access
 
-The extension asks for broad HTTP/HTTPS host access because Harmonic-style cards fetch metadata, preview images, and favicons for arbitrary story domains from the background worker.
+The extension asks for broad HTTP/HTTPS host access because Harmonic-style cards fetch metadata, preview images, and favicons for arbitrary story domains from the background worker, and because one-click summaries fetch the selected linked article plus OpenRouter's API endpoint.
 
 That host access is not used for browsing-history collection or analytics.
 
@@ -322,9 +389,11 @@ https://news.ycombinator.com/*
 
 The extension has no analytics service and no project-owned backend.
 
-Stored data is limited to UI preferences, read-story IDs, bookmarks, enabled/disabled state, and temporary original-tab IDs. Preview metadata is held in memory by the background service worker and expires naturally with worker lifetime or cache timeout.
+Stored data is limited to UI preferences, read-story IDs, bookmarks, enabled/disabled state, the optional OpenRouter credential, its storage-mode preference, and temporary original-tab IDs. Preview metadata is held in memory by the background service worker and expires naturally with worker lifetime or cache timeout.
 
-The page-origin backup is limited to UI preferences and the enabled/disabled flag; it does not contain credentials, Hacker News account information, comments, or article contents.
+The page-origin backup is limited to non-secret UI preferences and the enabled/disabled flag; it does not contain credentials, Hacker News account information, comments, article contents, or generated summaries.
+
+On an explicit summary request, the selected article text is sent directly to OpenRouter together with the configured system prompt. The API key is sent only as the OpenRouter authorization header.
 
 ## Intentionally out of scope
 
@@ -336,7 +405,9 @@ The current reading-focused scope does not implement:
 - posting or replying to comments
 - account synchronization
 - exact parity with every Harmonic mobile-only feature
-- AI summary/reader features
+- local/on-device AI models
+- direct OpenAI, Anthropic, or Google AI provider integrations
+- Harmonic's follow-up "Ask" conversation tooling for generated summaries
 
 Buttons for unavailable authenticated features state that limitation rather than silently failing.
 

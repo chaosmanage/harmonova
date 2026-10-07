@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harmonic · OpenRouter API key</title>
+  <link rel="stylesheet" href="ai-settings.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <img src="icons/icon48.png" width="44" height="44" alt="">
+      <div>
+        <h1>AI summarization</h1>
+        <p>OpenRouter credential storage</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <label for="api-key">OpenRouter API key</label>
+      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
+      <p id="key-status" class="status">Checking current key…</p>
+
+      <fieldset>
+        <legend>Storage</legend>
+        <label class="choice">
+          <input type="radio" name="storage" value="persistent" checked>
+          <span><strong>Remember in this Chrome profile</strong><small>Extension-local only; never synced to Chrome Sync or Hacker News storage.</small></span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="storage" value="session">
+          <span><strong>This browser session only</strong><small>Memory-only extension storage. Re-enter the key after Chrome restarts.</small></span>
+        </label>
+      </fieldset>
+
+      <div class="actions">
+        <button id="save" class="primary" type="button">Save key</button>
+        <button id="clear" type="button">Clear saved key</button>
+      </div>
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <p class="note">Chrome extensions do not have a general OS-keychain API. Persistent mode keeps the key in Harmonic’s private extension-local storage and restricts that storage to trusted extension contexts; session mode avoids persisting the key to disk.</p>
+  </main>
+  <script src="ai-settings.js"></script>
+</body>
+</html>

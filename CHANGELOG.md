@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.7.0] - 2026-10-07
+
+### Added
+
+- Added one-click OpenRouter article summarization to the existing **Story tools** action, with no intermediate tools menu.
+- Added streamed Harmonic-style summary cards in the discussion header and one-click regeneration after a successful summary.
+- Added OpenRouter AI settings for enable/disable, model selection, the upstream Harmonic system prompt, streaming, and optional automatic summaries. The default model is `openrouter/free`.
+- Added an extension-owned API-key settings page with persistent profile-local and session-only storage modes.
+- Added regression coverage for OpenRouter request payloads, SSE streaming, the 15,000-character article budget, private credential storage, and summary rendering.
+
+### Changed
+
+- Article extraction and OpenRouter requests now run in the Manifest V3 background worker, while streaming progress is delivered to the Hacker News UI over a long-lived extension port.
+- `chrome.storage.local` and `chrome.storage.session` are restricted to trusted extension contexts; read-state and bookmark access from the content script now goes through the background worker.
+- Release packaging now includes the AI credential settings page.
+
+### Security
+
+- OpenRouter API keys are kept out of Chrome Sync, Hacker News origin storage, page DOM, URLs, and normal synced settings. Session-only mode avoids persistent key storage entirely.
+
 ## [0.6.0] - 2026-10-07
 
 ### Added

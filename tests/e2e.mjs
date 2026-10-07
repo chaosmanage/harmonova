@@ -129,7 +129,7 @@ try {
   const settingRows = await page.locator(".setting-row").count();
   assert.ok(settingRows >= 16, "expected expanded Harmonic-style settings controls");
   const settingsText = await page.locator(".settings-panel").textContent();
-  for (const label of ["Content zoom", "Comment text size", "Card click opens comments", "Comment sorting", "Thread colors"]) {
+  for (const label of ["Content zoom", "Comment text size", "Card click opens comments", "Comment sorting", "Thread colors", "AI summarization", "OpenRouter model", "Use AI summarization"]) {
     assert.ok(settingsText.includes(label), "settings should contain " + label);
   }
 
@@ -156,6 +156,28 @@ try {
   await page.waitForTimeout(150);
   assert.ok((await commentSizeRow.textContent()).includes("16 sp"), "comment text size should be adjustable");
 
+  const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
+  assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
+
+  const testApiKey = "sk-or-v1-harmonic-e2e-secret";
+  const optionsPagePromise = context.waitForEvent("page", { timeout: 10000 });
+  await page.locator(".ai-key-row .setting-button").click();
+  const aiOptionsPage = await optionsPagePromise;
+  await aiOptionsPage.waitForLoadState("domcontentloaded", { timeout: 10000 });
+  await aiOptionsPage.locator("#api-key").fill(testApiKey);
+  await aiOptionsPage.locator('input[name="storage"][value="persistent"]').check();
+  await aiOptionsPage.locator("#save").click();
+  await aiOptionsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"));
+  const privateKey = await extensionWorker.evaluate(async () => (await chrome.storage.local.get(["harmonicAiApiKey"])).harmonicAiApiKey);
+  assert.equal(privateKey, testApiKey, "OpenRouter key should be stored in private extension-local storage");
+  const syncContainsSecret = await extensionWorker.evaluate(async (secret) => JSON.stringify(await chrome.storage.sync.get(null)).includes(secret), testApiKey);
+  assert.equal(syncContainsSecret, false, "OpenRouter key must never enter chrome.storage.sync");
+  const pageStorageContainsSecret = await page.evaluate((secret) => {
+    return Object.keys(localStorage).some((key) => String(localStorage.getItem(key) || "").includes(secret));
+  }, testApiKey);
+  assert.equal(pageStorageContainsSecret, false, "OpenRouter key must never enter Hacker News localStorage");
+  await aiOptionsPage.close();
+
   // Restore Harmonic defaults before the visual regression screenshot.
   await zoomSlider.fill("100");
   await commentSizeSlider.fill("15");
@@ -166,6 +188,65 @@ try {
 
   await page.locator(".settings-header .icon-button").click();
   await page.locator(".settings-overlay").waitFor({ state: "detached" });
+
+  const summaryStoryIndex = await page.locator(".story-card").evaluateAll((cards) => {
+    return cards.findIndex((card) => {
+      const href = card.querySelector(".story-card-title")?.href;
+      if (!href) return false;
+      try { return new URL(href).hostname !== "news.ycombinator.com"; }
+      catch { return false; }
+    });
+  });
+  assert.ok(summaryStoryIndex >= 0, "expected an external story for AI summary coverage");
+  const summaryStoryCard = page.locator(".story-card").nth(summaryStoryIndex);
+  const summaryStoryId = await summaryStoryCard.getAttribute("data-story-id");
+  await summaryStoryCard.locator(".story-comment-button").click();
+  await page.waitForURL((url) => url.searchParams.get("id") === summaryStoryId, { timeout: 10000 });
+  await page.locator(".thread-title").waitFor({ state: "visible", timeout: 15000 });
+  const summaryArticleUrl = await page.locator(".thread-title").getAttribute("href");
+  assert.ok(summaryArticleUrl, "summary story should expose an article URL");
+
+  let openRouterPayload = null;
+  let openRouterAuth = null;
+  await context.route(summaryArticleUrl, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<html><body><main><h1>Test article</h1><p>Alpha finding about browser extensions.</p><p>Beta finding about streaming summaries.</p></main></body></html>",
+    });
+  });
+  await context.route("https://openrouter.ai/api/v1/chat/completions", async (route) => {
+    openRouterPayload = route.request().postDataJSON();
+    openRouterAuth = route.request().headers()["authorization"];
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      body: [
+        'data: {"choices":[{"delta":{"content":"- Alpha finding"}}]}',
+        "",
+        'data: {"choices":[{"delta":{"content":"; Beta finding"}}]}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  await page.getByRole("button", { name: "Story tools" }).click();
+  await page.locator(".story-summary").waitFor({ state: "visible", timeout: 10000 });
+  await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "success", null, { timeout: 10000 });
+  const summaryText = (await page.locator(".story-summary-body").textContent()) || "";
+  assert.ok(summaryText.includes("Alpha finding") && summaryText.includes("Beta finding"), "streamed OpenRouter chunks should render in the summary card");
+  assert.equal(openRouterAuth, "Bearer " + testApiKey, "background request should attach the private OpenRouter key");
+  assert.equal(openRouterPayload?.model, "openrouter/free", "summary request should use the configured OpenRouter model");
+  assert.equal(openRouterPayload?.stream, true, "summary request should stream by default");
+  assert.ok(openRouterPayload?.messages?.[0]?.content?.includes("summarizing articles"), "summary request should use Harmonic's system prompt");
+  assert.ok(openRouterPayload?.messages?.[1]?.content?.includes("Alpha finding about browser extensions"), "summary request should send extracted article text");
+  assert.ok((openRouterPayload?.messages?.[1]?.content || "").length <= 15000, "article input should respect Harmonic's 15k character budget");
+  const regeneratedLabel = await page.locator('[data-summary-action-id="' + summaryStoryId + '"]').getAttribute("aria-label");
+  assert.equal(regeneratedLabel, "Regenerate summary", "Story tools should become a one-click regenerate action after success");
+  await context.unroute(summaryArticleUrl);
+  await context.unroute("https://openrouter.ai/api/v1/chat/completions");
 
   const titleCard = page.locator(".story-card").nth(3);
   const titleCardId = await titleCard.getAttribute("data-story-id");
@@ -279,6 +360,9 @@ try {
     commentSort: "Newest first",
     commentCollapse: true,
     quoteBlocks: quoteCount,
+    aiSummary: true,
+    aiModel: "openrouter/free",
+    apiKeyPrivate: true,
     externalTab: articlePage.url(),
     originalTabBypass: true,
     popupReenable: true,

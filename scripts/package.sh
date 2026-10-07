@@ -13,7 +13,7 @@ mkdir -p dist
 rm -rf "$tmp"
 mkdir -p "$tmp/icons"
 
-cp manifest.json content.js styles.css background.js popup.html popup.css popup.js README.md CHANGELOG.md LICENSE "$tmp/"
+cp manifest.json content.js styles.css background.js popup.html popup.css popup.js ai-settings.html ai-settings.css ai-settings.js README.md CHANGELOG.md LICENSE "$tmp/"
 cp icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png "$tmp/icons/"
 
 rm -rf "$out"
