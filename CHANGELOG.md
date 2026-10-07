@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.7.1] - 2026-10-07
+
+### Added
+
+- Cancel an in-progress summary with the same Story tools button, and reset the system prompt to Harmonic's default in Settings.
+- Added worker and browser coverage for cancellation, story switching, provider errors, automatic summaries, missing keys, credential storage modes, malformed article responses, and fragmented SSE data.
+- Added an optional live OpenRouter browser check using a session-only test credential.
+
+### Fixed
+
+- Cancelled summaries no longer leave Story tools stuck in a loading state when returning to a discussion.
+- Disconnected summary workers now show a retryable error, and stale requests cannot update a newer summary.
+- Streaming accepts CRLF event separators split across network chunks and bounds response sizes. Requests time out after two minutes.
+- Credential changes are accepted only from the extension-owned API-key settings page.
+
 ## [0.7.0] - 2026-10-07
 
 ### Added

@@ -107,6 +107,7 @@
     hasMoreStories: true,
     summaries: new Map(),
     activeSummary: null,
+    summaryGeneration: 0,
   };
 
   const fetchJson = async (url) => {
@@ -795,12 +796,14 @@
   }
 
   function appendSummaryInline(target, text) {
-    const pattern = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g;
+    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g;
     let cursor = 0;
     for (const match of String(text || "").matchAll(pattern)) {
       if (match.index > cursor) target.appendChild(document.createTextNode(text.slice(cursor, match.index)));
       const token = match[0];
-      if (token.startsWith("**")) {
+      if (token.startsWith("`")) {
+        target.appendChild(el("code", "", token.slice(1, -1)));
+      } else if (token.startsWith("**")) {
         target.appendChild(el("strong", "", token.slice(2, -2)));
       } else if (token.startsWith("[")) {
         const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
@@ -873,10 +876,10 @@
     const action = document.querySelector('[data-summary-action-id="' + storyId + '"]');
     if (action) {
       const running = current.status === "extracting" || current.status === "generating";
-      action.disabled = running;
+      action.disabled = false;
       action.classList.toggle("loading", running);
       action.classList.toggle("active", current.status === "success");
-      action.title = running ? "Summarizing article…" : (current.status === "success" ? "Regenerate summary" : "Story tools");
+      action.title = running ? "Cancel summary" : (current.status === "success" ? "Regenerate summary" : "Story tools");
       action.setAttribute("aria-label", action.title);
     }
   }
@@ -895,14 +898,23 @@
   }
 
   function stopActiveSummary() {
-    if (!state.activeSummary) return;
-    try { state.activeSummary.port.postMessage({ type: "cancel" }); } catch {}
-    try { state.activeSummary.port.disconnect(); } catch {}
+    state.summaryGeneration++;
+    const active = state.activeSummary;
+    if (!active) return;
     state.activeSummary = null;
+    state.summaries.set(active.storyId, { status: "idle", text: "", error: "" });
+    try { active.port.postMessage({ type: "cancel" }); } catch {}
+    try { active.port.disconnect(); } catch {}
+    updateSummarySurface(active.storyId);
   }
 
   async function startStorySummary(item, options = {}) {
     const automatic = Boolean(options.automatic);
+    if (state.activeSummary?.storyId === Number(item?.id)) {
+      if (!automatic) stopActiveSummary();
+      return;
+    }
+    const generation = ++state.summaryGeneration;
     if (!item?.url) {
       if (!automatic) showToast("This story has no linked article to summarize");
       return;
@@ -922,6 +934,7 @@
       return;
     }
     const keyStatus = await runtimeMessage({ type: "HARMONIC_AI_STATUS" });
+    if (generation !== state.summaryGeneration || Number(item.id) !== state.selectedId) return;
     if (!keyStatus?.hasKey) {
       if (!automatic) {
         showToast("Add your OpenRouter API key in Settings");
@@ -938,7 +951,7 @@
     state.activeSummary = { storyId, port };
 
     port.onMessage.addListener((message) => {
-      if (Number(message?.storyId) !== storyId) return;
+      if (state.activeSummary?.port !== port || Number(message?.storyId) !== storyId) return;
       if (message.type === "status") {
         const current = summaryStateFor(storyId);
         state.summaries.set(storyId, { ...current, status: message.status, error: "" });
@@ -956,7 +969,10 @@
       updateSummarySurface(storyId);
     });
     port.onDisconnect.addListener(() => {
-      if (state.activeSummary?.port === port) state.activeSummary = null;
+      if (state.activeSummary?.port !== port) return;
+      state.activeSummary = null;
+      state.summaries.set(storyId, { status: "error", text: "", error: "Summary connection closed. Try again." });
+      updateSummarySurface(storyId);
     });
     port.postMessage({
       type: "summarize",
@@ -1003,7 +1019,7 @@
   }
 
   async function loadThread(id) {
-    if (state.activeSummary && state.activeSummary.storyId !== id) stopActiveSummary();
+    if (!state.activeSummary || state.activeSummary.storyId !== id) stopActiveSummary();
     threadPane.replaceChildren(createLoading("Loading discussion…"));
     try {
       const item = await fetchJson(ALGOLIA_API + "/items/" + id);
@@ -1298,12 +1314,20 @@
     );
 
     const aiSection = el("div", "settings-section ai-settings-section");
+    const resetPrompt = el("button", "setting-button", "Reset to Harmonic default");
+    resetPrompt.type = "button";
+    resetPrompt.addEventListener("click", async () => {
+      state.settings.aiSystemPrompt = DEFAULT_SETTINGS.aiSystemPrompt;
+      aiSection.querySelector("textarea").value = DEFAULT_SETTINGS.aiSystemPrompt;
+      await saveSettings();
+    });
     aiSection.append(
       el("h3", "", "AI summarization"),
       settingToggle("Use AI summarization", "aiEnabled", "One click on Story tools summarizes the linked article"),
       aiKeySettingRow(),
       settingText("OpenRouter model", "aiModel", "Use openrouter/free for the free-model router or enter any OpenRouter model ID"),
       settingText("System prompt", "aiSystemPrompt", "Harmonic’s concise article-summary instruction", { multiline: true }),
+      resetPrompt,
       settingToggle("Stream responses", "aiStreamResponses", "Show the summary as OpenRouter generates it"),
       settingToggle("Automatically summarize articles", "aiAutoSummarize", "Start summarizing when a discussion with a linked article opens"),
       el("p", "settings-note", "OpenRouter is the only cloud provider in this lightweight release. The default model is openrouter/free. API keys never sync and never enter Hacker News page storage.")
@@ -1383,6 +1407,7 @@
         document.body.classList.add("thread-active");
         loadThread(id);
       } else if (feed) {
+        stopActiveSummary();
         document.body.classList.remove("thread-active");
         state.feed = feed;
         feedTitle.textContent = FEEDS[feed].label;

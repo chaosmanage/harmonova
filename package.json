@@ -1,9 +1,11 @@
 {
   "name": "harmonic-hn-browser",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "scripts": {
+    "test:reload": "node tests/reload.mjs",
+    "test:ai": "node --test tests/ai-worker.mjs",
     "test:e2e": "node tests/e2e.mjs",
     "package": "bash scripts/package.sh"
   },

@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.7.0**.
+The current extension version is **0.7.1**.
 
-Version 0.7.0 adds one-click OpenRouter article summarization, streaming summary cards, Harmonic's upstream summary prompt, and private API-key storage with persistent and session-only modes. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.7.1 completes cancellation, prompt reset, bounded streaming, and summary lifecycle fixes on top of one-click OpenRouter article summarization, streaming summary cards, Harmonic's upstream summary prompt, and private API-key storage with persistent and session-only modes. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Feed experience
 
@@ -182,6 +182,8 @@ Two storage modes are available:
 
 Chrome does not expose a general OS-keychain API to extensions, so persistent mode is not equivalent to Harmonic Android's Android Keystore-backed credential store. If protection against local profile-file access is required, use session-only mode.
 
+Summaries can be cancelled by clicking **Cancel summary** on the same sparkle action. Switching discussions also cancels the active request; return to the story and click **Story tools** to retry. Requests stop after two minutes if the provider does not finish.
+
 ### Summary data handling
 
 When you request a summary, extracted article text and the configured system prompt are sent directly from the extension to OpenRouter. The project has no relay server and does not receive the article, key, prompt, or generated summary.
@@ -215,7 +217,7 @@ To protect UI preferences during local development, Harmonic also keeps a namesp
 
 When a build starts with an empty extension storage namespace, it can recover those preferences from `news.ycombinator.com` local storage and immediately copy them into `chrome.storage.sync` for the new installation.
 
-Read history and bookmarks remain in `chrome.storage.local`; they are not copied into page-origin local storage. Because local extension storage is restricted to trusted extension contexts in 0.7.0, the content script reads and updates those non-secret values through the background worker.
+Read history and bookmarks remain in `chrome.storage.local`; they are not copied into page-origin local storage. Because local extension storage is restricted to trusted extension contexts since 0.7.0, the content script reads and updates those non-secret values through the background worker.
 
 ### Packaging path stability
 
@@ -228,7 +230,7 @@ dist/harmonic-hn-browser/
 The zip filename remains versioned:
 
 ```text
-dist/harmonic-hn-browser-0.7.0.zip
+dist/harmonic-hn-browser-0.7.1.zip
 ```
 
 The zip itself contains the stable top-level folder `harmonic-hn-browser/`. Keeping that extracted folder in the same filesystem location and replacing its contents for upgrades helps Chrome keep the same unpacked-extension identity.
@@ -299,6 +301,8 @@ The package script copies only runtime files, documentation, the license, change
 
 ## Browser verification
 
+Run focused AI worker checks with `npm run test:ai` and browser-restart persistence checks with `npm run test:reload`. To include a real `openrouter/free` request in the browser suite, supply `OPENROUTER_TEST_KEY` through your environment; the test uses session-only key storage and prints only the result and summary length.
+
 The repository includes a Chromium end-to-end smoke test at a **1919×872** viewport.
 
 Run the development tree:
@@ -331,6 +335,10 @@ The suite verifies the areas that have historically regressed, including:
 - the extension-owned credential page securely saves and clears the API key
 - one-click Story tools sends the Harmonic prompt and extracted article text to OpenRouter
 - streamed OpenRouter chunks render into the summary card
+- cancellation and story switching discard stale output and allow retry
+- provider errors and missing credentials show a recovery path
+- auto-summary defaults off and runs when enabled
+- the system prompt can be reset to Harmonic’s default
 - quotes are normalized and visibly styled
 - external articles open in a separate tab
 - **Open original Hacker News** creates a tab without the Harmonic UI

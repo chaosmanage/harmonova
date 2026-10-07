@@ -276,7 +276,10 @@ async function readResponseTextLimited(response, maxBytes) {
     const { value, done } = await reader.read();
     if (done) break;
     bytes += value.byteLength;
-    if (bytes > maxBytes) throw new Error("Response exceeded size limit");
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      throw new Error("Response exceeded size limit");
+    }
     text += decoder.decode(value, { stream: true });
   }
   text += decoder.decode();
@@ -383,6 +386,7 @@ async function streamOpenRouter(response, onProgress) {
     let parsed;
     try { parsed = JSON.parse(data); }
     catch { throw new Error("OpenRouter returned invalid streaming data"); }
+    if (parsed?.choices?.[0]?.finish_reason === "error" && !parsed.error) throw new Error("OpenRouter stream failed");
     if (parsed?.error) throw new Error(parsed.error.message || "OpenRouter request failed");
     const chunk = openRouterContent(parsed?.choices?.[0]?.delta?.content);
     if (chunk) {
@@ -395,12 +399,15 @@ async function streamOpenRouter(response, onProgress) {
 
   while (true) {
     const { value, done } = await reader.read();
-    if (value) buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    if (value) buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, "\n");
+    if (buffer.length > MAX_SUMMARY_CHARACTERS * 2) throw new Error("Streaming event exceeded size limit");
     let boundary;
     while ((boundary = buffer.indexOf("\n\n")) !== -1) {
       const event = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
       if (consumeEvent(event)) {
+        await reader.cancel();
         if (!summary) throw new Error("OpenRouter returned an empty summary");
         return summary;
       }
@@ -449,7 +456,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
     }),
   });
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const body = await readResponseTextLimited(response, 16_000).catch(() => "");
     throw new Error(openRouterError(body.slice(0, 16_000), "OpenRouter returned HTTP " + response.status));
   }
 
@@ -459,10 +466,11 @@ async function summarizeWithOpenRouter(port, message, controller) {
       port.postMessage({ type: "progress", storyId, text });
     });
   } else {
-    const json = await response.json();
+    const json = JSON.parse(await readResponseTextLimited(response, MAX_SUMMARY_CHARACTERS * 2));
     if (json?.error) throw new Error(json.error.message || "OpenRouter request failed");
     summary = openRouterContent(json?.choices?.[0]?.message?.content).trim();
     if (!summary) throw new Error("OpenRouter returned an empty summary");
+    if (summary.length > MAX_SUMMARY_CHARACTERS) throw new Error("Summary exceeded size limit");
   }
   port.postMessage({ type: "success", storyId, text: summary });
 }
@@ -478,10 +486,12 @@ chrome.runtime.onConnect.addListener((port) => {
     }
     if (message?.type !== "summarize") return;
     controller?.abort();
-    controller = new AbortController();
-    summarizeWithOpenRouter(port, message, controller)
+    const requestController = new AbortController();
+    controller = requestController;
+    const timer = setTimeout(() => requestController.abort(new Error("Summary timed out. Try again.")), 120_000);
+    summarizeWithOpenRouter(port, message, requestController)
       .catch((error) => {
-        if (error?.name === "AbortError") return;
+        if (controller !== requestController || error?.name === "AbortError") return;
         try {
           port.postMessage({
             type: "error",
@@ -490,7 +500,10 @@ chrome.runtime.onConnect.addListener((port) => {
           });
         } catch {}
       })
-      .finally(() => { controller = null; });
+      .finally(() => {
+        clearTimeout(timer);
+        if (controller === requestController) controller = null;
+      });
   });
   port.onDisconnect.addListener(() => controller?.abort());
 });
@@ -521,6 +534,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "HARMONIC_AI_STATUS") {
     aiKeyStatus().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Status unavailable" }));
     return true;
+  }
+  if (["HARMONIC_AI_SAVE_KEY", "HARMONIC_AI_CLEAR_KEY"].includes(message.type)
+      && sender.url !== chrome.runtime.getURL("ai-settings.html")) {
+    sendResponse({ ok: false, message: "Use the extension credential settings page" });
+    return;
   }
   if (message.type === "HARMONIC_AI_SAVE_KEY") {
     saveAiKey(message.apiKey, message.storage)

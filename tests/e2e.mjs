@@ -178,6 +178,12 @@ try {
   assert.equal(pageStorageContainsSecret, false, "OpenRouter key must never enter Hacker News localStorage");
   await aiOptionsPage.close();
 
+  const promptEditor = page.locator(".ai-settings-section textarea");
+  await promptEditor.fill("Custom prompt");
+  await promptEditor.blur();
+  await page.getByRole("button", { name: "Reset to Harmonic default" }).click();
+  assert.ok((await promptEditor.inputValue()).includes("summarizing articles"), "system prompt reset should restore Harmonic's default");
+
   // Restore Harmonic defaults before the visual regression screenshot.
   await zoomSlider.fill("100");
   await commentSizeSlider.fill("15");
@@ -208,6 +214,8 @@ try {
 
   let openRouterPayload = null;
   let openRouterAuth = null;
+  let aiResponseMode = "stream";
+  let aiRequests = 0;
   await context.route(summaryArticleUrl, async (route) => {
     await route.fulfill({
       status: 200,
@@ -216,8 +224,20 @@ try {
     });
   });
   await context.route("https://openrouter.ai/api/v1/chat/completions", async (route) => {
+    if (aiResponseMode === "live") {
+      await route.continue();
+      return;
+    }
+    aiRequests++;
     openRouterPayload = route.request().postDataJSON();
     openRouterAuth = route.request().headers()["authorization"];
+    if (aiResponseMode === "error") {
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { message: "Free model rate limit" } }) });
+      return;
+    }
+    if (aiResponseMode === "delayed") {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
     await route.fulfill({
       status: 200,
       headers: { "content-type": "text/event-stream" },
@@ -245,6 +265,81 @@ try {
   assert.ok((openRouterPayload?.messages?.[1]?.content || "").length <= 15000, "article input should respect Harmonic's 15k character budget");
   const regeneratedLabel = await page.locator('[data-summary-action-id="' + summaryStoryId + '"]').getAttribute("aria-label");
   assert.equal(regeneratedLabel, "Regenerate summary", "Story tools should become a one-click regenerate action after success");
+  assert.equal(await page.evaluate((secret) => document.documentElement.outerHTML.includes(secret), testApiKey), false, "key must not appear in the HN DOM");
+
+  aiResponseMode = "error";
+  await page.getByRole("button", { name: "Regenerate summary" }).click();
+  await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "error");
+  assert.ok((await page.locator(".story-summary-body").textContent()).includes("Free model rate limit"), "provider errors should be actionable");
+
+  aiResponseMode = "delayed";
+  await page.getByRole("button", { name: "Story tools" }).click();
+  await page.getByRole("button", { name: "Cancel summary" }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Cancel summary" }).click();
+  await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "idle");
+  await page.waitForTimeout(1100);
+  assert.equal(await page.locator(".story-summary").getAttribute("data-status"), "idle", "cancelled chunks must not replace idle state");
+
+  const requestsBeforeNavigation = aiRequests;
+  await page.getByRole("button", { name: "Story tools" }).click();
+  await page.getByRole("button", { name: "Cancel summary" }).waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "generating");
+  await page.locator(".story-card").nth((summaryStoryIndex + 1) % count).locator(".story-comment-button").click();
+  await page.locator(".thread-title").waitFor({ state: "visible" });
+  await summaryStoryCard.locator(".story-comment-button").click();
+  await page.locator('[data-summary-action-id="' + summaryStoryId + '"]').waitFor({ state: "visible" });
+  assert.equal(await page.locator(".story-summary").getAttribute("data-status"), "idle", "revisiting a cancelled story must allow a new summary");
+  assert.ok(aiRequests > requestsBeforeNavigation, "navigation should cancel a real pending request");
+  aiResponseMode = "stream";
+  await page.getByRole("button", { name: "Story tools" }).click();
+  await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "success");
+
+  if (process.env.OPENROUTER_TEST_KEY) {
+    await extensionWorker.evaluate((key) => saveAiKey(key, "session"), process.env.OPENROUTER_TEST_KEY);
+    aiResponseMode = "live";
+    await page.getByRole("button", { name: "Regenerate summary" }).click();
+    await page.waitForFunction(() => ["success", "error"].includes(document.querySelector(".story-summary")?.dataset.status), null, { timeout: 125000 });
+    const liveStatus = await page.locator(".story-summary").getAttribute("data-status");
+    const liveText = await page.locator(".story-summary-body").textContent();
+    await extensionWorker.evaluate((key) => saveAiKey(key, "persistent"), testApiKey);
+    assert.equal(liveStatus, "success", "live OpenRouter request failed: " + liveText);
+    assert.ok(liveText.trim().length > 0, "live summary should contain text");
+    console.log(JSON.stringify({ liveOpenRouter: "passed", model: "openrouter/free", summaryCharacters: liveText.length }));
+  }
+  const requestsBeforeReload = aiRequests;
+  aiResponseMode = "stream";
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".thread-title").waitFor({ state: "visible" });
+  assert.equal(aiRequests, requestsBeforeReload, "auto-summary should stay off by default after reload");
+  const openAiSettings = async () => {
+    await page.locator(".feed-toolbar-actions .icon-button").last().click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.locator(".settings-overlay").waitFor({ state: "visible" });
+  };
+  await openAiSettings();
+  assert.equal(await page.locator(".ai-settings-section textarea").inputValue(), openRouterPayload.messages[0].content, "AI settings should survive reload");
+  await page.locator(".setting-row").filter({ hasText: "Automatically summarize articles" }).locator('input[type="checkbox"]').check();
+  await extensionWorker.evaluate(async () => {
+    while (!(await chrome.storage.sync.get("harmonicSettings")).harmonicSettings.aiAutoSummarize) await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "success");
+  assert.ok(aiRequests > requestsBeforeReload, "enabled auto-summary should start after reload");
+  await openAiSettings();
+  await page.locator(".setting-row").filter({ hasText: "Automatically summarize articles" }).locator('input[type="checkbox"]').uncheck();
+  await page.locator(".settings-header .icon-button").click();
+  const credentialPage = await context.newPage();
+  await credentialPage.goto(`chrome-extension://${extensionId}/ai-settings.html`);
+  await credentialPage.locator("#clear").click();
+  await credentialPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("cleared"));
+  await credentialPage.close();
+  await page.getByRole("button", { name: "Regenerate summary" }).click();
+  await page.locator(".settings-overlay").waitFor({ state: "visible" });
+  assert.ok((await page.locator(".ai-key-status").textContent()).includes("Not set"), "missing key should direct users to setup");
+  await page.locator(".settings-header .icon-button").click();
+  await extensionWorker.evaluate((key) => saveAiKey(key, "session"), testApiKey);
+  assert.equal(await extensionWorker.evaluate(async () => (await chrome.storage.local.get("harmonicAiApiKey")).harmonicAiApiKey), undefined, "session keys must not remain on disk");
+
   await context.unroute(summaryArticleUrl);
   await context.unroute("https://openrouter.ai/api/v1/chat/completions");
 
