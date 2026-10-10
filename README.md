@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.11.0**.
+The current extension version is **0.12.0**.
 
-Version 0.11.0 brings your account data inside Harmonic: **a user profile panel for anyone on Hacker News, your own Threads/Upvoted/Favorites/Submissions/Hidden lists from the account chip, and public lists (submissions, comments, favorites) for other users**. The panel is backed by the public Firebase user API — karma, member-since, a sanitized about text, and clickable recent items — while the `/user` HTML page itself is never fetched (SEC-05, enforced by a path allowlist and a test tripwire). List views paginate through HN's morelinks with dedupe, render Threads rows from Algolia, and clear the session cleanly when HN answers with a login page. It builds on the submission flow of 0.10.0, the composer of 0.9.0, and the chip and voting of 0.8.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.12.0 is reading parity, part one: **every public Hacker News list becomes a Harmonic feed** — Pool, Active Discussions, Best Comments, Launch HN, Who is Hiring, Newcomer Stories, Classic, and Past Frontpages with a date picker — plus a Manage feeds dialog (hide and reorder the menu), real feed filtering (hidden domains and title keywords, hide jobs, hide read stories, per-card "Hide this domain"), hotness-colored and compact scores, a show-domain toggle, and a favicon provider choice with an honest privacy note. It builds on the profiles and lists of 0.11.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Account actions and voting
 
@@ -73,6 +73,9 @@ Supported feeds:
 The feed includes:
 
 - Harmonic-style tinted cards
+- every public list as a feed: Pool, Active Discussions, Best Comments, Launch HN, Who is Hiring, Newcomer Stories, Classic, and Past Frontpages (date picker) — plus a Manage feeds dialog to hide and reorder them
+- feed filters: hidden domains (also via a per-card menu entry), hidden title keywords, hide jobs, hide read stories
+- hotness-colored and compact scores, optional domain line, favicon provider choice (Google, DuckDuckGo, or direct)
 - OpenGraph preview images when a page exposes one
 - source favicons
 - score, source domain, age, and comment count
@@ -422,6 +425,18 @@ Run the profiles-and-lists suite (Firebase-backed user panels with a hostile-abo
 npm run test:profile
 ```
 
+Run the feed-parity suite (parity list feeds from parsed public pages, Best Comments rows, the front date picker, manage-feeds hide/reorder, domain/keyword/job/read filters, compact + hotness scores, show-domain, and the favicon provider switch):
+
+```bash
+npm run test:parity
+```
+
+Run the live smoke test against the real site (opt-in: set `HN_LIVE=1 HN_USER=… HN_PASS=…`; credentials are read from the environment only and never stored. Only reversible actions run — one upvote/unvote and one favorite/unfavorite pair — and Hacker News's own anti-automation wall is respected, so run it from your own machine rather than a datacenter):
+
+```bash
+HN_LIVE=1 HN_USER=you HN_PASS='…' npm run test:live
+```
+
 `test:voting` asserts the chip per session state, the allowlisted `goto` login hand-off (including a query-reflection probe), the full account menu, fetch-based logout with reload, exact `how=up`/`how=un`/`how=down` request shapes with the UI state they produce (active classes, point deltas, card badges), downvote availability gated on the served document, SEC-30 refusal of scripted clicks, double-expiry and rate-limit rollback with toasts, and poll-option voting — no Hacker News credentials are needed or used.
 
 The suite verifies the areas that have historically regressed, including:
@@ -593,8 +608,10 @@ User-visible behavior changes should be written for extension users rather than 
 - ~~Phase 3 (0.9.0): in-Harmonic commenting with drafts (reply composer, edit/delete own comments)~~ — shipped
 - ~~Phase 4+5 (0.10.0): favorites, hide-with-undo, flag confirmation, and the story-submission flow~~ — shipped
 - ~~Phase 6 (0.11.0): user profile panel and own-list browsing (threads/upvoted/favorites/submissions/hidden) plus public lists for other users~~ — shipped
-- Phase 7 (0.12.x): reading-parity extras (more lists, feed filters, avatars, user tags, blocked users)
-- Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts
+- ~~Phase 7 part 1 (0.12.0): parity list feeds, frontpage management, feed filters, score display, favicon provider~~ — shipped
+- Phase 7 part 2 (0.12.1): comment parity — new-comment markers, OP highlight, in-thread search, avatars, user tags, blocked users, bookmark import/export
+- Phase 7 part 3 (0.12.2): links and appearance — archive action, rich link previews, themes
+- ~~Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts~~ — skipped by request
 - closer parity for additional Harmonic story-card layout modes
 - mobile/narrow-browser navigation polish
 - additional regression screenshots at common laptop widths

@@ -1,6 +1,6 @@
 {
   "name": "harmonic-hn-browser",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "test:comments": "node tests/comments.mjs",
     "test:actions": "node tests/actions.mjs",
     "test:profile": "node tests/profile.mjs",
+    "test:parity": "node tests/parity.mjs",
     "test:live": "node tests/live.mjs",
     "test:lists": "node tests/lists.mjs",
     "package": "bash scripts/package.sh"

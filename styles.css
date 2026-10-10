@@ -1666,3 +1666,44 @@ html.harmonic-hn *{box-sizing:border-box}
 .thread-list-text p{margin:0 0 6px}
 .thread-list-text p:last-child{margin-bottom:0}
 .thread-list-text blockquote{margin:6px 0;padding:2px 10px;border-left:2px solid #36353e;color:#a8a6b0}
+
+/* Phase 7 (0.12.0): feed parity */
+.harmonic-app[data-show-domain="false"] .meta-domain,
+.harmonic-app[data-show-domain="false"] .meta-domain + .meta-dot{display:none}
+.harmonic-app[data-compact-points="true"] .meta-points{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.meta-points.hotness-hot{color:#e8907a}
+.meta-points.hotness-warm{color:#e0b97a}
+.meta-points.hotness-cool{color:#8f8e98}
+.feed-date-input{
+  background:#26252d;border:1px solid #36353e;border-radius:8px;color:#d6d4dd;
+  font:inherit;font-size:12.5px;padding:5px 8px;color-scheme:dark;
+}
+.feed-date-input[hidden]{display:none}
+.harmonic-body .feed-date-input{background:#f6f6ef;border-color:#cfc9ba;color:#3b3b3b}
+.feeds-overlay{
+  position:fixed;inset:0;background:rgba(10,9,13,.62);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;z-index:120;
+}
+.feeds-panel{
+  width:min(430px,92vw);max-height:80vh;overflow:auto;background:#1d1c22;
+  border:1px solid #36353e;border-radius:14px;padding:16px 18px;
+}
+.harmonic-body .feeds-panel{background:#fff;border-color:#d8d3c6}
+.feeds-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.feeds-header h2{margin:0;font-size:17px;color:#efedf2}
+.harmonic-body .feeds-header h2{color:#2b2a30}
+.feeds-note{margin:4px 0 12px;font-size:12px;color:#8f8e98}
+.feeds-row{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid #2a2931}
+.harmonic-body .feeds-row{border-bottom-color:#e4e0d4}
+.feeds-row-hidden .feeds-label{opacity:.5}
+.feeds-label{flex:1;font-size:13.5px;color:#d6d4dd}
+.harmonic-body .feeds-label{color:#3b3b3b}
+.feeds-check{width:15px;height:15px;accent-color:#e0b97a}
+.feeds-move{
+  width:26px;height:26px;border-radius:7px;border:1px solid #36353e;background:transparent;
+  color:#8f8e98;font-size:13px;line-height:1;cursor:pointer;
+}
+.feeds-move:hover:not(:disabled){color:#efedf2;border-color:#4a4a55}
+.feeds-move:disabled{opacity:.35;cursor:default}
+.harmonic-body .feeds-move{border-color:#d8d3c6;color:#7a766b}
+.harmonic-body .feeds-move:hover:not(:disabled){color:#2b2a30}

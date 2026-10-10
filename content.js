@@ -13,7 +13,18 @@
     ask: { path: "/ask", label: "Ask HN", endpoint: "askstories" },
     show: { path: "/show", label: "Show HN", endpoint: "showstories" },
     jobs: { path: "/jobs", label: "Jobs", endpoint: "jobstories" },
+    // Phase 7 (0.12.0): reading-parity lists without Firebase endpoints —
+    // parsed from public Hacker News list pages through the rate-limited queue.
+    pool: { path: "/pool", label: "Pool", listPath: "/pool" },
+    active: { path: "/active", label: "Active Discussions", listPath: "/active" },
+    bestcomments: { path: "/bestcomments", label: "Best Comments", listPath: "/bestcomments", kind: "comments" },
+    launches: { path: "/launches", label: "Launch HN", listPath: "/launches" },
+    whoishiring: { path: "/whoishiring", label: "Who is Hiring", listPath: "/whoishiring" },
+    noobstories: { path: "/noobstories", label: "Newcomer Stories", listPath: "/noobstories" },
+    classic: { path: "/classic", label: "Classic", listPath: "/classic" },
+    front: { path: "/front", label: "Past Frontpages", dayBased: true },
   };
+  const FEED_ORDER_DEFAULT = ["top", "new", "best", "ask", "show", "jobs", "pool", "active", "bestcomments", "launches", "whoishiring", "noobstories", "classic", "front"];
   const PATH_TO_FEED = Object.fromEntries(Object.entries(FEEDS).map(([key, value]) => [value.path, key]));
   PATH_TO_FEED["/"] = "top";
 
@@ -42,6 +53,18 @@
     aiSystemPrompt: "You are a helpful assistant that is an expert on summarizing articles into an information-dense, concise and brief bullet-point list. Focus on key takeaways and most important/note-worthy points in the article. Keep the summary under 500 characters where possible. Respond in markdown format. Respond with only the summarized content - nothing else before or after.",
     aiStreamResponses: true,
     aiAutoSummarize: false,
+    // Phase 7 (0.12.0): feed parity
+    showDomain: true,
+    compactPoints: false,
+    hotnessColors: true,
+    hideJobs: false,
+    hideRead: false,
+    hiddenDomains: "",
+    hiddenKeywords: "",
+    feedOrder: [],
+    feedHidden: [],
+    frontDate: "",
+    faviconProvider: "google",
   };
 
   const ICONS = {
@@ -408,11 +431,18 @@
     if (!story?.url) return null;
     try {
       const host = new URL(story.url).hostname;
-      return safeImageSrc("https://www.google.com/s2/favicons?domain=" + encodeURIComponent(host) + "&sz=128");
+      const provider = state.settings.faviconProvider || "google";
+      const url = provider === "duckduckgo"
+        ? "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico"
+        : provider === "direct"
+          ? "https://" + host + "/favicon.ico"
+          : "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(host) + "&sz=128";
+      return safeImageSrc(url);
     } catch { return null; }
   };
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
+  let frontDateInput;
   let searchPanel, searchFilters, searchRecent, searchChips;
   let accountChip;
 
@@ -431,6 +461,9 @@
     app.dataset.continuousRails = String(state.settings.continuousRails);
     app.dataset.headerTint = String(state.settings.headerTint);
     app.dataset.headerImage = String(state.settings.headerImage);
+    app.dataset.compactPoints = String(state.settings.compactPoints);
+    app.dataset.showDomain = String(state.settings.showDomain !== false);
+    if (state.search.mode === "loaded") filterStories();
     const contentScale = Math.max(0.75, Math.min(1.25, Number(state.settings.contentScale || 100) / 100));
     const storySetting = Number(state.settings.storyTextSize || 17.5);
     const storyScale = storySetting / 17.5;
@@ -484,6 +517,16 @@
     feedTitle = el("span", "feed-title", FEEDS[state.feed].label);
     titleButton.append(feedTitle, svg("chevron", "feed-chevron"));
     titleButton.addEventListener("click", (event) => openFeedMenu(event.currentTarget));
+    // Phase 7: date picker for the Past Frontpages feed.
+    frontDateInput = el("input", "feed-date-input");
+    frontDateInput.type = "date";
+    frontDateInput.value = validFrontDate(state.settings.frontDate) || frontDayOffset(1);
+    frontDateInput.max = frontDayOffset(0);
+    frontDateInput.addEventListener("change", async () => {
+      state.settings.frontDate = validFrontDate(frontDateInput.value) ? frontDateInput.value : "";
+      await saveSettings();
+      refreshFeed();
+    });
 
     const actions = el("div", "feed-toolbar-actions");
     const searchButton = button("search", "Search");
@@ -505,7 +548,7 @@
       openAccountMenu(event.currentTarget);
     });
     actions.append(searchButton, refreshButton, newPostButton, moreButton, accountChip);
-    row.append(titleButton, actions);
+    row.append(titleButton, frontDateInput, actions);
     updateAccountChip();
 
     updatedLabel = el("div", "last-updated", "Last updated: " + formatTime(state.updatedAt));
@@ -1935,10 +1978,12 @@ function closeComposer({ keepDraft = true } = {}) {
 }
 
 function openFeedMenu(anchor) {
-    openPopup(anchor, Object.entries(FEEDS).map(([key, feed]) => ({
-      label: feed.label,
+    const entries = visibleFeeds().map((key) => ({
+      label: FEEDS[key].label + (state.feed === key ? "  ✓" : ""),
       action: () => switchFeed(key),
-    })));
+    }));
+    entries.push({ label: "Manage feeds", icon: "settings", action: openManageFeeds });
+    openPopup(anchor, entries);
   }
 
   function openOriginalHackerNews(path) {
@@ -2048,12 +2093,28 @@ function openFeedMenu(anchor) {
     }
   }
 
+  function parseListSetting(value) {
+    return String(value || "")
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
   function filterStories() {
     if (state.search.mode !== "loaded") return;
     const q = searchInput.value.trim().toLowerCase();
+    const domains = parseListSetting(state.settings.hiddenDomains);
+    const keywords = parseListSetting(state.settings.hiddenKeywords);
+    const hideJobs = state.settings.hideJobs && state.feed !== "jobs";
+    const hideRead = state.settings.hideRead;
     document.querySelectorAll(".story-card").forEach((card) => {
       const hay = (card.dataset.search || "").toLowerCase();
-      card.hidden = Boolean(q) && !hay.includes(q);
+      let hidden = Boolean(q) && !hay.includes(q);
+      if (!hidden && domains.length) hidden = domains.some((entry) => (card.dataset.domain || "").endsWith(entry));
+      if (!hidden && keywords.length) hidden = keywords.some((entry) => hay.includes(entry));
+      if (!hidden && hideJobs && card.dataset.type === "job") hidden = true;
+      if (!hidden && hideRead && card.classList.contains("is-read")) hidden = true;
+      card.hidden = hidden;
     });
   }
 
@@ -2294,17 +2355,44 @@ function openFeedMenu(anchor) {
     const favUrl = faviconUrl(story);
     if (favUrl) fav.src = favUrl;
     fav.alt = "";
-    const points = el("span", "meta-points", compact(story.score) + " points");
+    const points = el("span", "meta-points", compact(story.score) + (state.settings.compactPoints ? "" : " points"));
+    if (state.settings.hotnessColors) points.classList.add("hotness-" + hotnessClass(story));
     const domain = el("span", "meta-domain", domainOf(story.url));
     const age = el("span", "meta-age", relativeTime(story.time));
-    meta.append(fav, points, el("span", "meta-dot", "•"), domain, el("span", "meta-dot", "•"), age);
+    meta.append(fav, points, el("span", "meta-dot", "•"));
+    if (state.settings.showDomain !== false) meta.append(domain, el("span", "meta-dot", "•"));
+    meta.append(age);
     return meta;
+  }
+
+  // Phase 7: score-per-hour "hotness" — hot / warm / cool classes for CSS.
+  function hotnessClass(story) {
+    const score = Number(story.score) || 0;
+    const hours = Math.max(1, (Date.now() / 1000 - (Number(story.time) || 0)) / 3600);
+    const perHour = score / hours;
+    if (perHour >= 15) return "hot";
+    if (perHour >= 3) return "warm";
+    return "cool";
+  }
+
+  async function hideDomain(story) {
+    const domain = domainOf(story.url);
+    if (!domain) return;
+    const current = parseListSetting(state.settings.hiddenDomains);
+    if (!current.includes(domain.toLowerCase())) {
+      state.settings.hiddenDomains = [...current, domain.toLowerCase()].join(", ");
+      await saveSettings();
+    }
+    filterStories();
+    showToast("Hiding " + domain);
   }
 
   function createStoryCard(story, index) {
     const card = el("article", "story-card");
     card.dataset.storyId = String(story.id);
     card.dataset.search = (story.title || "") + " " + domainOf(story.url);
+    card.dataset.domain = domainOf(story.url);
+    card.dataset.type = story.type || "story";
     card.style.setProperty("--fallback-tint", hashTint(domainOf(story.url)));
     if (state.readIds.has(story.id)) card.classList.add("is-read");
     if (state.selectedId === story.id) card.classList.add("selected");
@@ -2337,6 +2425,7 @@ function openFeedMenu(anchor) {
         ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(articleHref(story), "_blank", "noopener") }] : []),
         { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
         ...(window.HarmonicHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => hideFromFeed(e, story.id) }] : []),
+        ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => hideDomain(story) }] : []),
         { label: state.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => toggleBookmark(story.id) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
       ]);
@@ -2483,7 +2572,116 @@ function openFeedMenu(anchor) {
     }
   }
 
-  async function refreshFeed() {
+  // ---------------------------------------------------------------------------
+// Phase 7 (0.12.0): feed parity helpers
+// ---------------------------------------------------------------------------
+
+function frontDayOffset(days) {
+  const date = new Date(Date.now() - days * 86400000);
+  return date.toISOString().slice(0, 10);
+}
+
+function validFrontDate(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+// Parity-list feeds have no Firebase id list; pull ids from public HN list
+// pages through the queue. Two pages are enough for a comfortable feed.
+async function fetchListFeedIds(listPath) {
+  const first = await window.HarmonicHN.fetchListPage(listPath);
+  if (first.status !== "ok") {
+    const error = new Error(first.message || "Hacker News did not return the list");
+    error.status = first.status;
+    throw error;
+  }
+  const ids = [...first.ids];
+  if (first.morePath && first.ids.length < FEED_BATCH_SIZE) {
+    const second = await window.HarmonicHN.fetchListPage(first.morePath);
+    if (second.status === "ok") for (const id of second.ids) if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+function visibleFeeds() {
+  const order = (Array.isArray(state.settings.feedOrder) ? state.settings.feedOrder : [])
+    .filter((key) => FEEDS[key]);
+  const hidden = new Set((Array.isArray(state.settings.feedHidden) ? state.settings.feedHidden : []).filter((key) => FEEDS[key]));
+  const ordered = [...order, ...FEED_ORDER_DEFAULT.filter((key) => !order.includes(key))];
+  return ordered.filter((key) => !hidden.has(key));
+}
+
+function syncFrontDateInput() {
+  if (!frontDateInput) return;
+  const show = FEEDS[state.feed]?.dayBased;
+  frontDateInput.hidden = !show;
+  if (show) frontDateInput.value = validFrontDate(state.settings.frontDate) || frontDayOffset(1);
+}
+
+function openManageFeeds() {
+  document.querySelector(".feeds-overlay")?.remove();
+  const overlay = el("div", "feeds-overlay");
+  const panel = el("section", "feeds-panel");
+  const header = el("header", "feeds-header");
+  header.append(el("h2", "", "Manage frontpages"), el("p", "feeds-note", "Reorder the feed menu and hide the lists you never read. Settings stay local to this profile."));
+  const close = button("close", "Close");
+  close.type = "button";
+  close.addEventListener("click", () => overlay.remove());
+  header.appendChild(close);
+  panel.appendChild(header);
+
+  const save = async (order, hidden) => {
+    state.settings.feedOrder = order;
+    state.settings.feedHidden = hidden;
+    await saveSettings();
+  };
+
+  const renderRows = () => {
+    panel.querySelectorAll(".feeds-row").forEach((node) => node.remove());
+    const hidden = new Set(state.settings.feedHidden || []);
+    const order = (state.settings.feedOrder || []).filter((key) => FEEDS[key]);
+    const all = [...order, ...FEED_ORDER_DEFAULT.filter((key) => !order.includes(key))];
+    all.forEach((key, index) => {
+      const row = el("div", "feeds-row" + (hidden.has(key) ? " feeds-row-hidden" : ""));
+      const check = el("input", "feeds-check");
+      check.type = "checkbox";
+      check.checked = !hidden.has(key);
+      check.addEventListener("change", () => {
+        const nextHidden = new Set(state.settings.feedHidden || []);
+        if (check.checked) nextHidden.delete(key); else nextHidden.add(key);
+        save(state.settings.feedOrder || [], [...nextHidden]).then(renderRows);
+      });
+      const label = el("span", "feeds-label", FEEDS[key].label);
+      const up = el("button", "feeds-move", "↑");
+      up.type = "button";
+      up.setAttribute("aria-label", "Move " + FEEDS[key].label + " up");
+      up.disabled = index === 0;
+      up.addEventListener("click", () => {
+        const list = [...all];
+        [list[index - 1], list[index]] = [list[index], list[index - 1]];
+        save(list, state.settings.feedHidden || []).then(renderRows);
+      });
+      const down = el("button", "feeds-move", "↓");
+      down.type = "button";
+      down.setAttribute("aria-label", "Move " + FEEDS[key].label + " down");
+      down.disabled = index === all.length - 1;
+      down.addEventListener("click", () => {
+        const list = [...all];
+        [list[index + 1], list[index]] = [list[index], list[index + 1]];
+        save(list, state.settings.feedHidden || []).then(renderRows);
+      });
+      row.append(check, label, up, down);
+      panel.appendChild(row);
+    });
+  };
+  renderRows();
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+}
+
+async function refreshFeed() {
     abortSearch();
     state.search.active = false;
     // A manual refresh closes an open account list view and rebuilds the feed.
@@ -2495,8 +2693,18 @@ function openFeedMenu(anchor) {
     state.hasMoreStories = true;
     storyList.replaceChildren(createLoading("Loading stories…"));
     const key = state.feed;
+    const feed = FEEDS[key];
+    syncFrontDateInput();
     try {
-      const ids = await fetchJson(HN_API + "/" + FEEDS[key].endpoint + ".json");
+      // Phase 7: parity lists have no Firebase endpoint — their ids come from
+      // public HN list pages fetched through the rate-limited queue (SEC-05
+      // allowlist applies). Past frontpages add the day parameter.
+      const listPath = feed.dayBased
+        ? "/front?day=" + encodeURIComponent(validFrontDate(state.settings.frontDate) || frontDayOffset(1))
+        : feed.listPath;
+      const ids = feed.endpoint
+        ? await fetchJson(HN_API + "/" + feed.endpoint + ".json")
+        : await fetchListFeedIds(listPath);
       if (generation !== state.feedGeneration) return;
       state.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
       const batchIds = state.feedIds.slice(0, FEED_BATCH_SIZE);
@@ -2504,16 +2712,24 @@ function openFeedMenu(anchor) {
       const stories = await fetchItems(batchIds);
       if (generation !== state.feedGeneration) return;
       state.stories = stories;
-      state.hasMoreStories = state.feedCursor < state.feedIds.length;
+      // Parity lists have no reliable "more" cursor; everything fetched is shown.
+      state.hasMoreStories = feed.endpoint ? state.feedCursor < state.feedIds.length : false;
       state.updatedAt = new Date();
       updatedLabel.textContent = "Last updated: " + formatTime(state.updatedAt);
       storyList.replaceChildren();
-      stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, index)));
-      filterStories();
+      if (feed.kind === "comments") {
+        // Best-comments style feeds: comment rows with story context (Algolia).
+        const rows = await Promise.all(batchIds.map((id) => renderThreadListItem(id)));
+        if (generation !== state.feedGeneration) return;
+        rows.forEach((row, index) => row && storyList.appendChild(row));
+      } else {
+        stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, index)));
+        filterStories();
+      }
       if (state.selectedId) {
         const match = stories.find((story) => story.id === state.selectedId);
         if (match) state.selectedStory = match;
-      } else if (stories[0] && window.innerWidth >= 900) {
+      } else if (stories[0] && window.innerWidth >= 900 && feed.kind !== "comments") {
         selectStory(stories[0], false, false);
       }
     } catch (error) {
@@ -3305,6 +3521,7 @@ function openFeedMenu(anchor) {
     input.addEventListener("change", async () => {
       state.settings[key] = input.value.trim();
       await saveSettings();
+      if (key === "hiddenDomains" || key === "hiddenKeywords") filterStories();
     });
     row.append(text, input);
     return row;
@@ -3350,6 +3567,15 @@ function openFeedMenu(anchor) {
       settingToggle("Comment count", "showComments", "Show the large comments control"),
       settingToggle("Story number", "showIndex", "Show story position in the feed"),
       settingToggle("Dim read stories", "dimRead", "Fade stories after opening them"),
+      settingToggle("Hotness colors", "hotnessColors", "Color scores by how fast a story is moving"),
+      settingToggle("Compact points", "compactPoints", "Show abbreviated scores without the word points"),
+      settingToggle("Show domain", "showDomain", "Show the story's source domain in the metadata"),
+      settingToggle("Hide jobs", "hideJobs", "Filter job stories out of every feed"),
+      settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
+      settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
+      settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
+      settingSelect("Favicon provider", "faviconProvider", [["google", "Google (default)"], ["duckduckgo", "DuckDuckGo"], ["direct", "Direct from the site"]]),
+      el("p", "settings-note", "Favicon providers receive the story's hostname to fetch an icon. Direct requests go to the site itself; Google and DuckDuckGo see the hostname only. Nothing else about you is sent."),
       settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
       settingSlider("Content zoom", "contentScale", 75, 125, 5, "%")
     );

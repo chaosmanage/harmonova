@@ -9,6 +9,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.12.0] - 2026-10-10
+
+The reading-parity release, part one: every public Hacker News list becomes a feed — plus frontpage management, real feed filtering, and smarter score display — all without login.
+
+### Added
+
+- **Parity lists as feeds.** The feed menu gains Pool, Active Discussions, Best Comments, Launch HN, Who is Hiring, Newcomer Stories, Classic, and Past Frontpages. Lists without Firebase endpoints are parsed from public Hacker News list pages through the rate-limited queue (`fetchListFeedIds`, two pages, deduped; SEC-05 allowlist still applies). Best Comments renders the threads-style comment rows with story context (Algolia), and a row click opens its discussion.
+- **Past Frontpages with a date picker.** The front feed shows a date input in the toolbar (defaulted to yesterday, capped at today); picking a day refetches `front?day=YYYY-MM-DD` through the queue.
+- **Manage frontpages.** The feed menu gains a "Manage feeds" dialog: every list can be hidden from the menu and reordered with arrow buttons; order and visibility persist in synced settings and the menu rebuilds live.
+- **Feed filtering.** Hidden-domain and hidden-keyword filters (comma-separated, case-insensitive, edited in Settings), a per-card "Hide this domain" menu entry, Hide jobs (job stories filtered from every feed except the Jobs feed itself), and Hide read stories (opened stories filtered until the toggle is off). All filters compose with the existing search filter and re-apply live as settings change.
+- **Points display.** Hotness coloring (score-per-hour heuristic: hot/warm/cool classes), a Compact points toggle (abbreviated score without the unit), and a Show domain toggle for the card metadata line.
+- **Favicon provider choice.** Google (default), DuckDuckGo, or direct from the site — with a Settings privacy note explaining exactly what each provider receives (the hostname only; nothing else about you is sent).
+
+### Changed
+
+- `filterStories` now composes search, domains, keywords, job and read filtering over per-card `data-domain`/`data-type` attributes and re-runs whenever display settings change.
+- `refreshFeed` understands `listPath` feeds and a comments-kind feed, suspends the Firebase batch pipeline for them, and marks them non-paginating (everything fetched is shown).
+- The parity-list segments were already on `hn-session.js`'s SEC-05 allowlist; this release is the first to use them.
+
+### Tests
+
+- **`tests/parity.mjs` — the 0.12.0 UI suite (12 tests),** `npm run test:parity`: active/pool/… list feeds rendering cards from parsed list pages; Best Comments rows opening discussions; the front date picker requesting the picked day; manage-feeds hiding and reordering the menu; domain filter + card-menu domain hiding; keyword filter; hide-jobs everywhere except the Jobs feed; hide-read; compact points + hotness classes; show-domain; and the favicon provider switch. The suite clears synced settings between tests so they never leak into each other.
+
 ## [0.11.0] - 2026-10-10
 
 The profiles-and-lists release: your Hacker News account data lives inside Harmonic — a Firebase-backed user panel for anyone, your own Threads/Upvoted/Favorites/Submissions/Hidden lists from the account chip, and public lists for other users — with the profile page itself strictly off-limits (SEC-05).
