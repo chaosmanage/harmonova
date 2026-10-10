@@ -1197,3 +1197,170 @@ html.harmonic-hn *{box-sizing:border-box}
 }
 .story-card{position:relative}
 .story-card.voted .story-voted-badge{display:block}
+
+/* ---------------------------------------------------------------------------
+   Phase 3: composer (reply/edit) + confirm dialog
+--------------------------------------------------------------------------- */
+.composer{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin:4px 0 14px;
+  padding:12px 14px;
+  border:1px solid #2d2d34;
+  border-radius:14px;
+  background:#18181c;
+}
+.composer-header{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.composer-identity{
+  flex:1;
+  color:#b8d8bd;
+  font-size:12.5px;
+  font-weight:700;
+}
+.composer-chars{
+  color:#8f8e98;
+  font-size:11.5px;
+  white-space:nowrap;
+}
+.composer-close{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:26px;
+  height:26px;
+  padding:0;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:#8f8e98;
+  cursor:pointer;
+  flex:none;
+}
+.composer-close svg{width:13px;height:13px}
+.composer-close:hover{color:#efedf2;background:#22222a}
+.composer-input{
+  width:100%;
+  box-sizing:border-box;
+  min-height:96px;
+  max-height:420px;
+  padding:10px 12px;
+  border:1px solid #2d2d34;
+  border-radius:10px;
+  background:#141419;
+  color:#efedf2;
+  font:inherit;
+  font-size:15px;
+  line-height:1.5;
+  resize:vertical;
+}
+.composer-input:focus{outline:none;border-color:#4a4a55}
+.composer-preview{
+  padding:10px 12px;
+  border:1px dashed #2d2d34;
+  border-radius:10px;
+  background:#141419;
+  color:#d6d4dd;
+  font-size:14.5px;
+  line-height:1.55;
+}
+.composer-preview-empty{color:#8f8e98;font-size:13px}
+.composer-preview code{font-family:ui-monospace,monospace;color:#e0b97a}
+.composer-status{
+  color:#9fb7a2;
+  font-size:12.5px;
+  line-height:1.5;
+}
+.composer-status.error{color:#e2a08a}
+.composer-hn-open{
+  margin-top:6px;
+  padding:6px 12px;
+  border:1px solid #2d2d34;
+  border-radius:999px;
+  background:transparent;
+  color:#d6d4dd;
+  font-size:12.5px;
+  font-weight:600;
+  cursor:pointer;
+}
+.composer-hn-open:hover{color:#efedf2;border-color:#4a4a55}
+.composer-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.composer-spacer{flex:1}
+.composer-secondary{
+  padding:7px 13px;
+  border:1px solid #2d2d34;
+  border-radius:999px;
+  background:transparent;
+  color:#a8a6b0;
+  font-size:12.5px;
+  font-weight:600;
+  cursor:pointer;
+}
+.composer-secondary:hover{color:#efedf2;border-color:#4a4a55}
+.composer-submit{
+  padding:8px 16px;
+  border:none;
+  border-radius:999px;
+  background:#e08c3f;
+  color:#1c130a;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+}
+.composer-submit:hover{background:#eb9c55}
+.composer-submit:disabled{opacity:.55;cursor:default}
+.composer-footnote{
+  color:#6d6c76;
+  font-size:11px;
+}
+.harmonic-confirm-overlay{
+  position:fixed;
+  inset:0;
+  z-index:100000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(10,10,14,.62);
+}
+.harmonic-confirm{
+  width:min(430px,calc(100vw - 48px));
+  padding:20px 22px;
+  border:1px solid #2d2d34;
+  border-radius:16px;
+  background:#1c1c22;
+  box-shadow:0 18px 50px rgba(0,0,0,.5);
+}
+.harmonic-confirm h3{margin:0 0 8px;font-size:17px;color:#efedf2}
+.harmonic-confirm-message{margin:0 0 16px;color:#a8a6b0;font-size:13.5px;line-height:1.55}
+.harmonic-confirm-actions{display:flex;justify-content:flex-end;gap:10px}
+.harmonic-confirm-cancel{
+  padding:8px 16px;
+  border:1px solid #2d2d34;
+  border-radius:999px;
+  background:transparent;
+  color:#a8a6b0;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+}
+.harmonic-confirm-cancel:hover{color:#efedf2;border-color:#4a4a55}
+.harmonic-confirm-confirm{
+  padding:8px 16px;
+  border:none;
+  border-radius:999px;
+  background:#e08c3f;
+  color:#1c130a;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+}
+.harmonic-confirm-confirm.danger{background:#d4674f;color:#fff}
+.harmonic-confirm-confirm.danger:hover{background:#e07a60}

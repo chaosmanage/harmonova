@@ -61,6 +61,8 @@
     settings: '<path d="M19.4 13a7.7 7.7 0 000-2l2-1.5-2-3.4-2.4 1a7 7 0 00-1.8-1L15 3.5h-4L10.6 6a7 7 0 00-1.8 1l-2.4-1-2 3.4 2 1.5a7.7 7.7 0 000 2l-2 1.5 2 3.4 2.4-1a7 7 0 001.8 1l.4 2.5h4l.4-2.5a7 7 0 001.8-1l2.4 1 2-3.4-2-1.5zM13 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"/>',
     refresh: '<path d="M12 20a8 8 0 1 1 5.65-13.65L20 4v7h-7l2.65-2.65A5.15 5.15 0 1 0 17.05 14h2.2A7.35 7.35 0 0 1 12 20z"/>',
     power: '<path d="M11 3h2v9h-2V3zm5.66 2.34 1.42-1.42A9 9 0 1 1 5.92 3.92l1.42 1.42A7 7 0 1 0 16.66 5.34z"/>',
+    edit: '<path d="M3 17.2V21h3.8L18.5 9.3l-3.8-3.8L3 17.2zM20.7 6.1c.4-.4.4-1 0-1.4l-2.4-2.4c-.4-.4-1-.4-1.4 0l-1.9 1.9 3.8 3.8 1.9-1.9z"/>',
+    trash: '<path d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-.8 12H6.8L6 9z"/>',
     close: '<path d="M6.4 5L12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5z"/>',
     external: '<path d="M13 4h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4zM5 6h6v2H7v9h9v-4h2v6H5V6z"/>',
   };
@@ -134,6 +136,7 @@
     feedVotes: new Map(), // story id -> "up" | "down" (seen on the feed document)
     pollOptions: null, // [{id, text, points}] for the currently open poll
     pollOptionsRenderedKey: "", // guards poll re-renders from stomping in-flight votes
+    composer: null, // open reply/edit composer { parentId, mode, handle, node, textarea, status, submitting }
     sessionToastReady: false, // suppress "Signed in as…" toast during startup harvest
   };
 
@@ -705,6 +708,7 @@ async function performLogout() {
     showToast(outcome?.message || "Sign-out needs Hacker News");
     return;
   }
+  draftClearAll(); // drafts are keyed by username; signing out clears them all
   state.feedVotes.clear();
   state.itemState = null;
   state.pollOptions = null;
@@ -964,6 +968,278 @@ function updateFeedVoteBadges() {
     if (!Number.isInteger(id) || id <= 0) continue;
     applyCardVotedState(card, id);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: composer (replies + edits) and drafts
+// ---------------------------------------------------------------------------
+
+// Drafts live in chrome.storage.session via the background worker (SEC-50):
+// keyed by acting username + parent item, ≤20 KB each, ≤50 entries, cleared on
+// logout and after a successful post. They never touch disk or sync.
+const draftGet = (parentId) =>
+  new Promise((resolve) => {
+    const session = window.HarmonicHN?.session?.();
+    chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_GET", parentId, username: session?.username || "" }, (response) => {
+      resolve(chrome.runtime.lastError ? "" : response?.ok ? response.text || "" : "");
+    });
+  });
+const draftSet = (parentId, text) => {
+  const session = window.HarmonicHN?.session?.();
+  chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_SET", parentId, username: session?.username || "", text }, () => {});
+};
+const draftClear = (parentId) => {
+  const session = window.HarmonicHN?.session?.();
+  chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_CLEAR", parentId, username: session?.username || "" }, () => {});
+};
+const draftClearAll = () => chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_CLEAR_ALL" }, () => {});
+
+// SEC-36: destructive actions (delete comment) run only behind a real
+// confirmation dialog with a Cancel button.
+function openConfirmDialog({ title, message, confirmLabel = "Confirm", danger = false, onConfirm }) {
+  document.querySelector(".harmonic-confirm-overlay")?.remove();
+  const overlay = el("div", "harmonic-confirm-overlay");
+  const panel = el("div", "harmonic-confirm");
+  panel.append(el("h3", "", title), el("p", "harmonic-confirm-message", message));
+  const row = el("div", "harmonic-confirm-actions");
+  const cancel = el("button", "harmonic-confirm-cancel", "Cancel");
+  cancel.type = "button";
+  const confirm = el("button", "harmonic-confirm-confirm" + (danger ? " danger" : ""), confirmLabel);
+  confirm.type = "button";
+  cancel.addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  confirm.addEventListener("click", () => {
+    overlay.remove();
+    onConfirm();
+  });
+  row.append(cancel, confirm);
+  panel.appendChild(row);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  confirm.focus();
+}
+
+// Reply/edit composer. mode "reply" posts through postComment; mode "edit"
+// posts through saveEdit. The draft key is the parent (reply) or the comment
+// being edited (edit).
+function openComposer(options) {
+  const { parentId, storyId, mode = "reply", handle = null, initialText = "", anchor = null, onDone = null } = options;
+  if (!Number.isInteger(parentId) || parentId <= 0) return;
+  closeComposer({ keepDraft: true });
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to reply");
+    return;
+  }
+  const verb = mode === "edit" ? "Editing comment" : parentId === storyId ? "Commenting on" : "Replying to";
+  const node = el("section", "composer");
+  const header = el("div", "composer-header");
+  header.append(
+    el("span", "composer-identity", verb + " as " + session.username),
+    el("span", "composer-chars", "0 characters"),
+    (() => {
+      const close = el("button", "composer-close");
+      close.type = "button";
+      close.title = "Close composer (draft stays saved)";
+      close.setAttribute("aria-label", "Close composer");
+      close.append(svg("close"));
+      close.addEventListener("click", () => closeComposer({ keepDraft: true }));
+      return close;
+    })()
+  );
+  const textarea = el("textarea", "composer-input");
+  textarea.rows = 4;
+  textarea.maxLength = 8000; // HN's own maxcommentchar limit
+  textarea.placeholder = mode === "edit" ? "Edit your comment" : "Say something useful";
+  textarea.value = initialText;
+  const previewWrap = el("div", "composer-preview");
+  previewWrap.hidden = true;
+  const status = el("div", "composer-status");
+  status.hidden = true;
+  const actions = el("div", "composer-actions");
+  const previewToggle = el("button", "composer-secondary", "Preview");
+  previewToggle.type = "button";
+  const discard = el("button", "composer-secondary composer-discard", "Discard draft");
+  discard.type = "button";
+  const submit = el("button", "composer-submit", mode === "edit" ? "Save edit" : "Post reply");
+  submit.type = "button";
+  actions.append(previewToggle, discard, (() => {
+    const spacer = el("span", "composer-spacer");
+    return spacer;
+  })(), submit);
+  const footnote = el("div", "composer-footnote", "Ctrl+Enter posts · Esc keeps your draft");
+  node.append(header, textarea, previewWrap, status, actions, footnote);
+
+  // Draft restore note + autosave (debounced).
+  let draftTimer = 0;
+  let previewDirty = true;
+  const chars = header.querySelector(".composer-chars");
+  const syncChars = () => {
+    chars.textContent = textarea.value.length + (textarea.value.length === 1 ? " character" : " characters");
+  };
+  const renderPreview = () => {
+    previewWrap.replaceChildren();
+    if (!textarea.value.trim()) {
+      previewWrap.append(el("span", "composer-preview-empty", "Nothing to preview yet."));
+      return;
+    }
+    appendSummaryInline(previewWrap, textarea.value);
+  };
+  const autosave = () => {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      if (textarea.value.trim()) draftSet(mode === "edit" ? parentId : parentId, textarea.value);
+    }, 500);
+  };
+  const grow = () => {
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(420, textarea.scrollHeight + 2) + "px";
+  };
+  textarea.addEventListener("input", () => {
+    syncChars();
+    grow();
+    previewDirty = true;
+    if (!previewWrap.hidden) renderPreview();
+    autosave();
+  });
+  previewToggle.addEventListener("click", () => {
+    const showing = !previewWrap.hidden;
+    previewWrap.hidden = showing;
+    previewToggle.textContent = showing ? "Preview" : "Write";
+    if (!showing) renderPreview();
+    textarea.hidden = !showing;
+  });
+  discard.addEventListener("click", () => {
+    draftClear(parentId);
+    textarea.value = "";
+    syncChars();
+    grow();
+    if (!previewWrap.hidden) renderPreview();
+    showToast("Draft discarded");
+  });
+  textarea.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      submitComposer();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeComposer({ keepDraft: true });
+      showToast("Draft saved");
+    }
+  });
+  submit.addEventListener("click", submitComposer);
+
+  state.composer = { parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone };
+  // Insert: inline under the anchored comment row, else above the comments.
+  if (anchor) {
+    anchor.insertBefore(node, anchor.querySelector(".comment-children"));
+  } else {
+    const heading = threadPane.querySelector(".comments-heading");
+    if (heading) threadPane.insertBefore(node, heading.nextSibling);
+    else threadPane.appendChild(node);
+  }
+  syncChars();
+  grow();
+  textarea.focus();
+  // Surface a previously saved draft for this parent.
+  draftGet(parentId).then((saved) => {
+    if (!saved || !state.composer || state.composer.parentId !== parentId) return;
+    if (!textarea.value) {
+      textarea.value = saved;
+      status.hidden = false;
+      status.textContent = "Draft restored.";
+      status.classList.remove("error");
+      syncChars();
+      grow();
+    }
+  });
+
+  function submitComposer() {
+    const composer = state.composer;
+    if (!composer || composer.submitting) return;
+    const text = textarea.value;
+    if (!text.trim()) {
+      status.hidden = false;
+      status.textContent = "Write something first.";
+      status.classList.add("error");
+      return;
+    }
+    composer.submitting = true;
+    submit.disabled = true;
+    previewToggle.disabled = true;
+    status.hidden = false;
+    status.classList.remove("error");
+    status.textContent = mode === "edit" ? "Saving your edit on Hacker News…" : "Opening the Hacker News reply form…";
+    (async () => {
+      try {
+        let outcome;
+        if (mode === "edit") {
+          outcome = await window.HarmonicHN.saveEdit(handle, text);
+        } else {
+          const opened = await window.HarmonicHN.openReplyForm(parentId, { storyId });
+          if (opened.status !== "ok") {
+            outcome = opened;
+          } else {
+            composer.handle = opened.handle;
+            status.textContent = "Posting your reply…";
+            outcome = await window.HarmonicHN.postComment(opened.handle, text);
+          }
+        }
+        handleComposerOutcome(composer, outcome, text);
+      } catch {
+        composer.submitting = false;
+        submit.disabled = false;
+        previewToggle.disabled = false;
+        status.textContent = "The request to Hacker News failed. Your draft is kept.";
+        status.classList.add("error");
+      }
+    })();
+  }
+}
+
+function handleComposerOutcome(composer, outcome, text) {
+  const { status, submit, previewToggle } = composer;
+  composer.submitting = false;
+  submit.disabled = false;
+  previewToggle.disabled = false;
+  if (outcome?.status === "success") {
+    draftClear(composer.parentId);
+    closeComposer({ keepDraft: false });
+    showToast(composer.mode === "edit" ? "Edit saved" : "Reply posted");
+    if (state.selectedId) loadThread(state.selectedId);
+    return;
+  }
+  status.hidden = false;
+  const message = outcome?.message || "Hacker News did not confirm the post. Your draft is kept.";
+  status.textContent = message;
+  status.classList.add("error");
+  // Draft is kept in all non-success outcomes (module outcomes say "draft kept").
+  draftSet(composer.parentId, text);
+  if (outcome?.status === "validationRequired") {
+    const open = el("button", "composer-hn-open", "Open this reply on Hacker News");
+    open.type = "button";
+    open.addEventListener("click", () => {
+      openOriginalHackerNews("/reply?id=" + composer.parentId + "&goto=" + encodeURIComponent("item?id=" + (state.selectedId || composer.parentId)));
+    });
+    status.appendChild(document.createElement("br"));
+    status.appendChild(open);
+  }
+  if (outcome?.status === "loginRequired" || outcome?.status === "accountChanged") updateAccountChip();
+}
+
+function closeComposer({ keepDraft = true } = {}) {
+  const composer = state.composer;
+  if (!composer) return;
+  clearTimeout(composer.draftTimer);
+  if (keepDraft && composer.mode === "reply" && composer.textarea.value.trim()) {
+    draftSet(composer.parentId, composer.textarea.value);
+  }
+  composer.node?.remove();
+  state.composer = null;
 }
 
 function openFeedMenu(anchor) {
@@ -1672,8 +1948,63 @@ function openFeedMenu(anchor) {
         showToast("Sign in to reply");
         return;
       }
-      // Phase 3 brings in-Harmonic replies; hand off to HN's form meanwhile.
-      openOriginalHackerNews("/reply?id=" + comment.id + "&goto=" + encodeURIComponent("item?id=" + (state.selectedId || comment.id)));
+      openComposer({ parentId: comment.id, storyId: state.selectedId || comment.id, anchor: row });
+    });
+    const isOwn = session && comment.author && comment.author === session.username;
+    const editButton = el("button", "comment-action");
+    editButton.type = "button";
+    editButton.title = "Edit";
+    editButton.setAttribute("aria-label", "Edit comment");
+    editButton.append(svg("edit"));
+    editButton.hidden = !isOwn;
+    editButton.addEventListener("click", async (event) => {
+      if (!event.isTrusted || !isOwn) return;
+      editButton.disabled = true;
+      try {
+        const opened = await window.HarmonicHN.openEditForm(comment.id, { storyId: state.selectedId || comment.id });
+        if (opened.status !== "ok") {
+          showToast(opened.message || "Hacker News did not offer an edit form for this comment.");
+          return;
+        }
+        openComposer({ parentId: comment.id, storyId: state.selectedId || comment.id, mode: "edit", handle: opened.handle, initialText: opened.currentText || "", anchor: row });
+      } finally {
+        editButton.disabled = false;
+      }
+    });
+    const deleteButton = el("button", "comment-action");
+    deleteButton.type = "button";
+    deleteButton.title = "Delete";
+    deleteButton.setAttribute("aria-label", "Delete comment");
+    deleteButton.append(svg("trash"));
+    deleteButton.hidden = !isOwn;
+    deleteButton.addEventListener("click", (event) => {
+      if (!event.isTrusted || !isOwn) return;
+      // SEC-36: deletes run only behind an explicit confirmation.
+      openConfirmDialog({
+        title: "Delete this comment?",
+        message: "This permanently deletes your comment on Hacker News. It cannot be undone.",
+        confirmLabel: "Delete",
+        danger: true,
+        onConfirm: async () => {
+          deleteButton.disabled = true;
+          try {
+            const opened = await window.HarmonicHN.openDeleteForm(comment.id, { storyId: state.selectedId || comment.id });
+            if (opened.status !== "ok") {
+              showToast(opened.message || "Hacker News did not offer a delete form for this comment.");
+              return;
+            }
+            const outcome = await window.HarmonicHN.deleteComment(opened.handle);
+            if (outcome.status === "success") {
+              showToast("Comment deleted");
+              if (state.selectedId) loadThread(state.selectedId);
+            } else {
+              showToast(outcome.message || "The delete did not go through");
+            }
+          } finally {
+            deleteButton.disabled = false;
+          }
+        },
+      });
     });
     const moreButton = el("button", "comment-action");
     moreButton.type = "button";
@@ -1722,7 +2053,7 @@ function openFeedMenu(anchor) {
           : []),
       ]);
     });
-    actionsRow.append(voteButton, downButton, replyButton, moreButton);
+    actionsRow.append(voteButton, downButton, replyButton, editButton, deleteButton, moreButton);
 
     card.append(meta, actionsRow, body, collapsed);
     row.appendChild(card);
@@ -1940,7 +2271,10 @@ function openFeedMenu(anchor) {
     if (options.summaryId) b.dataset.summaryActionId = options.summaryId;
     if (options.active) b.classList.add("active");
     if (options.disabled) b.disabled = true;
-    b.addEventListener("click", action);
+    b.addEventListener("click", (event) => {
+      if (!event.isTrusted) return; // SEC-30: programmatic clicks never trigger thread actions
+      action(event);
+    });
     return b;
   }
 
@@ -1971,6 +2305,7 @@ function openFeedMenu(anchor) {
   async function loadThread(id) {
     if (!state.activeSummary || state.activeSummary.storyId !== id) stopActiveSummary();
     cancelItemState();
+    closeComposer({ keepDraft: true });
     state.itemState = null;
     state.pollOptions = null;
     state.pollOptionsRenderedKey = "";
@@ -2045,8 +2380,8 @@ function openFeedMenu(anchor) {
         showToast("Sign in to reply");
         return;
       }
-      // In-Harmonic replies arrive in Phase 3; for now hand off to HN's form.
-      openOriginalHackerNews("/reply?id=" + item.id + "&goto=" + encodeURIComponent("item?id=" + item.id));
+      // Phase 3: in-Harmonic composer for the top-level comment box.
+      openComposer({ parentId: item.id, storyId: item.id });
     });
     const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
     const preVoted = Boolean(storyState?.voted) || Boolean(state.feedVotes.get(item.id));

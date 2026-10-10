@@ -593,6 +593,74 @@ function isTrustedHnContentSender(sender) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Composer drafts (Phase 3, SEC-50). Drafts live in chrome.storage.session —
+// they vanish with the browser session, are keyed by acting username + parent
+// item, are capped at 20 KB of text and 50 entries, and are only reachable
+// from trusted Harmonic content-script senders.
+// ---------------------------------------------------------------------------
+
+const DRAFTS_KEY = "harmonicDrafts";
+const DRAFT_MAX_BYTES = 20_000;
+const DRAFT_MAX_COUNT = 50;
+
+function draftKey(username, parentId) {
+  return String(username || "") + ":" + Number(parentId);
+}
+
+async function getDrafts() {
+  const stored = await sessionGet({ [DRAFTS_KEY]: null });
+  const drafts = stored?.[DRAFTS_KEY];
+  return drafts && typeof drafts === "object" && !Array.isArray(drafts) ? drafts : {};
+}
+
+async function saveDrafts(drafts) {
+  await sessionSet({ [DRAFTS_KEY]: drafts });
+}
+
+function draftTooLarge(text) {
+  try {
+    return new Blob([text]).size > DRAFT_MAX_BYTES;
+  } catch {
+    return text.length > DRAFT_MAX_BYTES;
+  }
+}
+
+async function draftGet(username, parentId) {
+  const drafts = await getDrafts();
+  const entry = drafts[draftKey(username, parentId)];
+  return entry && typeof entry.text === "string" ? entry.text : "";
+}
+
+async function draftSet(username, parentId, text) {
+  const drafts = await getDrafts();
+  const key = draftKey(username, parentId);
+  if (draftTooLarge(text)) {
+    const entry = drafts[key];
+    return { ok: false, message: "Draft is over 20 KB and was not saved", kept: Boolean(entry) };
+  }
+  drafts[key] = { text, parentId, username: username || "", updatedAt: Date.now() };
+  const keys = Object.keys(drafts);
+  if (keys.length > DRAFT_MAX_COUNT) {
+    keys
+      .sort((a, b) => (drafts[a]?.updatedAt || 0) - (drafts[b]?.updatedAt || 0))
+      .slice(0, keys.length - DRAFT_MAX_COUNT)
+      .forEach((stale) => delete drafts[stale]);
+  }
+  await saveDrafts(drafts);
+  return { ok: true };
+}
+
+async function draftClear(username, parentId) {
+  const drafts = await getDrafts();
+  delete drafts[draftKey(username, parentId)];
+  await saveDrafts(drafts);
+}
+
+async function draftClearAll() {
+  await sessionRemove([DRAFTS_KEY]);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
   if (message.type === "HARMONIC_LOCAL_STATE_GET") {
@@ -626,6 +694,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger) : [];
     localSet({ harmonicBookmarks: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  // Composer drafts (SEC-50): trusted HN content-script senders only. The
+  // acting username always comes from the content script's own session state.
+  if (message.type === "HARMONIC_DRAFT_GET") {
+    if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0) {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
+    draftGet(String(message.username || ""), message.parentId)
+      .then((text) => sendResponse({ ok: true, text }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_DRAFT_SET") {
+    if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0 || typeof message.text !== "string") {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
+    draftSet(String(message.username || ""), message.parentId, message.text)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_DRAFT_CLEAR") {
+    if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0) {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
+    draftClear(String(message.username || ""), message.parentId)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONIC_DRAFT_CLEAR_ALL") {
+    if (!isTrustedHnContentSender(sender)) {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
+    draftClearAll()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (message.type === "HARMONIC_AI_STATUS") {

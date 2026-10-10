@@ -9,6 +9,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.9.0] - 2026-10-10
+
+The commenting release: Harmonic's composer closes the last big write-action gap — replies, edits, and deletes all happen inside Harmonic, backed by per-account, session-scoped drafts and the module's exact-form, no-retry POST discipline.
+
+### Added
+
+- **In-Harmonic reply composer.** The thread header's "Reply to post" button and every comment row's Reply button now open an inline composer instead of handing off to Hacker News: it names the acting account ("Commenting on… / Replying to… as <user>"), shows a live character counter (HN's own 8000-character limit), auto-grows, offers a Preview/Write toggle (the same safe inline renderer used for summaries), and explains its shortcuts (Ctrl+Enter posts, Esc keeps the draft).
+- **Exact-form posting.** Submitting opens HN's own reply form through the queued fetch, reads the hidden `parent`/`goto`/`hmac` fields, and POSTs `/comment` exactly once with precisely the values HN's form dictated — Harmonic never invents or reuses form parameters (SEC-14/34). Success clears the draft, closes the composer, toasts "Reply posted", and reloads the discussion; the thread re-render also fires when the composer isn't the source (delete success).
+- **Inline edit for your own comments.** Comment rows authored by the signed-in user gain Edit and Delete buttons (hidden for everyone else's). Edit fetches HN's `/edit` form, prefills the composer with HN's current text, and POSTs `/xedit` once with the form's own `id`/`hmac` fields plus the new text.
+- **Delete with explicit confirmation (SEC-36).** Delete opens a real confirmation dialog (title, message, Cancel/Delete buttons, red accent). Cancel sends nothing — no `/delete-confirm` fetch, no `/xdelete` POST. Confirm fetches HN's delete-confirmation form and POSTs `/xdelete` exactly once, then toasts "Comment deleted" and reloads the thread.
+- **Drafts that survive everything except success.** Typed text autosaves (500 ms debounce) to a new background draft store in `chrome.storage.session`, keyed by acting username + parent item, capped at 20 KB per draft and 50 entries with oldest-first eviction. Closing the composer (X button, Esc, thread switch) keeps the draft and toasts "Draft saved"; reopening the composer restores it with a "Draft restored." note. Every non-success outcome (too fast, rate limit, validation required, login ended, network error) keeps the draft too, and a Discard draft button wipes it on demand with a toast.
+- **HN escape hatch for verification walls.** When Hacker News asks for verification before a reply (`validationRequired`), the composer stays open, keeps the draft, explains the situation, and offers an "Open this reply on Hacker News" button that hands off to HN's own `/reply` form with the allowlisted goto.
+- **Logout clears drafts.** Signing out runs `HARMONIC_DRAFT_CLEAR_ALL` — with no signed-in account there is no draft, and drafts never cross accounts (they are keyed by username).
+- **Draft store hardening in the background worker.** All four message types (`HARMONIC_DRAFT_GET/SET/CLEAR/CLEAR_ALL`) are accepted only from trusted Hacker News content scripts (SEC-50), parent ids must be positive integers, text must be a string, and oversize text is rejected before it reaches storage.
+- **`tests/comments.mjs` — the Phase 3 UI suite (13 tests).** Drives the real extension against mocked HN documents: the exact POST `/comment` payload (fixture-dictated `parent`/`goto`/`hmac` + typed text) posted exactly once with a thread reload; local empty-submit blocking with zero HN traffic; preview toggle round-trip; draft autosave verified directly against `chrome.storage.session` through the background worker, restore on reopen, and discard wiping storage; Esc close-and-keep; logout clearing the store; inline reply under the comment row; validationRequired keeping composer + draft and showing the HN button; tooFast keeping composer + draft with exactly one POST and no retry; edit visible only on own comments with prefill from HN's text and the exact `/xedit` payload; delete Cancel sending nothing vs Confirm sending exactly one `/delete-confirm` + `/xdelete`; scripted-click refusal across reply/edit/delete (SEC-30); and signed-out reply asking for sign-in without any HN form fetch.
+
+### Changed
+
+- Thread actions (reply, vote, More, and the rest of the header row) now refuse untrusted clicks at the shared handler level, closing the same SEC-30 gap the comment rows already had.
+- Composer textareas carry HN's 8000-character maxlength so oversize text is rejected locally instead of surfacing as a server-side failure.
+
 ## [0.8.0] - 2026-10-10
 
 The first account-actions release: Harmonic can now act on Hacker News on your behalf — the toolbar gains an account chip (login hand-off, profile destinations, fetch-based logout) and stories, comments, and poll options can be voted from inside Harmonic using Hacker News's own one-time tokens.

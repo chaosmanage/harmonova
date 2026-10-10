@@ -1,6 +1,6 @@
 {
   "name": "harmonic-hn-browser",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "test:hn-auth": "node tests/hn-auth.mjs",
     "test:search": "node tests/search.mjs",
     "test:voting": "node tests/voting.mjs",
+    "test:comments": "node tests/comments.mjs",
     "package": "bash scripts/package.sh"
   },
   "devDependencies": {
