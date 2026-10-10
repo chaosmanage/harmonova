@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.9.0**.
+The current extension version is **0.10.0**.
 
-Version 0.9.0 is the commenting release: the **reply composer** closes the last big write-action gap — replies, edits, and deletes happen inside Harmonic, backed by per-account, session-scoped drafts and `hn-session.js`'s exact-form, POST-once discipline. The thread header's Reply button and every comment's Reply open an inline composer that posts precisely what Hacker News's own reply form dictates (`parent`/`goto`/`hmac`); your own comments gain inline Edit and Delete (behind a real confirmation dialog); and typed text autosaves to a background draft store in `chrome.storage.session` keyed by acting username, restored on reopen, kept through every failure, and cleared after success or logout. It builds on the account chip and voting of 0.8.0, the site-wide search of 0.7.4, and the Hacker News session foundation beneath them. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.10.0 completes the account-action set: **favorites, hide with undo, confirmed flagging, bulk-favoriting your bookmarks, and full story submission**. The thread header gains Favorite and Hide controls gated on what the fetched Hacker News document actually offers; hiding a feed card removes it with a 6-second undo toast; flagging (stories and comments) exists only where HN offers the link and always asks first; the feed's More menu can add every bookmark to your HN favorites serially with live progress and cancel; and a New post modal submits stories through HN's own `fnid` form — posting exactly once, opening an existing discussion when HN reports a duplicate, and handing off to HN's stock form when verification is required. It builds on the composer of 0.9.0, the chip and voting of 0.8.0, and the Hacker News session foundation beneath them. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Account actions and voting
 
@@ -36,7 +36,12 @@ Version 0.9.0 is the commenting release: the **reply composer** closes the last 
 - **Voting UI.** Thread-header Upvote/Unvote with optimistic points and rollback; per-comment Upvote, Downvote (only where Hacker News offers it, remaining visible as the undown affordance), Reply, and a More menu (share link, copy text, open parent/top level, view user); poll options with their own vote tokens; feed cards show a ▲ badge for stories you already voted and a Story actions menu with a functional Upvote.
 - **Reply composer (see [Replying, editing, and drafts](#replying-editing-and-drafts)).** Reply buttons open Harmonic's own composer and post through HN's exact reply form; the old hand-off remains as the verification-wall escape hatch.
 - **Edit and delete your own comments.** Comment rows authored by the signed-in user gain Edit (prefilled from HN's current text, POSTed once to `/xedit`) and Delete (real confirmation dialog — Cancel sends nothing — then exactly one `/xdelete`).
-- **Safety rails.** One mutation in flight per item (SEC-32), exactly one fresh-token retry on expiry for votes (SEC-33) and never-retried POSTs for comments/edits/deletes (SEC-34), account switches abort pending actions (SEC-35), scripted `element.click()` never acts — enforced on comment rows and the whole thread action row (SEC-30), deletes confirm first (SEC-36), and every failure rolls the optimistic UI back with a plain-language toast.
+- **Favorites.** The thread header's Favorite control reflects the fetched document (active when favorited, hidden when HN offers no link) and re-reads the item after acting to confirm the new state.
+- **Hide with undo.** Hide from the thread header or a card's overflow menu; the card disappears and a 6-second toast offers Undo (which unhides with `un=t` and restores the card without a feed reload).
+- **Flag, gated twice.** Flag story / Flag comment entries render only when the fetched document offers a flag link, and every flag runs behind an explicit confirmation dialog (Cancel sends nothing).
+- **Bookmarks → favorites in bulk (SEC-37).** One menu entry favorites every bookmarked story serially through the rate-limited queue, with progress + Cancel and a per-run summary.
+- **Story submission.** The New post modal validates locally (title, URL-or-text, `safeHref`), reads HN's `/submit` `fnid`, and POSTs `/r` once; already-submitted opens the existing discussion, verification walls keep your values and hand off to HN's stock form.
+- **Safety rails.** One mutation in flight per item (SEC-32), exactly one fresh-token retry on expiry for votes (SEC-33) and never-retried POSTs for comments/edits/deletes/submits (SEC-34), account switches abort pending actions (SEC-35), scripted `element.click()` never acts — enforced on comment rows and the whole thread action row (SEC-30), deletes and flags confirm first (SEC-36), and every failure rolls the optimistic UI back with a plain-language toast.
 
 ## Replying, editing, and drafts
 
@@ -70,7 +75,9 @@ The feed includes:
 - incremental feed loading while scrolling
 - a refresh control
 - an account chip with login/logout and profile destinations (see [Account actions and voting](#account-actions-and-voting))
-- a per-card Story actions menu (open discussion/article, upvote/unvote, open on Hacker News)
+- a New post button that opens the story-submission modal (logged in; see [Account actions and voting](#account-actions-and-voting))
+- a More menu with settings, "Add bookmarks to HN favorites" (SEC-37 bulk), and open-original hand-offs
+- a per-card Story actions menu (open discussion/article, upvote/unvote, hide, bookmark, open on Hacker News)
 - a ▲ badge on cards for stories you already upvoted
 - configurable story typography and zoom
 - configurable preview image behavior
@@ -106,9 +113,10 @@ The discussion pane includes:
 - action buttons for common reading workflows
 - a functional Upvote/Unvote control for the story with optimistic points
 - nested comment cards
-- per-comment vote controls (Upvote, Downvote where Hacker News offers it) with a More menu (share link, copy text, open parent/top level, view user)
+- per-comment vote controls (Upvote, Downvote where Hacker News offers it) with a More menu (share link, copy text, open parent/top level, view user, flag where HN offers it)
 - an in-Harmonic reply composer for the story and every comment (Ctrl+Enter posts, drafts kept), plus inline Edit and confirmed Delete on your own comments (see [Replying, editing, and drafts](#replying-editing-and-drafts))
 - a Poll section with per-option voting on poll stories
+- Favorite and Hide controls gated on the fetched document, with hide offering an undo toast (see [Account actions and voting](#account-actions-and-voting))
 - colored depth rails
 - configurable comment sorting
 - collapse-all and expand-all controls
@@ -395,6 +403,12 @@ Run the composer suite (replies, edits, deletes, drafts — the same real-extens
 npm run test:comments
 ```
 
+Run the favorites/hide/flag/submit suite (stateful mocks that reflect favorite/hide/flag state on served documents, including a 302 "already submitted" redirect and a submit `fnid` form):
+
+```bash
+npm run test:actions
+```
+
 `test:voting` asserts the chip per session state, the allowlisted `goto` login hand-off (including a query-reflection probe), the full account menu, fetch-based logout with reload, exact `how=up`/`how=un`/`how=down` request shapes with the UI state they produce (active classes, point deltas, card badges), downvote availability gated on the served document, SEC-30 refusal of scripted clicks, double-expiry and rate-limit rollback with toasts, and poll-option voting — no Hacker News credentials are needed or used.
 
 The suite verifies the areas that have historically regressed, including:
@@ -445,6 +459,7 @@ The project deliberately stays small and uses no application framework.
 - `tests/hn-auth.mjs` — fully mocked logged-in account-action suite: exact Hacker News request shapes, retry/backoff rules, account-switch safety, and token-leakage checks
 - `tests/voting.mjs` — Phase 1+2 UI suite with a stateful mocked HN server (votes mutate the served documents): account chip flows, exact vote request shapes with post-success UI state, downvote gating, SEC-30 scripted-click refusal, rollback toasts, card-menu voting, and poll-option voting
 - `tests/comments.mjs` — Phase 3 UI suite with the same harness extended to reply/edit/delete form fixtures: exact POST `/comment` and `/xedit` payloads from HN's own forms, no-retry discipline, the background draft store in `chrome.storage.session` (autosave, restore, discard, logout clear), delete confirmation both ways, validationRequired/tooFast keep-draft behavior, and signed-out/refusal rails
+- `tests/actions.mjs` — Phase 4+5 UI suite: favorites with confirmation re-fetch, hide with undo toasts (`un=t` asserted), card-menu hide + restore, document-gated flagging with SEC-36 dialogs, SEC-37 bulk bookmark favorites (serial spacing measured, mid-run cancel), exact POST `/r` submission payload, already-submitted redirect handling, validationRequired stock-form hand-off, and scripted-click refusal
 - `tests/search.mjs` — site-wide search suite: query-construction and highlight-tokenization units plus mocked-Algolia browser tests (paging, hostile highlights, malformed hits, empty/error states, cancellation, comment-hit deep links)
 - `tests/fixtures/hn/` — redacted logged-out captures and derived logged-in synthetic documents (raw captures and any traces stay out of git)
 - `scripts/capture-fixtures.mjs`, `scripts/redact-fixtures.mjs`, `scripts/build-synthetic-fixtures.mjs` — the offline fixture pipeline
@@ -563,7 +578,7 @@ User-visible behavior changes should be written for extension users rather than 
 ## Near-term roadmap
 
 - ~~Phase 3 (0.9.0): in-Harmonic commenting with drafts (reply composer, edit/delete own comments)~~ — shipped
-- Phase 4+5 (0.10.0): favorites, hide-with-undo, flag confirmation, and the story-submission flow
+- ~~Phase 4+5 (0.10.0): favorites, hide-with-undo, flag confirmation, and the story-submission flow~~ — shipped
 - Phase 6 (0.11.0): user profile panel and own-list browsing (upvoted/favorites/submissions)
 - Phase 7 (0.12.x): reading-parity extras (more lists, feed filters, avatars, user tags, blocked users)
 - Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts

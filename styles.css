@@ -717,7 +717,7 @@ html.harmonic-hn *{box-sizing:border-box}
   pointer-events:none;
   transition:opacity 160ms ease,transform 160ms ease;
 }
-.harmonic-toast.show{opacity:1;transform:translate(-50%,0)}
+.harmonic-toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 
 @media (min-width:1350px){
   .harmonic-app{grid-template-columns:570px minmax(0,1fr)}
@@ -1364,3 +1364,147 @@ html.harmonic-hn *{box-sizing:border-box}
 }
 .harmonic-confirm-confirm.danger{background:#d4674f;color:#fff}
 .harmonic-confirm-confirm.danger:hover{background:#e07a60}
+
+/* ---------------------------------------------------------------------------
+   Phase 4+5: favorites/hide/flag + submit modal
+--------------------------------------------------------------------------- */
+.harmonic-toast-message{flex:1}
+.harmonic-toast-action{
+  padding:4px 12px;
+  border:1px solid rgba(255,255,255,.35);
+  border-radius:999px;
+  background:transparent;
+  color:#efedf2;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  margin-left:10px;
+  flex:none;
+}
+.harmonic-toast-action:hover{background:rgba(255,255,255,.14)}
+.story-card.is-hidden{display:none}
+.harmonic-submit-overlay{
+  position:fixed;
+  inset:0;
+  z-index:100000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(10,10,14,.62);
+}
+.harmonic-submit{
+  width:min(520px,calc(100vw - 48px));
+  max-height:calc(100vh - 96px);
+  overflow-y:auto;
+  padding:20px 22px;
+  border:1px solid #2d2d34;
+  border-radius:16px;
+  background:#1c1c22;
+  box-shadow:0 18px 50px rgba(0,0,0,.5);
+}
+.submit-header{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+.submit-header h3{flex:1;margin:0;font-size:18px;color:#efedf2}
+.submit-close{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:26px;
+  height:26px;
+  padding:0;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:#8f8e98;
+  cursor:pointer;
+  flex:none;
+}
+.submit-close svg{width:13px;height:13px}
+.submit-close:hover{color:#efedf2;background:#22222a}
+.submit-as{color:#b8d8bd;font-size:12.5px;font-weight:600;margin:0 0 14px}
+.submit-label{
+  display:block;
+  margin:12px 0 5px;
+  color:#8f8e98;
+  font-size:11.5px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.submit-title,
+.submit-url{
+  width:100%;
+  box-sizing:border-box;
+  padding:9px 12px;
+  border:1px solid #2d2d34;
+  border-radius:10px;
+  background:#141419;
+  color:#efedf2;
+  font:inherit;
+  font-size:14px;
+}
+.submit-text{
+  width:100%;
+  box-sizing:border-box;
+  padding:9px 12px;
+  border:1px solid #2d2d34;
+  border-radius:10px;
+  background:#141419;
+  color:#efedf2;
+  font:inherit;
+  font-size:14px;
+  line-height:1.5;
+  resize:vertical;
+  min-height:90px;
+}
+.submit-title:focus,
+.submit-url:focus,
+.submit-text:focus{outline:none;border-color:#4a4a55}
+.submit-count{margin-top:4px;color:#6d6c76;font-size:11px;text-align:right}
+.submit-guidelines{display:inline-block;margin-top:12px;color:#e0b97a;font-size:12.5px;text-decoration:none}
+.submit-guidelines:hover{text-decoration:underline}
+.submit-status{
+  margin-top:12px;
+  padding:8px 10px;
+  border-radius:8px;
+  background:#141419;
+  color:#9fb7a2;
+  font-size:12.5px;
+  line-height:1.5;
+}
+.submit-status.error{color:#e2a08a}
+.submit-hn-open{
+  margin-top:6px;
+  padding:6px 12px;
+  border:1px solid #2d2d34;
+  border-radius:999px;
+  background:transparent;
+  color:#d6d4dd;
+  font-size:12.5px;
+  font-weight:600;
+  cursor:pointer;
+}
+.submit-hn-open:hover{color:#efedf2;border-color:#4a4a55}
+.submit-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+.submit-cancel{
+  padding:8px 16px;
+  border:1px solid #2d2d34;
+  border-radius:999px;
+  background:transparent;
+  color:#a8a6b0;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+}
+.submit-cancel:hover{color:#efedf2;border-color:#4a4a55}
+.submit-go{
+  padding:8px 16px;
+  border:none;
+  border-radius:999px;
+  background:#e08c3f;
+  color:#1c130a;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+}
+.submit-go:hover{background:#eb9c55}
+.submit-go:disabled{opacity:.55;cursor:default}

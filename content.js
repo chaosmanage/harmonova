@@ -65,6 +65,10 @@
     trash: '<path d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-.8 12H6.8L6 9z"/>',
     close: '<path d="M6.4 5L12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5z"/>',
     external: '<path d="M13 4h7v7h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H13V4zM5 6h6v2H7v9h9v-4h2v6H5V6z"/>',
+    plus: '<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5z"/>',
+    heart: '<path d="M12 20.3l-1.3-1.2C6 15 3 12.3 3 8.9 3 6.2 5.1 4.1 7.8 4.1c1.5 0 3 .7 4.2 1.9 1.2-1.2 2.7-1.9 4.2-1.9C18.9 4.1 21 6.2 21 8.9c0 3.4-3 6.1-7.7 10.2l-1.3 1.2z"/>',
+    flag: '<path d="M6 3h2v18H6V3zm2 1h11l-2.5 4L19 12H8V4z"/>',
+    eyeOff: '<path d="M3.3 2.5l18.2 18.2-1.4 1.4-3.5-3.5c-1.4.6-3 .9-4.6.9-5 0-9.3-3-11.5-7.5 1-2 2.4-3.7 4.1-5L1.9 3.9l1.4-1.4zM12 5c5 0 9.3 3 11.5 7-.9 1.8-2.1 3.4-3.6 4.6l-3-3A4.5 4.5 0 0010.4 7L8.9 5.5c1-.3 2-.5 3.1-.5zm0 3.5c.5 0 1 .1 1.4.3l-4.6 4.6A4.5 4.5 0 0112 8.5z"/>',
   };
 
   const svg = (name, className = "") => {
@@ -448,16 +452,28 @@
     app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
   }
 
-  function showToast(message) {
+  function showToast(message, options = {}) {
     let toast = document.querySelector(".harmonic-toast");
     if (!toast) {
       toast = el("div", "harmonic-toast");
       document.body.appendChild(toast);
     }
-    toast.textContent = message;
+    // Phase 4: toasts can carry one action button (e.g. Undo for hide).
+    toast.replaceChildren();
+    toast.appendChild(el("span", "harmonic-toast-message", message));
+    if (options.actionLabel && typeof options.onAction === "function") {
+      const action = el("button", "harmonic-toast-action", options.actionLabel);
+      action.type = "button";
+      action.addEventListener("click", () => {
+        clearTimeout(showToast.timer);
+        toast.classList.remove("show");
+        options.onAction();
+      });
+      toast.appendChild(action);
+    }
     toast.classList.add("show");
     clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove("show"), 2200);
+    showToast.timer = setTimeout(() => toast.classList.remove("show"), options.duration || 2200);
   }
 
   function createToolbar() {
@@ -473,13 +489,18 @@
     searchButton.addEventListener("click", toggleSearch);
     const refreshButton = button("refresh", "Refresh");
     refreshButton.addEventListener("click", refreshFeed);
+    const newPostButton = button("plus", "New post");
+    newPostButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return; // SEC-30
+      startNewPost();
+    });
     const moreButton = button("more", "More");
     moreButton.addEventListener("click", (event) => openMoreMenu(event.currentTarget));
     accountChip = el("button", "account-chip");
     accountChip.type = "button";
     accountChip.id = "harmonic-account-chip";
     accountChip.addEventListener("click", (event) => openAccountMenu(event.currentTarget));
-    actions.append(searchButton, refreshButton, moreButton, accountChip);
+    actions.append(searchButton, refreshButton, newPostButton, moreButton, accountChip);
     row.append(titleButton, actions);
     updateAccountChip();
 
@@ -786,6 +807,26 @@ function updateThreadVoteUi() {
     voteButton.setAttribute("aria-label", voteButton.title);
     if (!pending) voteButton.disabled = false;
   }
+  const favoriteButton = threadPane.querySelector("[data-thread-favorite]");
+  if (favoriteButton) {
+    const pending = favoriteButton.dataset.pending === "1";
+    favoriteButton.classList.toggle("active", !pending && Boolean(story?.favorited));
+    favoriteButton.title = story?.favorited ? "Unfavorite" : "Favorite";
+    favoriteButton.setAttribute("aria-label", favoriteButton.title);
+    // Phase 4: hide the control when the fetched document shows no favorite
+    // link (unknown state keeps the control visible until the fetch lands).
+    favoriteButton.hidden = !pending && story !== null && story.favoriteAvailable === false;
+    if (!pending) favoriteButton.disabled = false;
+  }
+  const hideButton = threadPane.querySelector("[data-thread-hide]");
+  if (hideButton) {
+    const pending = hideButton.dataset.pending === "1";
+    hideButton.classList.toggle("active", !pending && Boolean(story?.hidden));
+    hideButton.title = story?.hidden ? "Unhide" : "Hide";
+    hideButton.setAttribute("aria-label", hideButton.title);
+    hideButton.hidden = !pending && story !== null && story.hideAvailable === false;
+    if (!pending) hideButton.disabled = false;
+  }
   for (const row of threadPane.querySelectorAll(".comment-row[data-comment-id]")) {
     const id = Number(row.dataset.commentId);
     if (id > 0) syncCommentVoteUi(id);
@@ -912,6 +953,385 @@ async function handleCommentVote(event, commentId) {
       buttonNode.classList.toggle("active", Boolean(votedNow && cs?.votedDirection === "down"));
     }
     syncCommentVoteUi(commentId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: favorite, hide (with undo), flag
+// ---------------------------------------------------------------------------
+
+async function handleStoryFavorite(event) {
+  if (!requireTrustedEvent(event)) return;
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to favorite");
+    goToLogin();
+    return;
+  }
+  const storyId = state.selectedId;
+  if (!Number.isInteger(storyId) || storyId <= 0) return;
+  const favoriteButton = threadPane.querySelector("[data-thread-favorite]");
+  if (!favoriteButton || favoriteButton.dataset.pending === "1") return; // one action in flight (SEC-32)
+  const favorited = Boolean(state.itemState?.story?.favorited);
+  favoriteButton.dataset.pending = "1";
+  favoriteButton.classList.add("pending");
+  favoriteButton.classList.toggle("active", !favorited); // optimistic
+  try {
+    const outcome = await window.HarmonicHN.setFavorite(storyId, !favorited);
+    if (outcome.status === "success") {
+      if (state.itemState && state.itemState.itemId === storyId && outcome.state) {
+        state.itemState.story = { ...state.itemState.story, ...outcome.state };
+      }
+      showToast(favorited ? "Removed from favorites" : "Favorited");
+    } else {
+      if (outcome.status === "loginRequired" || outcome.status === "accountChanged") updateAccountChip();
+      showToast(outcome.message || "Favoriting did not go through");
+    }
+  } catch {
+    showToast("Favoriting did not go through");
+  } finally {
+    delete favoriteButton.dataset.pending;
+    favoriteButton.classList.remove("pending");
+    updateThreadVoteUi();
+  }
+}
+
+async function handleStoryHide(event) {
+  if (!requireTrustedEvent(event)) return;
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to hide");
+    goToLogin();
+    return;
+  }
+  const storyId = state.selectedId;
+  if (!Number.isInteger(storyId) || storyId <= 0) return;
+  const hideButton = threadPane.querySelector("[data-thread-hide]");
+  if (!hideButton || hideButton.dataset.pending === "1") return;
+  const hidden = Boolean(state.itemState?.story?.hidden);
+  hideButton.dataset.pending = "1";
+  hideButton.classList.add("pending");
+  try {
+    const outcome = await window.HarmonicHN.setHidden(storyId, !hidden);
+    if (outcome.status === "success") {
+      if (state.itemState && state.itemState.itemId === storyId) {
+        state.itemState.story = { ...state.itemState.story, hidden: !hidden };
+      }
+      if (!hidden) {
+        showToast("Story hidden", {
+          actionLabel: "Undo",
+          duration: 6000,
+          onAction: () => unhideStory(storyId),
+        });
+      } else {
+        showToast("Story unhidden");
+      }
+    } else {
+      if (outcome.status === "loginRequired" || outcome.status === "accountChanged") updateAccountChip();
+      showToast(outcome.message || "The story could not be hidden");
+    }
+  } catch {
+    showToast("The story could not be hidden");
+  } finally {
+    delete hideButton.dataset.pending;
+    hideButton.classList.remove("pending");
+    updateThreadVoteUi();
+  }
+}
+
+async function unhideStory(storyId) {
+  try {
+    const outcome = await window.HarmonicHN.setHidden(storyId, false);
+    if (outcome.status === "success") {
+      if (state.itemState && state.itemState.itemId === storyId) state.itemState.story.hidden = false;
+      showToast("Story unhidden");
+    } else {
+      showToast(outcome.message || "The story is still hidden");
+    }
+  } catch {
+    showToast("The story is still hidden");
+  }
+}
+
+// SEC-36: flagging runs only behind an explicit confirmation dialog, and only
+// when Hacker News actually offers a flag link for the item.
+function confirmFlagItem(event, itemId, kind) {
+  if (!requireTrustedEvent(event)) return;
+  openConfirmDialog({
+    title: "Flag this " + kind + "?",
+    message:
+      "Flagging tells Hacker News's moderators that this " + kind +
+      " may break the site rules. Flags are weighed by the moderators and can lead to penalties — flag only when you're sure.",
+    confirmLabel: "Flag",
+    danger: true,
+    onConfirm: async () => {
+      try {
+        const outcome = await window.HarmonicHN.setFlagged(itemId, true);
+        showToast(outcome.status === "success" ? capitalize(kind) + " flagged" : outcome.message || "Flagging did not go through");
+      } catch {
+        showToast("Flagging did not go through");
+      }
+    },
+  });
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// Hide from the feed card overflow: HN hides the story, the card disappears,
+// and an undo toast brings it back without reloading the feed.
+async function hideFromFeed(event, storyId) {
+  if (!requireTrustedEvent(event)) return;
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to hide");
+    return;
+  }
+  const card = document.querySelector('.story-card[data-story-id="' + storyId + '"]');
+  try {
+    const outcome = await window.HarmonicHN.setHidden(storyId, true);
+    if (outcome.status !== "success") {
+      if (outcome.status === "loginRequired" || outcome.status === "accountChanged") updateAccountChip();
+      showToast(outcome.message || "The story could not be hidden");
+      return;
+    }
+    if (card) card.classList.add("is-hidden");
+    showToast("Story hidden", {
+      actionLabel: "Undo",
+      duration: 6000,
+      onAction: async () => {
+        try {
+          const undo = await window.HarmonicHN.setHidden(storyId, false);
+          if (undo.status === "success") {
+            card?.classList.remove("is-hidden");
+            showToast("Story unhidden");
+          } else {
+            showToast(undo.message || "The story is still hidden");
+          }
+        } catch {
+          showToast("The story is still hidden");
+        }
+      },
+    });
+  } catch {
+    showToast("The story could not be hidden");
+  }
+}
+
+// SEC-37: bulk favorites run serially through the module's rate-limited queue
+// and stay cancellable between items.
+let bulkFavoritesCancelled = false;
+function addBookmarksToFavorites() {
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to use your Hacker News favorites");
+    return;
+  }
+  const ids = [...state.bookmarks];
+  if (!ids.length) {
+    showToast("No bookmarks yet");
+    return;
+  }
+  const seconds = Math.max(1, Math.ceil((ids.length * 1500) / 1000));
+  openConfirmDialog({
+    title: "Add bookmarks to favorites?",
+    message:
+      "Adds " + ids.length + " bookmarked " + (ids.length === 1 ? "story" : "stories") +
+      " to your Hacker News favorites, one at a time (roughly " + seconds + " seconds). You can cancel while it runs.",
+    confirmLabel: "Add to favorites",
+    onConfirm: () => runBulkFavorites(ids),
+  });
+}
+
+async function runBulkFavorites(ids) {
+  bulkFavoritesCancelled = false;
+  let added = 0;
+  let failed = 0;
+  for (let index = 0; index < ids.length; index++) {
+    if (bulkFavoritesCancelled) {
+      showToast("Bulk favorite cancelled");
+      return;
+    }
+    showToast("Adding to favorites… " + (index + 1) + " of " + ids.length, {
+      actionLabel: "Cancel",
+      duration: 60000,
+      onAction: () => {
+        bulkFavoritesCancelled = true;
+      },
+    });
+    try {
+      const outcome = await window.HarmonicHN.setFavorite(ids[index], true);
+      if (outcome.status === "success") {
+        added++;
+      } else if (outcome.status === "loginRequired" || outcome.status === "accountChanged") {
+        updateAccountChip();
+        showToast("Your Hacker News session ended partway through — " + added + " of " + ids.length + " favorited");
+        return;
+      } else {
+        failed++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+  showToast(added + " of " + ids.length + " added to favorites" + (failed ? " · " + failed + " failed" : ""));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5: story submission
+// ---------------------------------------------------------------------------
+
+function startNewPost() {
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to submit");
+    return;
+  }
+  openSubmitModal();
+}
+
+function openSubmitModal() {
+  document.querySelector(".harmonic-submit-overlay")?.remove();
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to submit");
+    return;
+  }
+  const overlay = el("div", "harmonic-submit-overlay");
+  const panel = el("div", "harmonic-submit");
+  const header = el("div", "submit-header");
+  header.append(
+    el("h3", "", "New post"),
+    (() => {
+      const close = el("button", "submit-close");
+      close.type = "button";
+      close.setAttribute("aria-label", "Close submit form");
+      close.append(svg("close"));
+      close.addEventListener("click", () => overlay.remove());
+      return close;
+    })()
+  );
+  const asUser = el("div", "submit-as", "Posting as " + session.username);
+  const titleLabel = el("label", "submit-label", "Title");
+  const titleInput = el("input", "submit-title");
+  titleInput.type = "text";
+  titleInput.maxLength = 80;
+  titleInput.placeholder = "A factual, neutral title";
+  const titleCount = el("div", "submit-count", "0/80");
+  const urlLabel = el("label", "submit-label", "URL");
+  const urlInput = el("input", "submit-url");
+  urlInput.type = "url";
+  urlInput.placeholder = "https://… (leave empty for a text post)";
+  const textLabel = el("label", "submit-label", "Text");
+  const textInput = el("textarea", "submit-text");
+  textInput.rows = 5;
+  textInput.placeholder = "The text of your post (use either URL or text)";
+  const guidelines = el("a", "submit-guidelines", "Read the Hacker News guidelines before posting");
+  guidelines.href = "https://news.ycombinator.com/newsguidelines.html";
+  guidelines.target = "_blank";
+  guidelines.rel = "noopener noreferrer";
+  const status = el("div", "submit-status");
+  status.hidden = true;
+  const actionsRow = el("div", "submit-actions");
+  const cancel = el("button", "submit-cancel", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => overlay.remove());
+  const submit = el("button", "submit-go", "Submit story");
+  submit.type = "button";
+  actionsRow.append(cancel, submit);
+  panel.append(header, asUser, titleLabel, titleInput, titleCount, urlLabel, urlInput, textLabel, textInput, guidelines, status, actionsRow);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  titleInput.focus();
+
+  titleInput.addEventListener("input", () => {
+    titleCount.textContent = titleInput.value.length + "/80";
+  });
+
+  const fail = (message) => {
+    submit.disabled = false;
+    status.hidden = false;
+    status.textContent = message;
+    status.classList.add("error");
+  };
+
+  submit.addEventListener("click", (event) => {
+    if (!event.isTrusted) return; // SEC-30
+    let title = titleInput.value.trim();
+    let url = urlInput.value.trim();
+    let text = textInput.value.replace(/\s+$/, "");
+    if (!title) {
+      fail("A title is required");
+      return;
+    }
+    title = title.slice(0, 80);
+    const hasUrl = Boolean(url);
+    const hasText = Boolean(text.trim());
+    if (!hasUrl && !hasText) {
+      fail("Add a URL or some text");
+      return;
+    }
+    if (hasUrl) {
+      const safe = safeHref(url);
+      if (!safe) {
+        fail("That URL is not allowed. Use a public http(s) link.");
+        return;
+      }
+      url = safe;
+    }
+    submit.disabled = true;
+    status.hidden = false;
+    status.classList.remove("error");
+    status.textContent = "Opening the Hacker News submit form…";
+    (async () => {
+      try {
+        const opened = await window.HarmonicHN.openSubmitForm();
+        if (opened.status !== "ok") {
+          if (opened.status === "loginRequired") updateAccountChip();
+          fail(opened.message || "Could not open the Hacker News submit form. Open it on Hacker News instead.");
+          return;
+        }
+        status.textContent = "Posting your story…";
+        const outcome = await window.HarmonicHN.submitStory(opened.handle, { title, url, text });
+        handleSubmitOutcome(outcome);
+      } catch {
+        fail("The request to Hacker News failed. Your values are kept.");
+      }
+    })();
+  });
+
+  function handleSubmitOutcome(outcome) {
+    if (outcome.status === "success") {
+      overlay.remove();
+      showToast("Story submitted");
+      refreshFeed();
+      return;
+    }
+    if (outcome.status === "alreadySubmitted") {
+      overlay.remove();
+      showToast("Hacker News already has this story");
+      if (Number.isInteger(outcome.existingId) && outcome.existingId > 0) loadThread(outcome.existingId);
+      return;
+    }
+    if (outcome.status === "validationRequired") {
+      // Keep the entered values and hand off to HN's own stock form —
+      // Harmonic never auto-fills a form on hacker news itself.
+      const open = el("button", "submit-hn-open", "Open the Hacker News submit form");
+      open.type = "button";
+      open.addEventListener("click", () => openOriginalHackerNews("/submit"));
+      status.hidden = false;
+      status.classList.add("error");
+      status.replaceChildren(
+        document.createTextNode("Hacker News asks for verification before submitting. Your values are kept."),
+        document.createElement("br"),
+        open
+      );
+      submit.disabled = false;
+      return;
+    }
+    if (outcome.status === "loginRequired" || outcome.status === "accountChanged") updateAccountChip();
+    fail(outcome.message || "Hacker News did not confirm the submission. Check /newest before posting again.");
   }
 }
 
@@ -1265,6 +1685,8 @@ function openFeedMenu(anchor) {
 
   function openMoreMenu(anchor) {
     openPopup(anchor, [
+      { label: "New post", icon: "plus", action: () => startNewPost() },
+      { label: "Add bookmarks to HN favorites", icon: "heart", action: () => addBookmarksToFavorites() },
       { label: "Settings", icon: "settings", action: openSettings },
       { label: "Open original Hacker News", icon: "external", action: () => openOriginalHackerNews(FEEDS[state.feed].path) },
       { label: "Disable Harmonic", icon: "power", action: disableHarmonic },
@@ -1642,6 +2064,8 @@ function openFeedMenu(anchor) {
         { label: "Open discussion", icon: "comment", action: () => selectStory(story) },
         ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(articleHref(story), "_blank", "noopener") }] : []),
         { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
+        ...(window.HarmonicHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => hideFromFeed(e, story.id) }] : []),
+        { label: state.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => toggleBookmark(story.id) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
       ]);
     });
@@ -2051,6 +2475,10 @@ function openFeedMenu(anchor) {
         ...(comment.author
           ? [{ label: "View user", icon: "user", action: () => window.open("https://news.ycombinator.com/user?id=" + encodeURIComponent(comment.author), "_blank", "noopener") }]
           : []),
+        // Phase 4: flag a comment only when HN offers the link (SEC-36 dialog).
+        ...(state.itemState?.comments?.[comment.id]?.flagAvailable
+          ? [{ label: "Flag comment", icon: "flag", action: (popupEvent) => confirmFlagItem(popupEvent, comment.id, "comment") }]
+          : []),
       ]);
     });
     actionsRow.append(voteButton, downButton, replyButton, editButton, deleteButton, moreButton);
@@ -2306,6 +2734,10 @@ function openFeedMenu(anchor) {
     if (!state.activeSummary || state.activeSummary.storyId !== id) stopActiveSummary();
     cancelItemState();
     closeComposer({ keepDraft: true });
+    // Direct thread switches (e.g. "already submitted" → open the existing
+    // story) must retarget the selection, or the fetched payloads are dropped
+    // when the stale selectedId fails the guard below.
+    state.selectedId = id;
     state.itemState = null;
     state.pollOptions = null;
     state.pollOptionsRenderedKey = "";
@@ -2392,12 +2824,30 @@ function openFeedMenu(anchor) {
       upvoteButton.title = "Sign in to vote";
       upvoteButton.setAttribute("aria-label", "Sign in to vote");
     }
+    // Phase 4: favorite + hide controls. Availability gating happens in
+    // updateThreadVoteUi once the fetched item document lands.
+    const favoriteButton = threadAction("heart", storyState?.favorited ? "Unfavorite" : "Favorite", handleStoryFavorite);
+    favoriteButton.setAttribute("data-thread-favorite", "1");
+    favoriteButton.classList.toggle("active", Boolean(storyState?.favorited));
+    if (!session) {
+      favoriteButton.title = "Sign in to favorite";
+      favoriteButton.setAttribute("aria-label", "Sign in to favorite");
+    }
+    const hideButton = threadAction("eyeOff", storyState?.hidden ? "Unhide" : "Hide", handleStoryHide);
+    hideButton.setAttribute("data-thread-hide", "1");
+    hideButton.classList.toggle("active", Boolean(storyState?.hidden));
+    if (!session) {
+      hideButton.title = "Sign in to hide";
+      hideButton.setAttribute("aria-label", "Sign in to hide");
+    }
 
     const actions = el("div", "thread-actions");
     actions.append(
       threadAction("user", "Open author", () => authorLink.click()),
       replyAction,
       upvoteButton,
+      favoriteButton,
+      hideButton,
       threadAction("star", "Bookmark", () => toggleBookmark(item.id), { id: item.id, active: state.bookmarks.has(item.id) }),
       threadAction("sparkle", "Story tools", () => startStorySummary(item), { summaryId: item.id, disabled: !item.url }),
       threadAction("share", "Share", async () => {
@@ -2410,11 +2860,29 @@ function openFeedMenu(anchor) {
       })
     );
     const more = threadAction("more", "More", (event) => {
+      const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
       openPopup(event.currentTarget, [
         { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
         { label: "Open on Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
         { label: "Collapse all comments", action: () => setAllCommentsCollapsed(true) },
         { label: "Expand all comments", action: () => setAllCommentsCollapsed(false) },
+        // Phase 4: flag only when Hacker News offers the link, behind a
+        // confirmation dialog (SEC-36).
+        ...(session && storyState?.flagAvailable
+          ? [{
+              label: storyState.flagged ? "Unflag story" : "Flag story",
+              icon: "flag",
+              action: (popupEvent) => {
+                if (storyState.flagged) {
+                  window.HarmonicHN.setFlagged(item.id, false).then((outcome) =>
+                    showToast(outcome.status === "success" ? "Flag removed" : outcome.message || "The flag could not be removed")
+                  );
+                } else {
+                  confirmFlagItem(popupEvent, item.id, "story");
+                }
+              },
+            }]
+          : []),
         { label: "Settings", icon: "settings", action: openSettings },
         { label: "Disable Harmonic", icon: "power", action: disableHarmonic },
       ]);

@@ -382,7 +382,7 @@ await test("account switch on a fetched page updates the chip and toasts (SEC-35
 
 await test("settings panel has an Account section and never asks for passwords", async ({ page }) => {
   await gotoFeed(page);
-  await page.locator(".feed-toolbar-actions .icon-button").nth(2).click(); // More
+  await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click(); // More
   await page.locator(".harmonic-popup .popup-item", { hasText: "Settings" }).click();
   await page.locator(".settings-panel").waitFor({ state: "visible" });
   const account = await page.locator(".settings-section", { has: page.locator("h3", { hasText: "Account" }) }).textContent();

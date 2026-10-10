@@ -9,6 +9,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.10.0] - 2026-10-10
+
+The favorites-and-submission release: Harmonic covers the rest of Hacker News's account actions — favorites, hide (with undo), flag (behind a confirmation), bulk-favoriting your bookmarks, and full story submission from a modal.
+
+### Added
+
+- **Favorites.** The thread header gains a Favorite control: it reflects the fetched item document's state (active "Unfavorite" when already favorited, hidden when Hacker News offers no favorite link), toggles with optimistic state, and — like upstream — re-reads the item document after the action to confirm the new state (`confirmRefetch`). Success toasts "Favorited" / "Removed from favorites".
+- **Hide with undo.** Hide is available from the thread header and from every feed card's overflow menu. The mutation goes through HN's `hide` token (`un=t` to unhide); the feed card disappears from the list and a 6-second toast offers **Undo**, which unhides (restoring the card) without reloading the feed. The control hides itself when the item document offers no hide link.
+- **Flag, only when HN offers it, only behind confirmation (SEC-36).** The thread's More menu gains "Flag story" and comment rows' More menus gain "Flag comment" — both rendered only when the fetched Hacker News document actually contains a flag link for that item. Flagging opens a dialog that explains what flagging does and who sees it; Cancel sends nothing, Confirm sends exactly one `flag?…` request. When an item is already flagged, the menu offers "Unflag story".
+- **Bookmarks → favorites, in bulk (SEC-37).** The feed More menu gains "Add bookmarks to HN favorites": after a dialog stating exactly how many bookmarks will be touched and roughly how long it takes, it favorites each bookmarked story **serially** through the rate-limited queue (the queue's own spacing enforces the serial pacing), shows live progress ("Adding to favorites… 3 of 12") with a **Cancel** button that stops the run at the next item boundary, reports "N of M added to favorites · K failed", and stops cleanly if the Hacker News session ends mid-run.
+- **Story submission (Phase 5).** The feed toolbar gains a **New post** button (logged in only): a modal with Title (80-character limit with a live counter), URL, and Text fields, a "Posting as <username>" line, and a link to Hacker News's guidelines. Harmonic validates locally (a title is required, a URL *or* text is required, URLs pass `safeHref` — `javascript:` and friends are refused before any request), then fetches HN's own `/submit` form, reads its `fnid`, and POSTs `/r` with `fnop=submit-page` exactly once (SEC-34).
+- **Submit outcomes.** Success closes the modal, toasts, and refreshes the feed. An "already submitted" redirect (302 to an existing item) opens that discussion in Harmonic with a "Hacker News already has this story" toast. A validation-required response keeps the entered values in the modal and offers a button that opens HN's own stock `/submit` form in an original-mode tab — Harmonic never auto-fills a form on Hacker News itself. Too-fast, rate-limited, login-ended, and indeterminate outcomes keep the values and show a plain-language message; the modal stays open so the user decides what happens next.
+- **Toast actions.** Toasts can now carry one button (Undo/Cancel) — the toast itself becomes clickable while shown.
+- **Card menu bookmark toggle.** The feed card overflow menu gains Bookmark/Remove bookmark (the same local bookmark store the thread header uses).
+- **`tests/actions.mjs` — the Phase 4+5 UI suite (14 tests).** Favorite toggling with the exact token request and confirmation re-fetch; favorite/hide controls hidden when the item document offers no link; thread hide with the undo toast asserting `un=t` on the undo request; card-menu hide removing the card and undo restoring it; flag story — cancel sends nothing, confirm sends one request; comment flag absent without a document link, present (and cancel-safe) with one; bookmarks bulk favorite — the dialog counts the bookmarks, requests are serially spaced (measured ≥600 ms apart), and mid-run cancellation stops the run early; exact POST `/r` payload from HN's `fnid` form posted once with feed refresh; local validation of empty posts and unsafe URLs with zero HN traffic; already-submitted opening the existing discussion; validationRequired keeping values and opening the stock form in a new original-mode tab; too-fast keeping the modal; and scripted-click refusal across favorite/hide/new-post (SEC-30).
+
+### Changed
+
+- A direct thread switch (`loadThread` with a different id — e.g. opening the existing story after an "already submitted" response) now retargets `selectedId` at the start, so the fetched discussion renders instead of being dropped by the stale-selection guard.
+- `hn-session.js` item state now reports each comment's `flagAvailable` alongside its vote state, so comment flagging can be gated on the document.
+- The feed toolbar's More menu carries New post and the bookmarks-bulk action; the voting suite targets the More button by label instead of index.
+- `.harmonic-toast` becomes pointer-interactive while shown (the undo/cancel buttons need clicks); a comments-fixture flag anchor is injected by the test mock when a comment flag must exist.
+
 ## [0.9.0] - 2026-10-10
 
 The commenting release: Harmonic's composer closes the last big write-action gap — replies, edits, and deletes all happen inside Harmonic, backed by per-account, session-scoped drafts and the module's exact-form, no-retry POST discipline.

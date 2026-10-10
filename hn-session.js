@@ -428,7 +428,7 @@
     const comments = {};
     for (const [id, entry] of votes) {
       if (id === itemId) continue;
-      comments[id] = safeVoteState(entry);
+      comments[id] = { ...safeVoteState(entry), flagAvailable: Boolean(actions.get(id)?.flag) };
     }
     return {
       status: "ok",
