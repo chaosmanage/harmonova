@@ -16,6 +16,7 @@
     "test:comments": "node tests/comments.mjs",
     "test:actions": "node tests/actions.mjs",
     "test:profile": "node tests/profile.mjs",
+    "test:live": "node tests/live.mjs",
     "test:lists": "node tests/lists.mjs",
     "package": "bash scripts/package.sh"
   },
