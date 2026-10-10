@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.7.3**.
+The current extension version is **0.7.4**.
 
-Version 0.7.3 is a security-hardening release: the background worker no longer sends cookies anywhere, refuses Hacker News pages for previews and summaries, validates every remote URL and redirect hop against a shared URL policy, pins and hash-verifies the runtime font, keeps incognito activity in memory, verifies message senders, and locks the extension against messages from other origins. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.7.4 ships site-wide search: the feed toolbar can search **all of Hacker News** through the Algolia HN API with filter chips, date ranges, minimum points, author filters, and relevance/newest sorting. It also lands the Hacker News session foundation (`hn-session.js`) and the fully mocked account-action test harness that later account phases build on. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Feed experience
 
@@ -47,12 +47,32 @@ The feed includes:
 - score, source domain, age, and comment count
 - local read-state dimming
 - search across loaded stories
+- **search across all of Hacker News** (see [Site-wide search](#site-wide-search))
 - incremental feed loading while scrolling
 - a refresh control
 - configurable story typography and zoom
 - configurable preview image behavior
 - article/title/preview links that can open the external article in a new tab
 - a large comment affordance that keeps the reader on Hacker News and opens the discussion pane
+
+## Site-wide search
+
+The toolbar search box offers two modes:
+
+- **Loaded stories** — filters the stories already in the feed (the original behavior).
+- **All of Hacker News** — searches the entire Hacker News corpus through the public Algolia HN API.
+
+In **All of Hacker News** mode you can:
+
+- pick a content type with chips: Stories, Comments, Ask, Show, Polls, or Front page
+- limit results to a date range (24 hours, week, month, year)
+- require a minimum point count
+- filter by author
+- sort by relevance or by date
+
+Story hits render as regular Harmonic story cards. Comment hits render as compact cards that show the story they belong to and the comment excerpt with the search terms highlighted; opening one jumps into the discussion and scrolls the comment into view. Results page through "Load more" until Algolia's page limit, stale requests are cancelled while you keep typing, and the most recent searches are offered as one-click suggestions.
+
+**What is sent to Algolia, and when:** a search request leaves the browser only while you are actively using the All of Hacker News search — the trimmed query (at most 200 characters), the selected tag, optional `created_at_i`/`points` numeric filters, an optional `author_<name>` filter, and paging parameters, sent as a GET to `https://hn.algolia.com/api/v1/search` or `/search_by_date` without cookies. Nothing else is shared: no page content, no identifiers, no settings, and the request is never sent for the "Loaded stories" filter. Recent searches live in memory only — they are never written to any storage, never synced, and are gone when the tab closes (consistent with Harmonic's incognito rules). Highlight fragments returned by Algolia are rendered as plain text with literal `<em>` tokens highlighted, so hostile markup in a highlight can never execute or load anything.
 
 ## Discussion reader
 
@@ -331,6 +351,12 @@ npm run test:hn-auth
 
 `test:hn-auth` serves the fixtures for every `news.ycombinator.com` request through Playwright routing and asserts the exact wire shape of every account action (vote, favorite, hide, logout, reply), the retry/backoff rules, account-switch safety, and that tokens never leave the session module — no Hacker News credentials are needed or used.
 
+Run the site-wide search suite (unit tests plus mocked-Algolia browser tests):
+
+```bash
+npm run test:search
+```
+
 The suite verifies the areas that have historically regressed, including:
 
 - at least 30 initial story cards render
@@ -366,6 +392,7 @@ The project deliberately stays small and uses no application framework.
 - `manifest.json` — Manifest V3 configuration, permissions, extension action, and icon declarations
 - `content.js` — feed, reader, interactions, settings, streaming summary presentation, persistence migration, and Hacker News/Algolia loading
 - `hn-session.js` — isolated-world Hacker News session and account-action client: session harvest, vote/favorite/hide/flag parsing and mutations, reply/edit/delete/submit form handles, serial rate-limited fetch queue, username-tagged token cache, and error-page classification (the module exposes safe state and outcomes only — tokens never leave its closure)
+- `hn-search.js` — site-wide search client for the Algolia HN API: strict query/tag/numeric-filter validation, hit validation with malformed-hit dropping, paging, and SEC-40-safe highlight tokenization (literal `<em>` only; hostile markup stays text)
 - `styles.css` — Harmonic desktop adaptation and summary/settings presentation scoped to `html.harmonic-hn`
 - `background.js` — preview metadata, image palette extraction, font retrieval, private local state, article extraction, OpenRouter streaming, and per-tab original-HN state
 - `url-policy.js` — shared remote-URL validation (public targets only, SSRF protection, redirect re-validation) used by the background worker and content script
@@ -376,6 +403,7 @@ The project deliberately stays small and uses no application framework.
 - `tests/security.mjs` — security regression suite (URL policy, cookie omission, sender checks, SSRF, AI output rules)
 - `tests/hn-parser.mjs` — fixture-driven parser and session-harvest tests run against the real extension in Chromium
 - `tests/hn-auth.mjs` — fully mocked logged-in account-action suite: exact Hacker News request shapes, retry/backoff rules, account-switch safety, and token-leakage checks
+- `tests/search.mjs` — site-wide search suite: query-construction and highlight-tokenization units plus mocked-Algolia browser tests (paging, hostile highlights, malformed hits, empty/error states, cancellation, comment-hit deep links)
 - `tests/fixtures/hn/` — redacted logged-out captures and derived logged-in synthetic documents (raw captures and any traces stay out of git)
 - `scripts/capture-fixtures.mjs`, `scripts/redact-fixtures.mjs`, `scripts/build-synthetic-fixtures.mjs` — the offline fixture pipeline
 - `scripts/package.sh` — creates the stable unpacked release folder and versioned zip

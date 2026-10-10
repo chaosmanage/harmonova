@@ -7,7 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Nothing yet.
 
+## [0.7.4] - 2026-10-10
+
+### Added
+
+- **Site-wide search (All of Hacker News).** The toolbar search box now offers two modes: **Loaded stories** (the original filter) and **All of Hacker News**, which searches the entire corpus through the public Algolia HN API (`/search` for relevance, `/search_by_date` for newest).
+- **Search filters.** Content-type chips (Stories, Comments, Ask, Show, Polls, Front page), a date-range picker (24 hours/week/month/year), a minimum-points field, an author filter, and relevance/newest sorting. Filters translate into validated `tags` and integer-only `numericFilters` (`created_at_i`, `points`); an invalid author name is skipped with an on-page hint rather than sent.
+- **Safe result rendering.** Story hits render as regular Harmonic story cards; comment hits render as compact cards with the story title and a highlighted excerpt. Highlight fragments are tokenized on literal `<em>`/`</em>` only (SEC-40) — hostile markup such as `<img onerror=…>` or `<script>` in a highlight renders as inert text and is never parsed as HTML.
+- **Comment deep links.** Opening a comment hit loads the discussion and scrolls that comment into view with a brief flash highlight.
+- **Paging and request hygiene.** Results page through "Load more" up to Algolia's `nbPages` limit with `hitsPerPage` capped at 50; queries are trimmed and capped at 200 characters; typing cancels stale in-flight requests with `AbortController` (300 ms debounce, minimum two characters, Enter for immediate search).
+- **Recent searches, memory only.** The last eight searches are offered as one-click suggestions and a clear button. They are never persisted to any storage — including in normal windows — so nothing search-related can leak through sync or disk (SEC-51).
+- **`hn-search.js` — the search client.** Query construction with a strict tag allowlist (`story`, `comment`, `ask_hn`, `show_hn`, `poll`, `front_page`, `author_<name>` with `^[A-Za-z0-9_-]{1,32}$` names), integer-only numeric filters, hit validation that drops malformed hits (bad `objectID`, wrong-typed numbers/strings, comments without a numeric thread id), and `nbPages`-aware paging. Requests are cookie-less GETs to the public API.
 - **`hn-session.js` — the Hacker News session and account-action client.** A new content-script module that runs in the isolated world and implements the plan's Hacker News protocol rules: top-bar session parsing (username, karma, logout), vote-link parsing (`up_`/`down_`/`un_` anchors with direction from the arrow title), favorite/hide/flag link parsing with active-state detection, comment/reply/edit/delete/submit form harvesting, and list parsing with more-link resolution. All actions return structured outcomes (`success`, `failure`, `indeterminate`, `accountChanged`, `rateLimited`, `loginRequired`, `validationRequired`) instead of throwing.
 - **A serial, rate-limit-aware HN fetch queue** (SEC-25). Every `news.ycombinator.com` HTML fetch runs through one queue with at least 750 ms spacing and exponential back-off (2 s/4 s/8 s) when HN rate-limits or returns 503; GETs retry up to four times, while POSTs are never retried (SEC-34).
 - **A username-tagged token cache** (SEC-12). Vote, favorite, hide, flag, and logout tokens are cached only under the username that was signed in when the page was served; the cache and all form handles are dropped whenever the signed-in account changes or the page unloads (SEC-10/11). Tokens never leave the module closure.
@@ -18,11 +30,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Fixture pipeline for offline, credential-free testing.** `scripts/capture-fixtures.mjs` saves real logged-out Hacker News pages, `scripts/redact-fixtures.mjs` redacts every live auth token and email into deterministic placeholders (with a leak guard that fails on any live-looking 40-hex token or personal email), and `scripts/build-synthetic-fixtures.mjs` derives logged-in synthetic documents (feed, item with vote/favorite/flag state, reply/edit/delete/submit forms, and all error pages) from them. Raw captures stay out of git.
 - **`tests/hn-parser.mjs`** — 12 tests that run the real extension in Chromium against the fixtures and verify session harvest rules (no session or tokens when logged out; correct session when signed in), all parsers, error classification, comment-spoof protection, redaction determinism, and the fixture leak guard.
 - **`tests/hn-auth.mjs`** — a fully mocked logged-in end-to-end suite (14 tests). A routed Chromium session serves the fixtures for `news.ycombinator.com` and records every request, then drives `HarmonicHN` inside the content script's isolated world: exact vote/favorite/hide/logout/comment request shapes (method, path, every parameter), expired-token retry counting, rate-limit backoff outcomes, logged-out refusal with zero mutating requests, stale-token account-switch aborts with zero vote requests, concurrent-duplicate refusal, fetch-based logout, single-POST reply flow, and token-leakage checks across the rendered UI, page storage, extension storage, and the console.
+- **`tests/search.mjs`** — the site-wide search suite (21 tests): unit tests for query construction, tag/numeric-filter validation, hit validation, and SEC-40 highlight tokenization, plus mocked-Algolia browser tests for rendering, filters, paging, hostile highlights, malformed-hit dropping, empty and error states with retry, request cancellation, comment-hit deep links, and memory-only recent searches.
 
 ### Changed
 
 - The content script now harvests the session (and the logout token) from the live document before mounting, so the account state is ready before any account UI is shown.
-- `npm run test:hn-parser` and `npm run test:hn-auth` run the new suites.
+- `npm run test:hn-parser`, `npm run test:hn-auth`, and `npm run test:search` run the new suites.
+
+### Fixed
+
+- The logout token was cached under a different key than it was read from, so `HarmonicHN.logout()` silently skipped the network request and cleared the session locally only. The keys now match and the logout request is sent exactly once with the page's `auth` token (covered by `tests/hn-auth.mjs`).
 
 ## [0.7.3] - 2026-10-10
 

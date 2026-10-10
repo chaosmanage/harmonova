@@ -108,6 +108,23 @@
     summaries: new Map(),
     activeSummary: null,
     summaryGeneration: 0,
+    search: {
+      mode: "loaded", // "loaded" filters loaded stories; "global" searches all of HN
+      active: false, // global search results are currently displayed
+      tag: "story",
+      range: "any", // any | day | week | month | year
+      minPoints: "",
+      author: "",
+      sort: "relevance", // relevance | newest
+      page: 0,
+      nbPages: 1,
+      hits: [],
+      query: "",
+      controller: null,
+      debounceTimer: 0,
+      seq: 0,
+      recent: [], // memory only — never persisted (SEC-51)
+    },
   };
 
   const fetchJson = async (url) => {
@@ -378,6 +395,7 @@
   };
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
+  let searchPanel, searchFilters, searchRecent, searchChips;
 
   function applySettings() {
     if (!app) return;
@@ -452,10 +470,114 @@
     searchInput.type = "search";
     searchInput.placeholder = "Search stories";
     searchInput.autocomplete = "off";
-    searchInput.addEventListener("input", filterStories);
+    searchInput.addEventListener("input", onSearchInput);
+    searchInput.addEventListener("keydown", onSearchKeydown);
+    searchInput.addEventListener("focus", renderRecentSearches);
     searchWrap.append(svg("search"), searchInput);
-    toolbar.append(row, updatedLabel, searchWrap);
+    toolbar.append(row, updatedLabel, searchWrap, createSearchPanel());
     return toolbar;
+  }
+
+  // The search panel hangs below the search pill: mode tabs, then (in
+  // "All of Hacker News" mode) filter chips and controls, then recent
+  // searches. Recent searches live in memory only (SEC-51).
+  function createSearchPanel() {
+    searchPanel = el("div", "hn-search-panel");
+
+    const modes = el("div", "hn-search-modes");
+    const loadedTab = el("button", "hn-search-mode active", "Loaded stories");
+    loadedTab.type = "button";
+    loadedTab.dataset.mode = "loaded";
+    loadedTab.addEventListener("click", () => setSearchMode("loaded"));
+    const globalTab = el("button", "hn-search-mode", "All of Hacker News");
+    globalTab.type = "button";
+    globalTab.dataset.mode = "global";
+    globalTab.addEventListener("click", () => setSearchMode("global"));
+    modes.append(loadedTab, globalTab);
+
+    searchFilters = el("div", "hn-search-filters");
+    searchFilters.hidden = true;
+
+    searchChips = el("div", "hn-search-chips");
+    const chips = [
+      ["story", "Stories"],
+      ["comment", "Comments"],
+      ["ask_hn", "Ask"],
+      ["show_hn", "Show"],
+      ["poll", "Polls"],
+      ["front_page", "Front page"],
+    ];
+    for (const [tag, label] of chips) {
+      const chip = el("button", "hn-search-chip" + (state.search.tag === tag ? " active" : ""), label);
+      chip.type = "button";
+      chip.dataset.tag = tag;
+      chip.addEventListener("click", () => {
+        state.search.tag = tag;
+        searchChips.querySelectorAll(".hn-search-chip").forEach((node) => node.classList.toggle("active", node === chip));
+        queueGlobalSearch(0);
+      });
+      searchChips.appendChild(chip);
+    }
+
+    const controls = el("div", "hn-search-controls");
+    const rangeSelect = el("select", "hn-search-select");
+    rangeSelect.setAttribute("aria-label", "Date range");
+    for (const [value, label] of [["any", "Any time"], ["day", "Past 24 hours"], ["week", "Past week"], ["month", "Past month"], ["year", "Past year"]]) {
+      const option = el("option", "", label);
+      option.value = value;
+      if (value === state.search.range) option.selected = true;
+      rangeSelect.appendChild(option);
+    }
+    rangeSelect.addEventListener("change", () => {
+      state.search.range = rangeSelect.value;
+      queueGlobalSearch(0);
+    });
+
+    const sortSelect = el("select", "hn-search-select");
+    sortSelect.setAttribute("aria-label", "Sort");
+    for (const [value, label] of [["relevance", "Relevance"], ["newest", "Newest"]]) {
+      const option = el("option", "", label);
+      option.value = value;
+      if (value === state.search.sort) option.selected = true;
+      sortSelect.appendChild(option);
+    }
+    sortSelect.addEventListener("change", () => {
+      state.search.sort = sortSelect.value;
+      queueGlobalSearch(0);
+    });
+
+    const pointsInput = el("input", "hn-search-number");
+    pointsInput.type = "number";
+    pointsInput.min = "0";
+    pointsInput.step = "1";
+    pointsInput.placeholder = "Min points";
+    pointsInput.setAttribute("aria-label", "Minimum points");
+    pointsInput.value = state.search.minPoints;
+    pointsInput.addEventListener("input", () => {
+      state.search.minPoints = pointsInput.value;
+      queueGlobalSearch(0);
+    });
+
+    const authorInput = el("input", "hn-search-text");
+    authorInput.type = "text";
+    authorInput.placeholder = "Author";
+    authorInput.setAttribute("aria-label", "Author");
+    authorInput.spellcheck = false;
+    authorInput.autocomplete = "off";
+    authorInput.value = state.search.author;
+    authorInput.addEventListener("input", () => {
+      state.search.author = authorInput.value;
+      queueGlobalSearch(0);
+    });
+
+    controls.append(rangeSelect, sortSelect, pointsInput, authorInput);
+    searchFilters.append(searchChips, controls);
+
+    searchRecent = el("div", "hn-search-recent");
+    searchRecent.hidden = true;
+
+    searchPanel.append(modes, searchFilters, searchRecent);
+    return searchPanel;
   }
 
   function openPopup(anchor, items) {
@@ -517,20 +639,318 @@
   }
 
   function toggleSearch() {
+    const opening = !searchWrap.classList.contains("open");
     searchWrap.classList.toggle("open");
-    if (searchWrap.classList.contains("open")) searchInput.focus();
-    else {
-      searchInput.value = "";
+    if (opening) {
+      searchInput.focus();
+      renderRecentSearches();
+    } else {
+      closeSearch();
+    }
+    syncSearchPanelSpace();
+  }
+
+  // The search panel overlays the list (the toolbar is an overlay by design);
+  // reserve scroll space so results never hide behind it or lose clicks.
+  function syncSearchPanelSpace() {
+    if (!storyList) return;
+    const open = Boolean(searchWrap?.classList.contains("open") && searchPanel);
+    const height = open ? searchPanel.offsetHeight : 0;
+    storyList.style.paddingTop = height ? 108 + height + 12 + "px" : "";
+  }
+
+  function closeSearch() {
+    abortSearch();
+    searchInput.value = "";
+    if (state.search.active) {
+      state.search.active = false;
+      restoreFeedList();
+    }
+    filterStories();
+  }
+
+  function abortSearch() {
+    clearTimeout(state.search.debounceTimer);
+    state.search.debounceTimer = 0;
+    state.search.controller?.abort();
+    state.search.controller = null;
+  }
+
+  function setSearchMode(mode) {
+    if (state.search.mode === mode) return;
+    state.search.mode = mode;
+    searchPanel.querySelectorAll(".hn-search-mode").forEach((tab) => tab.classList.toggle("active", tab.dataset.mode === mode));
+    searchFilters.hidden = mode !== "global";
+    if (mode === "loaded") {
+      abortSearch();
+      if (state.search.active) {
+        state.search.active = false;
+        restoreFeedList();
+      }
       filterStories();
+    } else {
+      renderRecentSearches();
+      queueGlobalSearch(0);
+    }
+    syncSearchPanelSpace();
+  }
+
+  function onSearchInput() {
+    if (state.search.mode === "loaded") {
+      filterStories();
+      return;
+    }
+    renderRecentSearches();
+    queueGlobalSearch(0);
+  }
+
+  function onSearchKeydown(event) {
+    if (event.key === "Escape") {
+      if (state.search.active) {
+        event.preventDefault();
+        state.search.active = false;
+        restoreFeedList();
+      } else {
+        closeSearch();
+      }
+      return;
+    }
+    if (event.key === "Enter" && state.search.mode === "global") {
+      event.preventDefault();
+      runGlobalSearch(0);
     }
   }
 
   function filterStories() {
+    if (state.search.mode !== "loaded") return;
     const q = searchInput.value.trim().toLowerCase();
     document.querySelectorAll(".story-card").forEach((card) => {
       const hay = (card.dataset.search || "").toLowerCase();
-      card.hidden = q && !hay.includes(q);
+      card.hidden = Boolean(q) && !hay.includes(q);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Site-wide search (Algolia via hn-search.js)
+  // ---------------------------------------------------------------------------
+
+  const RANGE_SECONDS = { day: 86400, week: 604800, month: 2592000, year: 31536000 };
+  const AUTHOR_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+
+  function buildSearchOptions(page) {
+    const author = state.search.author.trim();
+    const authorValid = !author || AUTHOR_PATTERN.test(author);
+    const tags = [state.search.tag];
+    if (authorValid && author) tags.push("author_" + author);
+    const options = {
+      query: searchInput.value,
+      tags,
+      sort: state.search.sort,
+      page,
+      hitsPerPage: 30,
+    };
+    const range = RANGE_SECONDS[state.search.range];
+    if (range) options.since = Math.floor(Date.now() / 1000) - range;
+    const minPoints = state.search.minPoints.trim();
+    if (/^\d+$/.test(minPoints)) options.minPoints = Number(minPoints);
+    return { options, authorValid };
+  }
+
+  function queueGlobalSearch(page) {
+    clearTimeout(state.search.debounceTimer);
+    state.search.debounceTimer = setTimeout(() => runGlobalSearch(page), 300);
+  }
+
+  async function runGlobalSearch(page) {
+    clearTimeout(state.search.debounceTimer);
+    state.search.debounceTimer = 0;
+    const query = searchInput.value.trim();
+    if (query.length < 2) {
+      if (state.search.active) {
+        state.search.active = false;
+        restoreFeedList();
+      }
+      return;
+    }
+    abortSearch();
+    const controller = new AbortController();
+    state.search.controller = controller;
+    const seq = ++state.search.seq;
+    const { options, authorValid } = buildSearchOptions(page);
+    state.search.query = query;
+    state.search.active = true;
+
+    if (page === 0) {
+      storyList.classList.add("search-results");
+      storyList.replaceChildren(createLoading("Searching Hacker News…"));
+    }
+
+    const result = window.HarmonicSearch
+      ? await window.HarmonicSearch.runSearch(options, { signal: controller.signal })
+      : { hits: [], page: 0, nbPages: 1, error: "The search client is unavailable" };
+    if (result.aborted || controller.signal.aborted || seq !== state.search.seq) return;
+    state.search.controller = null;
+
+    if (result.error) {
+      renderSearchError(result.error);
+      return;
+    }
+    if (page === 0) {
+      state.search.hits = result.hits;
+      state.search.page = result.page;
+      state.search.nbPages = result.nbPages;
+      pushRecentSearch(query);
+      renderSearchResults({ authorValid });
+    } else {
+      state.search.hits.push(...result.hits);
+      state.search.page = result.page;
+      state.search.nbPages = result.nbPages;
+      renderSearchResults({ authorValid });
+    }
+  }
+
+  function renderHighlight(target, value) {
+    // SEC-40: highlights arrive pre-tokenized as plain-text segments; hostile
+    // markup can only ever render as text.
+    for (const segment of window.HarmonicSearch.buildHighlightSegments(value)) {
+      target.appendChild(el("span", segment.highlighted ? "search-hit-em" : "", segment.text));
+    }
+  }
+
+  function renderSearchError(message) {
+    storyList.classList.add("search-results");
+    const fail = el("div", "harmonic-error");
+    fail.append(el("strong", "", "Search failed"), el("span", "", message));
+    const retry = el("button", "hn-search-retry", "Retry");
+    retry.type = "button";
+    retry.addEventListener("click", () => runGlobalSearch(0));
+    fail.appendChild(retry);
+    storyList.replaceChildren(fail);
+  }
+
+  function renderSearchResults({ authorValid }) {
+    storyList.classList.add("search-results");
+    const container = el("div", "hn-search-results");
+    const header = el("div", "hn-search-header");
+    const title = el("strong", "", "Results for “" + state.search.query + "”");
+    const storyCount = state.search.hits.filter((hit) => hit.kind === "story").length;
+    const commentCount = state.search.hits.length - storyCount;
+    const meta = el("span", "hn-search-meta",
+      storyCount + " stories · " + commentCount + " comments · page " + (state.search.page + 1) + " of " + state.search.nbPages);
+    header.append(title, meta);
+    if (!authorValid) {
+      header.appendChild(el("span", "hn-search-hint", "Author names may only contain letters, numbers, dashes, and underscores — the author filter was skipped."));
+    }
+    container.appendChild(header);
+    let storyIndex = 0;
+    for (const hit of state.search.hits) {
+      if (hit.kind === "story") {
+        container.appendChild(createStoryCard({
+          id: hit.id,
+          title: hit.title || "(untitled)",
+          url: hit.url,
+          score: hit.points ?? 0,
+          time: hit.created_at_i ?? 0,
+          descendants: hit.numComments ?? 0,
+          by: hit.author,
+        }, storyIndex++));
+      } else {
+        container.appendChild(createCommentHitCard(hit));
+      }
+    }
+    if (!state.search.hits.length) {
+      container.appendChild(el("div", "hn-search-empty", "No results for “" + state.search.query + "”. Try fewer words or remove a filter."));
+    }
+    if (state.search.page + 1 < state.search.nbPages) {
+      const more = el("button", "hn-search-more", "Load more results");
+      more.type = "button";
+      more.addEventListener("click", () => runGlobalSearch(state.search.page + 1));
+      container.appendChild(more);
+    }
+    storyList.replaceChildren(container);
+  }
+
+  function createCommentHitCard(hit) {
+    const card = el("article", "comment-hit");
+    const storyTitle = el("button", "comment-hit-story");
+    storyTitle.type = "button";
+    const storyLine = el("span", "comment-hit-story-text");
+    renderHighlight(storyLine, hit.titleHighlight || hit.story_title || hit.title || "(untitled story)");
+    storyTitle.append(svg("comment", "comment-hit-icon"), storyLine);
+    const meta = el("div", "comment-hit-meta");
+    meta.append(
+      el("span", "comment-hit-author", hit.author || "[deleted]"),
+      el("span", "meta-dot", "•"),
+      el("span", "meta-age", relativeTime(hit.created_at_i || 0))
+    );
+    const excerpt = el("div", "comment-hit-excerpt");
+    renderHighlight(excerpt, hit.highlight || hit.commentText || "");
+    const open = el("button", "comment-hit-open", "Open comment");
+    open.type = "button";
+    card.append(storyTitle, meta, excerpt, open);
+    const openComment = () => openThreadAtComment(hit.storyId ?? hit.story_id, hit.id);
+    storyTitle.addEventListener("click", openComment);
+    open.addEventListener("click", openComment);
+    return card;
+  }
+
+  function openThreadAtComment(storyId, commentId) {
+    if (!Number.isInteger(storyId) || storyId <= 0) return;
+    selectStory(storyId);
+    const target = String(commentId);
+    const deadline = Date.now() + 8000;
+    const step = () => {
+      const row = threadPane.querySelector('[data-comment-id="' + target + '"]');
+      if (row) {
+        row.classList.add("comment-flash");
+        row.scrollIntoView({ block: "center" });
+        setTimeout(() => row.classList.remove("comment-flash"), 2400);
+        return;
+      }
+      if (Date.now() < deadline && state.selectedId === storyId) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function restoreFeedList() {
+    storyList.classList.remove("search-results");
+    storyList.replaceChildren();
+    state.stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, index)));
+    filterStories();
+  }
+
+  function pushRecentSearch(query) {
+    const recent = state.search.recent.filter((term) => term !== query);
+    recent.unshift(query);
+    state.search.recent = recent.slice(0, 8);
+  }
+
+  function renderRecentSearches() {
+    if (!searchRecent) return;
+    const searchOpen = searchWrap.classList.contains("open");
+    const showRecents = state.search.mode === "global" && searchOpen && !searchInput.value.trim() && state.search.recent.length > 0;
+    searchRecent.hidden = !showRecents;
+    searchRecent.replaceChildren();
+    if (showRecents) {
+      searchRecent.appendChild(el("div", "hn-search-recent-label", "Recent searches"));
+      for (const term of state.search.recent) {
+        const row = el("button", "hn-search-recent-item", term);
+        row.type = "button";
+        row.addEventListener("click", () => {
+          searchInput.value = term;
+          runGlobalSearch(0);
+        });
+        searchRecent.appendChild(row);
+      }
+      const clear = el("button", "hn-search-recent-clear", "Clear recent searches");
+      clear.type = "button";
+      clear.addEventListener("click", () => {
+        state.search.recent = [];
+        renderRecentSearches();
+      });
+      searchRecent.appendChild(clear);
+    }
+    syncSearchPanelSpace();
   }
 
   async function switchFeed(key) {
@@ -652,7 +1072,7 @@
   }
 
   async function loadMoreStories() {
-    if (state.loadingMore || !state.hasMoreStories || !state.feedIds.length) return;
+    if (state.search.active || state.loadingMore || !state.hasMoreStories || !state.feedIds.length) return;
     const generation = state.feedGeneration;
     const batchIds = state.feedIds.slice(state.feedCursor, state.feedCursor + FEED_BATCH_SIZE);
     if (!batchIds.length) {
@@ -684,6 +1104,8 @@
   }
 
   async function refreshFeed() {
+    abortSearch();
+    state.search.active = false;
     const generation = ++state.feedGeneration;
     state.loadingMore = false;
     state.feedIds = [];
@@ -773,6 +1195,7 @@
   function renderComment(comment, depth = 0) {
     const row = el("div", "comment-row");
     row.dataset.depth = String(depth);
+    row.dataset.commentId = String(comment.id || 0); // used by search comment hits to scroll into view
     row.dataset.createdAt = String(comment.created_at_i || 0);
     row.dataset.replies = String(descendantCount(comment));
     row.style.setProperty("--depth", String(depth));
