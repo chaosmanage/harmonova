@@ -322,6 +322,15 @@ TEST_OUTPUT_DIR="$PWD/test-results-packaged" \
 npm run test:e2e
 ```
 
+Run the Hacker News session and parser suites (redacted fixtures drive a real Chromium):
+
+```bash
+npm run test:hn-parser
+npm run test:hn-auth
+```
+
+`test:hn-auth` serves the fixtures for every `news.ycombinator.com` request through Playwright routing and asserts the exact wire shape of every account action (vote, favorite, hide, logout, reply), the retry/backoff rules, account-switch safety, and that tokens never leave the session module — no Hacker News credentials are needed or used.
+
 The suite verifies the areas that have historically regressed, including:
 
 - at least 30 initial story cards render
@@ -356,6 +365,7 @@ The project deliberately stays small and uses no application framework.
 
 - `manifest.json` — Manifest V3 configuration, permissions, extension action, and icon declarations
 - `content.js` — feed, reader, interactions, settings, streaming summary presentation, persistence migration, and Hacker News/Algolia loading
+- `hn-session.js` — isolated-world Hacker News session and account-action client: session harvest, vote/favorite/hide/flag parsing and mutations, reply/edit/delete/submit form handles, serial rate-limited fetch queue, username-tagged token cache, and error-page classification (the module exposes safe state and outcomes only — tokens never leave its closure)
 - `styles.css` — Harmonic desktop adaptation and summary/settings presentation scoped to `html.harmonic-hn`
 - `background.js` — preview metadata, image palette extraction, font retrieval, private local state, article extraction, OpenRouter streaming, and per-tab original-HN state
 - `url-policy.js` — shared remote-URL validation (public targets only, SSRF protection, redirect re-validation) used by the background worker and content script
@@ -364,6 +374,10 @@ The project deliberately stays small and uses no application framework.
 - `icons/` — Harmonic browser-action icon assets
 - `tests/e2e.mjs` — Chromium interaction and regression test
 - `tests/security.mjs` — security regression suite (URL policy, cookie omission, sender checks, SSRF, AI output rules)
+- `tests/hn-parser.mjs` — fixture-driven parser and session-harvest tests run against the real extension in Chromium
+- `tests/hn-auth.mjs` — fully mocked logged-in account-action suite: exact Hacker News request shapes, retry/backoff rules, account-switch safety, and token-leakage checks
+- `tests/fixtures/hn/` — redacted logged-out captures and derived logged-in synthetic documents (raw captures and any traces stay out of git)
+- `scripts/capture-fixtures.mjs`, `scripts/redact-fixtures.mjs`, `scripts/build-synthetic-fixtures.mjs` — the offline fixture pipeline
 - `scripts/package.sh` — creates the stable unpacked release folder and versioned zip
 - `CHANGELOG.md` — release history following Keep a Changelog 1.1.0
 

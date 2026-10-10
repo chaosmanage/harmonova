@@ -1454,7 +1454,13 @@
     if (!(await loadEnabledPreference())) return;
     document.documentElement.classList.add("harmonic-hn");
     await Promise.all([loadPersistentState(), loadHarmonicFont()]);
-    if (document.body) mount();
-    else document.addEventListener("DOMContentLoaded", mount, { once: true });
+    const start = () => {
+      // Phase 0.4: harvest the original HN DOM (session state) before mount
+      // replaces the body, then mount at DOMContentLoaded.
+      try { window.HarmonicHN?.harvest(document); } catch {}
+      mount();
+    };
+    if (document.body) start();
+    else document.addEventListener("DOMContentLoaded", start, { once: true });
   })();
 })();

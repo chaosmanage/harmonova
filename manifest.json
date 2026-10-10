@@ -37,6 +37,7 @@
       ],
       "js": [
         "url-policy.js",
+        "hn-session.js",
         "content.js"
       ],
       "css": [

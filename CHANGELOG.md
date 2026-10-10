@@ -8,7 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Nothing yet.
+- **`hn-session.js` — the Hacker News session and account-action client.** A new content-script module that runs in the isolated world and implements the plan's Hacker News protocol rules: top-bar session parsing (username, karma, logout), vote-link parsing (`up_`/`down_`/`un_` anchors with direction from the arrow title), favorite/hide/flag link parsing with active-state detection, comment/reply/edit/delete/submit form harvesting, and list parsing with more-link resolution. All actions return structured outcomes (`success`, `failure`, `indeterminate`, `accountChanged`, `rateLimited`, `loginRequired`, `validationRequired`) instead of throwing.
+- **A serial, rate-limit-aware HN fetch queue** (SEC-25). Every `news.ycombinator.com` HTML fetch runs through one queue with at least 750 ms spacing and exponential back-off (2 s/4 s/8 s) when HN rate-limits or returns 503; GETs retry up to four times, while POSTs are never retried (SEC-34).
+- **A username-tagged token cache** (SEC-12). Vote, favorite, hide, flag, and logout tokens are cached only under the username that was signed in when the page was served; the cache and all form handles are dropped whenever the signed-in account changes or the page unloads (SEC-10/11). Tokens never leave the module closure.
+- **Hacker News error-page classification.** Pages are classified as expired-link, bad-login, too-fast, rate-limited, validation-required, login, blank, or OK — using only page-chrome regions, with user-contributed comment and story text stripped first so comment contents cannot spoof an error (the same trick upstream Harmonic uses).
+- **Token-based mutations with exactly one fresh-token retry** (SEC-33) and **one in-flight mutation per item** (SEC-32). Stale cached tokens (older than 60 s) are re-verified against a fresh page fetch before use, so an account switch in another tab can never mutate under the old identity (SEC-35). Blank or unreadable responses are `indeterminate` and can never clear the session or count as success.
+- **Fetch-based logout** (SEC-04): `HarmonicHN.logout()` POSTs nothing and never navigates; the `logout?auth=…` URL never enters the address bar or history.
+- **Reply, edit, delete, and submit form handles.** Forms are fetched through the queue, validated (40-hex `hmac`, `fnid` shape), tagged with the acting username, and POSTed exactly once with `URLSearchParams`-built bodies (SEC-14/20).
+- **Fixture pipeline for offline, credential-free testing.** `scripts/capture-fixtures.mjs` saves real logged-out Hacker News pages, `scripts/redact-fixtures.mjs` redacts every live auth token and email into deterministic placeholders (with a leak guard that fails on any live-looking 40-hex token or personal email), and `scripts/build-synthetic-fixtures.mjs` derives logged-in synthetic documents (feed, item with vote/favorite/flag state, reply/edit/delete/submit forms, and all error pages) from them. Raw captures stay out of git.
+- **`tests/hn-parser.mjs`** — 12 tests that run the real extension in Chromium against the fixtures and verify session harvest rules (no session or tokens when logged out; correct session when signed in), all parsers, error classification, comment-spoof protection, redaction determinism, and the fixture leak guard.
+- **`tests/hn-auth.mjs`** — a fully mocked logged-in end-to-end suite (14 tests). A routed Chromium session serves the fixtures for `news.ycombinator.com` and records every request, then drives `HarmonicHN` inside the content script's isolated world: exact vote/favorite/hide/logout/comment request shapes (method, path, every parameter), expired-token retry counting, rate-limit backoff outcomes, logged-out refusal with zero mutating requests, stale-token account-switch aborts with zero vote requests, concurrent-duplicate refusal, fetch-based logout, single-POST reply flow, and token-leakage checks across the rendered UI, page storage, extension storage, and the console.
+
+### Changed
+
+- The content script now harvests the session (and the logout token) from the live document before mounting, so the account state is ready before any account UI is shown.
+- `npm run test:hn-parser` and `npm run test:hn-auth` run the new suites.
 
 ## [0.7.3] - 2026-10-10
 

@@ -9,6 +9,8 @@
     "test:e2e": "node tests/e2e.mjs",
     "test:security": "node --test tests/security.mjs",
     "test:security:browser": "SECURITY_BROWSER_TESTS=1 EXTENSION_PATH=\"$PWD/dist/harmonic-hn-browser\" node tests/security.mjs",
+    "test:hn-parser": "node tests/hn-parser.mjs",
+    "test:hn-auth": "node tests/hn-auth.mjs",
     "package": "bash scripts/package.sh"
   },
   "devDependencies": {
