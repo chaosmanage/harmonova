@@ -141,6 +141,7 @@
     pollOptions: null, // [{id, text, points}] for the currently open poll
     pollOptionsRenderedKey: "", // guards poll re-renders from stomping in-flight votes
     composer: null, // open reply/edit composer { parentId, mode, handle, node, textarea, status, submitting }
+    listView: null, // open account list view { kind, path, pendingMore, done, loading, seen }
     sessionToastReady: false, // suppress "Signed in as…" toast during startup harvest
   };
 
@@ -499,7 +500,10 @@
     accountChip = el("button", "account-chip");
     accountChip.type = "button";
     accountChip.id = "harmonic-account-chip";
-    accountChip.addEventListener("click", (event) => openAccountMenu(event.currentTarget));
+    accountChip.addEventListener("click", (event) => {
+      if (!event.isTrusted) return; // SEC-30: scripted clicks never open menus
+      openAccountMenu(event.currentTarget);
+    });
     actions.append(searchButton, refreshButton, newPostButton, moreButton, accountChip);
     row.append(titleButton, actions);
     updateAccountChip();
@@ -633,6 +637,7 @@
       if (item.icon) row.appendChild(svg(item.icon));
       row.appendChild(el("span", "", item.label));
       row.addEventListener("click", (event) => {
+        if (!event.isTrusted) return; // SEC-30: scripted menu clicks never act
         popup.remove();
         item.action(event);
       });
@@ -707,15 +712,15 @@ function openAccountMenu(anchor) {
     ]);
     return;
   }
-  const u = encodeURIComponent(session.username);
   const karma = session.karma === null || session.karma === undefined ? "" : " · " + compact(session.karma) + " karma";
   openPopup(anchor, [
     { heading: session.username + karma },
-    { label: "Profile", icon: "user", action: () => openHnPage("/user?id=" + u) },
-    { label: "Threads", icon: "comment", action: () => openHnPage("/threads?id=" + u) },
-    { label: "Upvoted", icon: "up", action: () => openHnPage("/upvoted?id=" + u) },
-    { label: "Favorites", icon: "star", action: () => openHnPage("/favorites?id=" + u) },
-    { label: "Submissions", icon: "link", action: () => openHnPage("/submitted?id=" + u) },
+    { label: "Profile", icon: "user", action: () => openUserPanel(session.username) },
+    { label: "Threads", icon: "comment", action: () => openListView("threads") },
+    { label: "Upvoted", icon: "up", action: () => openListView("upvoted") },
+    { label: "Favorites", icon: "star", action: () => openListView("favorites") },
+    { label: "Submissions", icon: "link", action: () => openListView("submissions") },
+    { label: "Hidden", icon: "eyeOff", action: () => openListView("hidden") },
     { label: "Log out", icon: "power", action: performLogout },
   ]);
 }
@@ -1335,6 +1340,273 @@ function openSubmitModal() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 6: user panel + own account lists
+// ---------------------------------------------------------------------------
+
+const LIST_VIEWS = {
+  threads: { title: "Your threads", path: (u) => "/threads?id=" + u, kind: "comments", public: false },
+  upvoted: { title: "Your upvoted", path: (u) => "/upvoted?id=" + u, kind: "stories", public: false },
+  favorites: { title: "Your favorites", path: (u) => "/favorites?id=" + u, kind: "stories", public: true },
+  submissions: { title: "Your submissions", path: (u) => "/submitted?id=" + u, kind: "stories", public: true },
+  hidden: { title: "Your hidden", path: (u) => "/hidden?id=" + u, kind: "stories", public: false },
+  comments: { title: "Your comments", path: (u) => "/comments?id=" + u, kind: "comments", public: true },
+};
+
+// kind "comments" is also used for other users' comment lists.
+const PUBLIC_LIST_TITLES = {
+  submissions: (u) => u + "'s submissions",
+  comments: (u) => u + "'s comments",
+  favorites: (u) => u + "'s favorites",
+};
+
+async function openListView(kind, username) {
+  const config = LIST_VIEWS[kind];
+  if (!config) return;
+  const session = window.HarmonicHN?.session?.();
+  const own = !username || username === session?.username;
+  if (!own && !config.public) {
+    showToast("That list is private on Hacker News");
+    return;
+  }
+  if (own && !session) {
+    showToast("Sign in to see your lists");
+    return;
+  }
+  const target = own ? encodeURIComponent(session.username) : encodeURIComponent(username);
+  state.listView = {
+    kind,
+    own,
+    path: config.path(target),
+    pendingMore: null,
+    done: false,
+    loading: false,
+    seen: new Set(),
+  };
+  renderListViewShell(own ? config.title : (PUBLIC_LIST_TITLES[kind] || ((u) => u + "'s " + kind))(username));
+  await loadListViewBatch();
+}
+
+function renderListViewShell(title) {
+  abortSearch();
+  state.search.active = false;
+  const pane = el("div", "list-view");
+  const header = el("div", "list-view-header");
+  const back = el("button", "list-view-back");
+  back.type = "button";
+  back.append(svg("chevron"), el("span", "", "Back to feed"));
+  back.addEventListener("click", (event) => {
+    if (!event.isTrusted) return;
+    state.listView = null;
+    refreshFeed();
+  });
+  header.append(back, el("h2", "", title));
+  const body = el("div", "list-view-body");
+  const more = el("button", "list-view-more", "Load more");
+  more.type = "button";
+  more.hidden = true;
+  more.addEventListener("click", (event) => {
+    if (!event.isTrusted) return;
+    loadListViewBatch();
+  });
+  pane.append(header, body, more);
+  storyList.replaceChildren(pane);
+}
+
+async function loadListViewBatch() {
+  const view = state.listView;
+  if (!view || view.loading) return;
+  view.loading = true;
+  const pane = storyList.querySelector(".list-view");
+  const body = pane?.querySelector(".list-view-body");
+  const moreButton = pane?.querySelector(".list-view-more");
+  const firstBatch = !view.pendingMore;
+  const path = view.pendingMore || view.path;
+  if (body && firstBatch) body.replaceChildren(createLoading("Loading your " + view.kind + "…"));
+  try {
+    const result = await window.HarmonicHN.fetchListPage(path);
+    if (state.listView !== view) return;
+    if (result.status !== "ok") {
+      if (body) body.replaceChildren(el("div", "harmonic-error", result.message || "Hacker News did not return the list"));
+      view.loading = false;
+      if (moreButton) moreButton.hidden = true;
+      return;
+    }
+    if (body && firstBatch) body.replaceChildren();
+    view.pendingMore = result.morePath;
+    view.done = !result.morePath;
+    const freshIds = result.ids.filter((id) => !view.seen.has(id));
+    freshIds.forEach((id) => view.seen.add(id));
+    if (LIST_VIEWS[view.kind].kind === "comments") {
+      const rows = await Promise.all(freshIds.map((id) => renderThreadListItem(id)));
+      if (state.listView !== view) return;
+      rows.forEach((row) => row && body.appendChild(row));
+    } else {
+      const stories = await fetchItems(freshIds);
+      if (state.listView !== view) return;
+      const startIndex = body.querySelectorAll(".story-card").length;
+      stories.forEach((story, index) => story && body.appendChild(createStoryCard(story, startIndex + index)));
+    }
+    view.loading = false;
+    if (moreButton) moreButton.hidden = view.done;
+    if (body && !body.childElementCount) body.appendChild(el("div", "list-empty", "Nothing here yet."));
+  } catch {
+    view.loading = false;
+    if (body) body.replaceChildren(el("div", "harmonic-error", "The list could not be loaded. Try again shortly."));
+    if (moreButton) moreButton.hidden = true;
+  }
+}
+
+// Threads (reply inbox): one Algolia item fetch per comment carries the text,
+// the story it belongs to, and the story title — everything the row needs.
+async function renderThreadListItem(commentId) {
+  try {
+    const hit = await fetchJson(ALGOLIA_API + "/items/" + commentId);
+    if (!hit || !Number.isInteger(hit.story_id)) return el("div", "list-empty", "A comment is no longer visible.");
+    const row = el("article", "thread-list-item");
+    const storyButton = el("button", "thread-list-story");
+    storyButton.type = "button";
+    storyButton.append(
+      el("span", "thread-list-story-title", hit.story_title || "A discussion"),
+      el("span", "thread-list-story-meta", "open discussion")
+    );
+    storyButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      loadThread(hit.story_id);
+    });
+    const meta = el("div", "thread-list-meta", (hit.author || "unknown") + " · " + relativeTime(hit.created_at_i || 0));
+    const text = el("div", "thread-list-text");
+    appendSanitizedHtml(text, hit.text || "");
+    row.append(storyButton, meta, text);
+    return row;
+  } catch {
+    return el("div", "list-empty", "A comment could not be loaded.");
+  }
+}
+
+function memberSince(created) {
+  const seconds = Number(created) || 0;
+  if (!seconds) return "";
+  try {
+    return new Date(seconds * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+// SEC-05: the user panel reads the public Firebase user record — Hacker News
+// profile HTML is never fetched, so no cookies or tokens flow to /user.
+async function openUserPanel(username) {
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(username || "")) return;
+  document.querySelector(".harmonic-user-overlay")?.remove();
+  const overlay = el("div", "harmonic-user-overlay");
+  const panel = el("div", "harmonic-user");
+  const header = el("div", "user-header");
+  header.append(
+    el("h3", "", username),
+    (() => {
+      const close = el("button", "user-close");
+      close.type = "button";
+      close.setAttribute("aria-label", "Close profile panel");
+      close.append(svg("close"));
+      close.addEventListener("click", () => overlay.remove());
+      return close;
+    })()
+  );
+  const karmaRow = el("div", "user-karma", "Loading…");
+  const about = el("div", "user-about");
+  const submissionsTitle = el("h4", "", "Recent items");
+  const submissions = el("div", "user-submissions");
+  const links = el("div", "user-links");
+  const session = window.HarmonicHN?.session?.();
+  const ownProfile = session?.username === username;
+  // Other users get in-Harmonic links to their public lists (SEC-05 still
+  // applies: these are list pages, never the /user profile page).
+  if (!ownProfile) {
+    for (const kind of ["submissions", "comments", "favorites"]) {
+      const listLink = el("button", "user-hn-link", kind === "submissions" ? "Submissions" : kind === "comments" ? "Comments" : "Favorites");
+      listLink.type = "button";
+      listLink.addEventListener("click", () => {
+        overlay.remove();
+        openListView(kind, username);
+      });
+      links.appendChild(listLink);
+    }
+  }
+  const profileHref = safeHref("https://news.ycombinator.com/user?id=" + encodeURIComponent(username));
+  if (profileHref) {
+    const profileLink = el("a", "user-hn-link", "Open profile on Hacker News");
+    profileLink.href = profileHref;
+    profileLink.target = "_blank";
+    profileLink.rel = "noopener noreferrer";
+    links.appendChild(profileLink);
+  }
+  panel.append(header, karmaRow, about, submissionsTitle, submissions, links);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  const escapeHandler = (event) => {
+    if (event.key === "Escape") {
+      document.removeEventListener("keydown", escapeHandler);
+      close();
+    }
+  };
+  document.addEventListener("keydown", escapeHandler);
+
+  try {
+    const user = await fetchJson(HN_API + "/user/" + encodeURIComponent(username) + ".json");
+    if (!overlay.isConnected) return;
+    if (!user || typeof user !== "object" || !user.id) {
+      karmaRow.textContent = "This profile is not available.";
+      submissionsTitle.hidden = true;
+      submissions.hidden = true;
+      return;
+    }
+    karmaRow.replaceChildren(
+      el("strong", "", compact(Number(user.karma) || 0) + " karma"),
+      el("span", "", memberSince(user.created) ? " · member since " + memberSince(user.created) : "")
+    );
+    if (user.about) appendSanitizedHtml(about, String(user.about));
+    else about.hidden = true;
+    const ids = Array.isArray(user.submitted)
+      ? user.submitted.filter((id) => Number.isInteger(id) && id > 0).slice(0, 8)
+      : [];
+    if (!ids.length) {
+      submissions.appendChild(el("div", "list-empty", "No submissions yet."));
+      return;
+    }
+    const items = await fetchItems(ids);
+    if (!overlay.isConnected) return;
+    if (!items.length) {
+      submissions.appendChild(el("div", "list-empty", "No submissions yet."));
+      return;
+    }
+    for (const item of items) {
+      if (!item || !Number.isInteger(item.id)) continue;
+      const row = el("button", "user-submission");
+      row.type = "button";
+      const label = item.title || (item.text ? String(item.text).replace(/\s+/g, " ").slice(0, 140) : "(untitled)");
+      row.append(
+        el("span", "user-submission-title", label),
+        el("span", "user-submission-meta", (item.type === "comment" ? "comment · " : "") + compact(item.score || item.descendants || 0))
+      );
+      row.addEventListener("click", (event) => {
+        if (!event.isTrusted) return;
+        overlay.remove();
+        loadThread(item.id);
+      });
+      submissions.appendChild(row);
+    }
+  } catch {
+    karmaRow.textContent = "The profile could not be loaded. Open it on Hacker News instead.";
+  }
+}
+
+// ---------------------------------------------------------------------------
 async function loadPollOptions(storyId) {
   state.pollOptions = null;
   try {
@@ -2180,7 +2452,7 @@ function openFeedMenu(anchor) {
   }
 
   async function loadMoreStories() {
-    if (state.search.active || state.loadingMore || !state.hasMoreStories || !state.feedIds.length) return;
+    if (state.listView || state.search.active || state.loadingMore || !state.hasMoreStories || !state.feedIds.length) return;
     const generation = state.feedGeneration;
     const batchIds = state.feedIds.slice(state.feedCursor, state.feedCursor + FEED_BATCH_SIZE);
     if (!batchIds.length) {
@@ -2214,6 +2486,8 @@ function openFeedMenu(anchor) {
   async function refreshFeed() {
     abortSearch();
     state.search.active = false;
+    // A manual refresh closes an open account list view and rebuilds the feed.
+    state.listView = null;
     const generation = ++state.feedGeneration;
     state.loadingMore = false;
     state.feedIds = [];
@@ -2473,7 +2747,7 @@ function openFeedMenu(anchor) {
           action: () => window.open("https://news.ycombinator.com/item?id=" + (state.selectedId || comment.id), "_blank", "noopener"),
         },
         ...(comment.author
-          ? [{ label: "View user", icon: "user", action: () => window.open("https://news.ycombinator.com/user?id=" + encodeURIComponent(comment.author), "_blank", "noopener") }]
+          ? [{ label: "View user", icon: "user", action: () => openUserPanel(comment.author) }]
           : []),
         // Phase 4: flag a comment only when HN offers the link (SEC-36 dialog).
         ...(state.itemState?.comments?.[comment.id]?.flagAvailable
@@ -3184,6 +3458,16 @@ function openFeedMenu(anchor) {
     threadPane.appendChild(createThreadPlaceholder());
     app.append(feedPane, threadPane);
     document.body.appendChild(app);
+    // Phase 6: author links open the in-Harmonic user panel (Firebase-backed)
+    // instead of leaving for Hacker News.
+    app.addEventListener("click", (event) => {
+      const link = event.target?.closest?.('a[href*="user?id="]');
+      if (!link || !event.isTrusted) return;
+      const match = (link.getAttribute("href") || "").match(/user\?id=([A-Za-z0-9_-]{1,32})/);
+      if (!match) return;
+      event.preventDefault();
+      openUserPanel(decodeURIComponent(match[1]));
+    });
     document.documentElement.classList.add("harmonic-ready");
     applySettings();
     if (state.selectedId) {

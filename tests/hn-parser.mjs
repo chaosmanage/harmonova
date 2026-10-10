@@ -143,17 +143,14 @@ await test("comment form parses hidden fields", async (page) => {
 await test("list parser reads rows and pagination", async (page) => {
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" }).catch(() => {});
   await page.setContent(readFixture("news.html"), { waitUntil: "domcontentloaded" });
-  // setContent leaves a data/about URL, so prime baseURI by rewriting the document.
-  await page.evaluate(() => {
-    const base = document.createElement("base");
-    base.href = "https://news.ycombinator.com/news";
-    document.head.appendChild(base);
-  });
   await page.addScriptTag({ path: path.join(repoRoot, "hn-session.js") });
   const list = await page.evaluate(() => window.HarmonicHN._internal.parseList(document));
   assert.equal(list.ids.length, 30, "front page holds 30 stories");
   assert.ok(list.morePath, "front page has a morelink");
-  assert.ok(list.morePath.includes("/news"), "morelink resolves against the page URL: " + list.morePath);
+  // parseList returns the morelink href verbatim (DOMParser docs inherit the
+  // host page baseURI, so URL resolution there is wrong); fetchListPage
+  // resolves "?…" hrefs against the requested list path instead.
+  assert.equal(list.morePath, "?p=2", "morelink href returned verbatim: " + list.morePath);
   await page.setContent(readFixture("item-thread.html"), { waitUntil: "domcontentloaded" });
   await page.addScriptTag({ path: path.join(repoRoot, "hn-session.js") });
   const threadList = await page.evaluate(() => window.HarmonicHN._internal.parseList(document));

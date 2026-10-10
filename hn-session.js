@@ -318,13 +318,50 @@
     }
     const moreHref = doc.querySelector("a.morelink")?.getAttribute("href") || null;
     if (!moreHref) return { ids, morePath: null };
-    // Resolve the morelink against the page URL when possible.
-    try {
-      const resolved = new URL(moreHref, doc.baseURI && /^https?:/.test(doc.baseURI) ? doc.baseURI : undefined);
-      return { ids, morePath: resolved.pathname + resolved.search };
-    } catch {
-      return { ids, morePath: moreHref.startsWith("/") ? moreHref : "/" + moreHref };
+    // Do NOT resolve with new URL(): DOMParser docs inherit the host page's
+    // baseURI, which is not the fetched list path. Return the href as-is and
+    // let fetchListPage resolve it against the requested path.
+    if (moreHref.startsWith("/") || moreHref.startsWith("?")) return { ids, morePath: moreHref };
+    return { ids, morePath: "/" + moreHref };
+  }
+
+  // Phase 6: fetch a Hacker News list page (own or public) through the queue
+  // and return its item ids plus the next-page path. SEC-05: list pages only —
+  // profile HTML is never fetched; user data comes from the public Firebase
+  // API. The first path segment must be on a fixed allowlist (no /user).
+  async function fetchListPage(path) {
+    const safePath = validateListPath(path);
+    if (!safePath) {
+      return { status: "failure", message: "That Hacker News list is not available in Harmonic." };
     }
+    const page = await enqueue(safePath);
+    if (page.classification === "loginPage") {
+      setSession(null, null);
+      return { status: "loginRequired", message: "Sign in to see this list" };
+    }
+    if (page.classification === "rateLimited") {
+      return { status: "rateLimited", message: "Hacker News is rate-limiting requests. Try again shortly." };
+    }
+    if (page.classification === "blank") {
+      return { status: "indeterminate", message: "Hacker News returned an unreadable list page." };
+    }
+    if (page.classification !== "ok") {
+      return { status: "failure", message: "Hacker News did not return a readable list page.", detail: page.classification };
+    }
+    refreshSessionFromDoc(page.doc);
+    const parsed = parseList(page.doc);
+    let morePath = parsed.morePath;
+    // DOMParser docs have no reliable baseURI of their own, so relative
+    // morelinks ("?p=2") arrive as-is. Resolve them against the requested
+    // list path, merging query params so "id=u" survives "p=2".
+    if (morePath && morePath.startsWith("?")) {
+      const question = safePath.indexOf("?");
+      const base = question === -1 ? safePath : safePath.slice(0, question);
+      const merged = new URLSearchParams(question === -1 ? "" : safePath.slice(question + 1));
+      for (const [key, value] of new URLSearchParams(morePath.slice(1))) merged.set(key, value);
+      morePath = base + "?" + merged.toString();
+    }
+    return { status: "ok", ids: parsed.ids, morePath };
   }
 
   function parseFnidForm(doc) {
@@ -794,6 +831,25 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Account lists (Phase 6). SEC-05: profiles and account data come from the
+  // public Firebase API — these list paths never include the /user page.
+  // ---------------------------------------------------------------------------
+  const LIST_PATH_SEGMENTS = new Set([
+    "upvoted", "favorites", "submitted", "hidden", "threads", "comments",
+    "newest", "shownewest", "front", "noobstories", "bestcomments", "active",
+    "pool", "launches", "whoishiring", "classic", "ask", "show", "jobs",
+    "x", // HN's session-continuation endpoint used by fnid morelinks
+  ]);
+
+  function validateListPath(path) {
+    if (typeof path !== "string" || path.charAt(0) !== "/") return null;
+    const question = path.indexOf("?");
+    const segment = question === -1 ? path.slice(1) : path.slice(1, question);
+    if (!/^[a-z]+$/.test(segment) || !LIST_PATH_SEGMENTS.has(segment)) return null;
+    return path;
+  }
+
+  // ---------------------------------------------------------------------------
   // Public surface
   // ---------------------------------------------------------------------------
 
@@ -820,6 +876,7 @@
     deleteComment,
     openSubmitForm,
     submitStory,
+    fetchListPage,
     logout,
     // Test/inspection hooks (never expose tokens).
     _internal: {

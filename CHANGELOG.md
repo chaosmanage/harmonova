@@ -9,6 +9,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.11.0] - 2026-10-10
+
+The profiles-and-lists release: your Hacker News account data lives inside Harmonic — a Firebase-backed user panel for anyone, your own Threads/Upvoted/Favorites/Submissions/Hidden lists from the account chip, and public lists for other users — with the profile page itself strictly off-limits (SEC-05).
+
+### Added
+
+- **User profile panel.** Clicking any author — in a feed card's thread header, a comment row, or the account chip's Profile entry — opens an in-Harmonic overlay with the user's karma, a "member since" date (derived from the Firebase `created` field), their sanitized `about` text, up to eight recent items (clickable, open the discussion), and an "Open profile on Hacker News" link. A missing profile says "This profile is not available" instead of rendering a broken panel.
+- **Own lists from the account chip (Phase 6).** The chip menu gains Threads (your reply inbox), Upvoted, Favorites, Submissions, and Hidden. A list view replaces the feed pane with a back button; stories render as feed cards, Threads rows carry the comment text plus the story they belong to (via Algolia's `items` API) and clicking a row opens that discussion. "Load more" pages through HN's morelinks with per-view dedupe, hiding itself when HN offers no next page; empty lists show "Nothing here yet."
+- **Public lists for other users.** Another user's panel offers Submissions, Comments, and Favorites, opening that user's public list in the same list view (titled "alice's submissions" and so on). Lists that are private on Hacker News (another user's threads/upvoted/hidden) are refused with a plain-language toast.
+- **`fetchListPage` in `hn-session.js`.** List pages are fetched through the rate-limited queue and parsed for `tr.athing` ids plus the morelink; outcomes are `ok` / `loginRequired` (which clears the session) / `rateLimited` / `indeterminate` / `failure`. SEC-05 is enforced structurally: the first path segment must be on a fixed allowlist that does not include `user`, so no code path — not even a bug — can fetch the profile HTML page. Relative morelinks (`?p=2`, `x?fnid=…`) are resolved against the requested list path with query merging, never against the host page's URL.
+- **Scripted-click guards extended (SEC-30).** The account chip and every popup menu item now ignore untrusted clicks, alongside the existing thread-action and list-view guards.
+
+### Changed
+
+- `parseList` returns the morelink href verbatim. DOMParser documents inherit the host page's `baseURI`, so resolving there could point a `/upvoted` continuation at `/news`; the queue layer resolves it against the actually requested path instead.
+- A manual feed refresh closes an open list view; the incremental scroll loader is suspended while a list view is open, so the two never fight over the feed pane.
+- The account list allowlist covers all Phase 7 reading-parity lists (front, pool, active, bestcomments, launches, whoishiring, noobstories, classic, ask, show, jobs) so upcoming feeds reuse the same guard.
+
+### Security
+
+- **SEC-05 test tripwire.** `tests/profile.mjs` serves `/user` from a counting tripwire and every test asserts it was never requested — profile panels, author-link clicks, and list fetches alike; `fetchListPage("/user?id=…")` (and any off-allowlist path) is directly asserted to refuse without firing a request.
+- **About-text sanitization.** The panel's `about` goes through the existing allowlist sanitizer: hostile fixtures with `<img onerror>`, inline `<script>`, and `javascript:` links render inert — asserted by window-side probes that no handler ran.
+
+### Tests
+
+- **`tests/profile.mjs` — the Phase 6 UI suite (12 tests),** `npm run test:profile`. Own-profile panel with karma/member-since/safe link; another user's panel with hostile-about sanitization (SEC-05 tripwire, no `onerror`/script/img execution, `javascript:` link neutered); missing profile message; upvoted list pagination through relative morelinks with dedupe and a hidden Load more at the end; submissions via `fetchItems`; Threads via Algolia with row click opening the discussion; hidden list empty state; back-to-feed restore; public lists for another user (submissions/comments/favorites paths asserted); `fetchListPage` allowlist refusals; login-page list outcome clearing the session; and scripted-click refusal across chip, popup, list-view back, and Load more.
+
 ## [0.10.0] - 2026-10-10
 
 The favorites-and-submission release: Harmonic covers the rest of Hacker News's account actions — favorites, hide (with undo), flag (behind a confirmation), bulk-favoriting your bookmarks, and full story submission from a modal.

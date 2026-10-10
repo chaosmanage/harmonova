@@ -24,13 +24,13 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.10.0**.
+The current extension version is **0.11.0**.
 
-Version 0.10.0 completes the account-action set: **favorites, hide with undo, confirmed flagging, bulk-favoriting your bookmarks, and full story submission**. The thread header gains Favorite and Hide controls gated on what the fetched Hacker News document actually offers; hiding a feed card removes it with a 6-second undo toast; flagging (stories and comments) exists only where HN offers the link and always asks first; the feed's More menu can add every bookmark to your HN favorites serially with live progress and cancel; and a New post modal submits stories through HN's own `fnid` form — posting exactly once, opening an existing discussion when HN reports a duplicate, and handing off to HN's stock form when verification is required. It builds on the composer of 0.9.0, the chip and voting of 0.8.0, and the Hacker News session foundation beneath them. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.11.0 brings your account data inside Harmonic: **a user profile panel for anyone on Hacker News, your own Threads/Upvoted/Favorites/Submissions/Hidden lists from the account chip, and public lists (submissions, comments, favorites) for other users**. The panel is backed by the public Firebase user API — karma, member-since, a sanitized about text, and clickable recent items — while the `/user` HTML page itself is never fetched (SEC-05, enforced by a path allowlist and a test tripwire). List views paginate through HN's morelinks with dedupe, render Threads rows from Algolia, and clear the session cleanly when HN answers with a login page. It builds on the submission flow of 0.10.0, the composer of 0.9.0, and the chip and voting of 0.8.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Account actions and voting
 
-- **Account chip.** Signed out, the chip reads *Log in* and hands off to Hacker News's own `/login` page in the same tab with an allowlisted `goto` (SEC-02); Harmonic never renders a password field (SEC-01). Signed in, it shows your username and karma with Profile, Threads, Upvoted, Favorites, Submissions, and Log out entries.
+- **Account chip.** Signed out, the chip reads *Log in* and hands off to Hacker News's own `/login` page in the same tab with an allowlisted `goto` (SEC-02); Harmonic never renders a password field (SEC-01). Signed in, it shows your username and karma with Profile, Threads, Upvoted, Favorites, Submissions, Hidden, and Log out entries.
 - **Logout is a fetch, not a navigation** (SEC-04): the `logout?auth=…` URL never enters the address bar; the feed reloads signed out afterwards, and every draft is cleared with the session.
 - **Vote state, on demand.** ~600 ms after a discussion opens, Harmonic fetches the story's Hacker News item page through the serial queue and applies the story's and every comment's vote state; tokens missing from the cache are fetched on demand when you act.
 - **Voting UI.** Thread-header Upvote/Unvote with optimistic points and rollback; per-comment Upvote, Downvote (only where Hacker News offers it, remaining visible as the undown affordance), Reply, and a More menu (share link, copy text, open parent/top level, view user); poll options with their own vote tokens; feed cards show a ▲ badge for stories you already voted and a Story actions menu with a functional Upvote.
@@ -41,7 +41,14 @@ Version 0.10.0 completes the account-action set: **favorites, hide with undo, co
 - **Flag, gated twice.** Flag story / Flag comment entries render only when the fetched document offers a flag link, and every flag runs behind an explicit confirmation dialog (Cancel sends nothing).
 - **Bookmarks → favorites in bulk (SEC-37).** One menu entry favorites every bookmarked story serially through the rate-limited queue, with progress + Cancel and a per-run summary.
 - **Story submission.** The New post modal validates locally (title, URL-or-text, `safeHref`), reads HN's `/submit` `fnid`, and POSTs `/r` once; already-submitted opens the existing discussion, verification walls keep your values and hand off to HN's stock form.
-- **Safety rails.** One mutation in flight per item (SEC-32), exactly one fresh-token retry on expiry for votes (SEC-33) and never-retried POSTs for comments/edits/deletes/submits (SEC-34), account switches abort pending actions (SEC-35), scripted `element.click()` never acts — enforced on comment rows and the whole thread action row (SEC-30), deletes and flags confirm first (SEC-36), and every failure rolls the optimistic UI back with a plain-language toast.
+- **Safety rails.** One mutation in flight per item (SEC-32), exactly one fresh-token retry on expiry for votes (SEC-33) and never-retried POSTs for comments/edits/deletes/submits (SEC-34), account switches abort pending actions (SEC-35), scripted `element.click()` never acts — enforced on comment rows, the whole thread action row, the account chip, and every popup menu item (SEC-30), deletes and flags confirm first (SEC-36), and every failure rolls the optimistic UI back with a plain-language toast.
+
+## Profiles and account lists
+
+- **User panel.** Any author link (thread header, comment row) or the chip's Profile entry opens an in-Harmonic panel: karma, member-since, sanitized about text, up to eight recent items that open the discussion, and a link to the real profile page. Missing profiles say so; hostile about HTML (event handlers, scripts, `javascript:` links) renders inert.
+- **Own lists.** Threads (your reply inbox, comment rows with their story context via Algolia), Upvoted, Favorites, Submissions, and Hidden open as list views with a back button, "Load more" pagination through HN's morelinks (relative `?p=2` and `x?fnid=…` both resolved against the requested path, never the host page), per-view dedupe, and an empty state.
+- **Public lists for other users.** From another user's panel: Submissions, Comments, Favorites. Private lists (threads/upvoted/hidden of someone else) are refused with a toast.
+- **SEC-05, structurally.** Profile pages are never fetched — user data comes from the public Firebase API; list paths must start with an allowlisted segment that excludes `user`. `tests/profile.mjs` serves `/user` behind a counting tripwire and every test asserts zero requests.
 
 ## Replying, editing, and drafts
 
@@ -409,6 +416,12 @@ Run the favorites/hide/flag/submit suite (stateful mocks that reflect favorite/h
 npm run test:actions
 ```
 
+Run the profiles-and-lists suite (Firebase-backed user panels with a hostile-about sanitization probe, own lists through the account chip with morelink pagination and dedupe, Algolia-driven Threads rows, public lists for other users, the SEC-05 `/user` tripwire, and the login-required outcome):
+
+```bash
+npm run test:profile
+```
+
 `test:voting` asserts the chip per session state, the allowlisted `goto` login hand-off (including a query-reflection probe), the full account menu, fetch-based logout with reload, exact `how=up`/`how=un`/`how=down` request shapes with the UI state they produce (active classes, point deltas, card badges), downvote availability gated on the served document, SEC-30 refusal of scripted clicks, double-expiry and rate-limit rollback with toasts, and poll-option voting — no Hacker News credentials are needed or used.
 
 The suite verifies the areas that have historically regressed, including:
@@ -579,7 +592,7 @@ User-visible behavior changes should be written for extension users rather than 
 
 - ~~Phase 3 (0.9.0): in-Harmonic commenting with drafts (reply composer, edit/delete own comments)~~ — shipped
 - ~~Phase 4+5 (0.10.0): favorites, hide-with-undo, flag confirmation, and the story-submission flow~~ — shipped
-- Phase 6 (0.11.0): user profile panel and own-list browsing (upvoted/favorites/submissions)
+- ~~Phase 6 (0.11.0): user profile panel and own-list browsing (threads/upvoted/favorites/submissions/hidden) plus public lists for other users~~ — shipped
 - Phase 7 (0.12.x): reading-parity extras (more lists, feed filters, avatars, user tags, blocked users)
 - Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts
 - closer parity for additional Harmonic story-card layout modes
