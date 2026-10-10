@@ -1068,3 +1068,132 @@ html.harmonic-hn *{box-sizing:border-box}
   0%,55%{background:rgba(94,151,246,.14)}
   100%{background:transparent}
 }
+
+/* ---------------------------------------------------------------------------
+   Phase 1: account chip
+--------------------------------------------------------------------------- */
+.account-chip{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:5px 12px;
+  border:1px solid #2d2d34;
+  border-radius:999px;
+  background:#18181c;
+  color:#d6d4dd;
+  font-size:12.5px;
+  font-weight:600;
+  cursor:pointer;
+  max-width:220px;
+}
+.account-chip:hover{color:#efedf2;border-color:#4a4a55}
+.account-chip .account-chip-icon{width:15px;height:15px;flex:none}
+.account-chip .account-chip-name{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.account-chip.logged-in{border-color:#3c4a3f;color:#b8d8bd}
+.account-chip.logged-in:hover{border-color:#4f6354;color:#dff0e1}
+.popup-heading{
+  padding:8px 14px 6px;
+  color:#8f8e98;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.02em;
+  border-bottom:1px solid #2d2d34;
+  margin-bottom:4px;
+  white-space:nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Phase 2: comment action row, poll options, voted badges
+--------------------------------------------------------------------------- */
+.comment-actions{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  margin:-2px 0 2px;
+  opacity:.85;
+}
+.comment-action{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  padding:0;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:#8f8e98;
+  cursor:pointer;
+}
+.comment-action[hidden]{display:none}
+.comment-action svg{width:15px;height:15px}
+.comment-action:hover{color:#efedf2;background:#22222a}
+.comment-action.active{color:#e08c3f}
+.comment-action.active svg{fill:currentColor}
+.comment-action.pending{opacity:.45;pointer-events:none}
+.comment-row.collapsed .comment-actions{display:none}
+.thread-poll{
+  margin:0 0 18px;
+  padding:16px 18px;
+  border:1px solid #2d2d34;
+  border-radius:16px;
+  background:#18181c;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.thread-poll h2{margin:0;font-size:16.5px}
+.poll-option{display:flex;align-items:center;gap:12px}
+.poll-option-vote{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  padding:0;
+  border:1px solid #2d2d34;
+  border-radius:10px;
+  background:#22222a;
+  color:#d6d4dd;
+  cursor:pointer;
+  flex:none;
+}
+.poll-option-vote svg{width:15px;height:15px}
+.poll-option-vote:hover{color:#efedf2;border-color:#4a4a55}
+.poll-option-vote.active{color:#e08c3f;border-color:#e08c3f}
+.poll-option-vote.pending{opacity:.45;pointer-events:none}
+.poll-option-text{flex:1;font-size:15.5px;line-height:1.45}
+.poll-option-points{color:#8f8e98;font-size:13px;font-weight:600;flex:none}
+.story-card-more{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  margin-left:6px;
+  padding:0;
+  border:none;
+  border-radius:7px;
+  background:transparent;
+  color:#8f8e98;
+  cursor:pointer;
+  flex:none;
+  vertical-align:middle;
+}
+.story-card-more svg{width:14px;height:14px}
+.story-card-more:hover{color:#efedf2;background:#22222a}
+.story-voted-badge{
+  display:none;
+  position:absolute;
+  top:14px;
+  right:16px;
+  color:#e08c3f;
+  font-size:13px;
+  line-height:1;
+}
+.story-card{position:relative}
+.story-card.voted .story-voted-badge{display:block}

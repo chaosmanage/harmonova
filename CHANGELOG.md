@@ -9,6 +9,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.8.0] - 2026-10-10
+
+The first account-actions release: Harmonic can now act on Hacker News on your behalf — the toolbar gains an account chip (login hand-off, profile destinations, fetch-based logout) and stories, comments, and poll options can be voted from inside Harmonic using Hacker News's own one-time tokens.
+
+### Added
+
+- **Account chip in the toolbar.** Signed out, the chip reads **Log in** and offers *Log in* and *Create account*; signing in happens on Hacker News's own `/login` page in the same tab (SEC-01 — Harmonic renders no password field anywhere), with an allowlisted `goto` value (`news`, or `item?id=<id>` on a discussion) so user-supplied query input is never reflected (SEC-02). Signed in, the chip shows your username and karma and opens a menu with Profile, Threads, Upvoted, Favorites, Submissions, and Log out.
+- **Fetch-based logout from the chip** (SEC-04). Logging out sends the signed-out fetch through `HarmonicHN.logout()` — the `logout?auth=…` URL never enters the address bar — then reloads the feed so the page reflects the signed-out state, clears vote affordances, and toasts "Signed out".
+- **Session-change reactions** (SEC-35). When a fetched page reveals a different account, the chip re-renders, vote state resets, the open thread's vote UI refreshes, and a "Signed in as <name>" toast confirms the switch. The startup harvest never toasts.
+- **Settings → Account section.** Explains that Harmonic never sees or stores your password, that the session lives in Hacker News's own cookie, and that actions are sent through the same signed-in browser session with tokens held in memory for the tab only.
+- **Story voting in the thread header.** The Upvote button is now functional: it reflects the story's vote state from the fetched HN item document (active/filled when voted, "Unvote" title), votes or unvotes on click with optimistic point updates (+1/−1) that roll back on failure, and locks while a vote is in flight (SEC-32 at the UI layer).
+- **Comment voting.** Every comment row gains a hover/focus action row: Upvote/Unvote (active state synced from item state), Downvote — shown only when Hacker News actually offers a `down_` link for that comment, and staying visible as the filled undown affordance while a downvote is active — plus a Reply hand-off to HN's reply form, and a **More** menu with Share link (copies the `item?id=` link), Copy text, Open parent / Open top level (when applicable), and View user.
+- **On-demand item state.** Once a discussion has been open for ~600 ms, Harmonic fetches its Hacker News item page through the rate-limited queue (`HarmonicHN.ensureItemState`) and applies the story's and every comment's vote state to the UI. Vote affordances light up without any user action; missing tokens are fetched on demand when you act.
+- **Feed-level voting.** Stories already voted on the harvested feed document show a small ▲ badge on their card. Every card's meta line gains a **Story actions** menu with Open discussion, Open article, Upvote/Unvote (using the token harvested from the feed document, or an on-demand fetch for stories outside it), and Open on Hacker News.
+- **Poll voting.** Poll stories load their options from the Firebase `parts` list and render a Poll section above the comments; each option can be voted through its own item-document token, with active-state sync after success.
+- **SEC-30 trusted-event enforcement in the UI.** Every vote (and popup-driven action) requires `event.isTrusted`; scripted `element.click()` from page code is refused with a toast and never sends a request. `openPopup` now forwards the click event to menu actions so they can enforce this.
+- **Failure UX for votes.** Expired tokens retry exactly once with a fresh token (SEC-33); double expiry, rate limits, and other failures roll back the optimistic UI and toast a human-readable message (rate limits mention the throttle and keep the thread's "Open on Hacker News" escape hatch in the More menu).
+- **`tests/voting.mjs` — the Phase 1+2 UI suite (18 tests).** A stateful mocked HN server (vote actions mutate the served documents; redirect targets are served directly) drives the real extension through Chromium: chip rendering per session, allowlisted goto with a query-reflection probe, the full account menu, logout-via-chip with request-shape and reload assertions, the SEC-01 password-field scan, account-switch chip/toast updates, exact `how=up`/`how=un`/`how=down` request shapes with post-success UI state (active classes, points, badges), downvote availability gated on the document, undown via the same button, SEC-30 scripted-click refusal, double-expiry rollback with toast, rate-limit rollback, card-menu voting with badge flipping, poll-option rendering and voting, and token-leakage checks.
+- **`HarmonicHN.documentVoteState()`** — a safe view (ids and directions only) of the vote state seen on the harvested feed document, used to seed the UI; the harvest also caches feed-story vote tokens under the acting username (SEC-12/35).
+
+### Changed
+
+- Thread "Reply to post" now hands off to Hacker News's reply form for signed-in users instead of showing a placeholder toast (in-Harmonic composers arrive in Phase 3).
+- Comment rows build their action row at render time from any already-known item state, so re-renders (sorting, collapse toggles) never flash stale vote state; poll buttons re-render idempotently so an in-flight vote is never stomped by a background refresh.
+- The e2e suite targets the thread's More menu explicitly now that comment rows carry their own More buttons; `npm run test:voting` runs the new suite.
+
+### Fixed
+
+- A rendered story card could end up empty when the feed auto-selected a story whose discussion payload was malformed (`itemState.itemId === item.id` matched `undefined === undefined`); the guard is now strict, and card assembly appends its main/preview/comment sections exactly once.
+- The packaged UI leaked a `[hidden]` comment action through `display:inline-flex` (buttons marked hidden stayed clickable-visible); `[hidden]` now forces `display:none`.
+
 ## [0.7.4] - 2026-10-10
 
 ### Added

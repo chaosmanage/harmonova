@@ -165,6 +165,7 @@
   const tokenCache = new Map(); // key -> { auth, goto, username }
   const formHandles = new Map(); // handle -> { kind, action, fields, username, ... }
   const inFlight = new Map(); // SEC-32: one in-flight mutation per item
+  const documentVotes = new Map(); // id -> "up" | "down" (as seen on the harvested feed document)
   let nextHandleId = 1;
   let handleCounterSalt = 0;
 
@@ -193,6 +194,7 @@
   function clearCaches() {
     tokenCache.clear();
     formHandles.clear();
+    documentVotes.clear();
   }
 
   function accountChangedOutcome(message) {
@@ -355,6 +357,17 @@
       setSession(top.username, top.karma); // clears caches when the account changed
       const logout = parseLogoutToken(top.logoutHref);
       if (logout) tokenCache.set("logout:", { auth: logout.auth, goto: logout.goto, username: top.username, fetchedAt: Date.now() });
+    }
+    // Feed documents also carry vote links for every visible story. Cache
+    // their tokens in memory (SEC-35) and record which stories are already
+    // voted so the UI can light up voted states without extra fetches.
+    documentVotes.clear();
+    for (const [id, entry] of parseVoteLinks(doc)) {
+      if (entry.voted) documentVotes.set(id, entry.votedDirection === "down" ? "down" : "up");
+      if (!currentSession?.username) continue;
+      if (entry.upHrefParams?.auth) cacheToken("vote:up", id, entry.upHrefParams.auth, entry.upHrefParams.goto);
+      if (entry.downHrefParams?.auth) cacheToken("vote:down", id, entry.downHrefParams.auth, entry.downHrefParams.goto);
+      if (entry.unHrefParams?.auth) cacheToken("vote:un", id, entry.unHrefParams.auth, entry.unHrefParams.goto);
     }
     return currentSession ? { ...currentSession } : null;
   }
@@ -791,6 +804,9 @@
       sessionListeners.add(listener);
       return () => sessionListeners.delete(listener);
     },
+    // id -> "up" | "down" for stories that showed as voted on the last
+    // harvested feed document (safe view: ids and directions only).
+    documentVoteState: () => Object.fromEntries(documentVotes),
     ensureItemState,
     vote,
     setFavorite,

@@ -50,6 +50,7 @@
     more: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>',
     comment: '<path d="M4 4.5h16v12H9l-4.2 3.1.7-3.1H4v-12zm1.8 1.8v8.4h2.3l-.3 1.4 1.6-1.4h8.8V6.3H5.8z"/>',
     up: '<path d="M12 3l6 7h-4v9h-4v-9H6l6-7z"/>',
+    down: '<path d="M12 21l-6-7h4V5h4v9h4l-6 7z"/>',
     thumb: '<path d="M8.5 10.5 12 4c.9 0 1.6.7 1.6 1.6v3.2H19a2 2 0 0 1 1.9 2.5l-1.5 6A2.2 2.2 0 0 1 17.3 19H8.5V10.5Z"/><path d="M4 10.5h4.5V19H4z"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     user: '<path d="M12 3.2a4 4 0 110 8 4 4 0 010-8zm0 9.8c4.4 0 7 2.2 7 5v1H5v-1c0-2.8 2.6-5 7-5z"/>',
@@ -125,6 +126,15 @@
       seq: 0,
       recent: [], // memory only — never persisted (SEC-51)
     },
+    // Phase 1+2 (account actions): per-thread HN document state (story vote
+    // links, comment vote links) fetched from news.ycombinator.com on demand.
+    itemState: null,
+    itemStateTimer: 0,
+    itemStateToken: 0,
+    feedVotes: new Map(), // story id -> "up" | "down" (seen on the feed document)
+    pollOptions: null, // [{id, text, points}] for the currently open poll
+    pollOptionsRenderedKey: "", // guards poll re-renders from stomping in-flight votes
+    sessionToastReady: false, // suppress "Signed in as…" toast during startup harvest
   };
 
   const fetchJson = async (url) => {
@@ -396,6 +406,7 @@
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
   let searchPanel, searchFilters, searchRecent, searchChips;
+  let accountChip;
 
   function applySettings() {
     if (!app) return;
@@ -461,8 +472,13 @@
     refreshButton.addEventListener("click", refreshFeed);
     const moreButton = button("more", "More");
     moreButton.addEventListener("click", (event) => openMoreMenu(event.currentTarget));
-    actions.append(searchButton, refreshButton, moreButton);
+    accountChip = el("button", "account-chip");
+    accountChip.type = "button";
+    accountChip.id = "harmonic-account-chip";
+    accountChip.addEventListener("click", (event) => openAccountMenu(event.currentTarget));
+    actions.append(searchButton, refreshButton, moreButton, accountChip);
     row.append(titleButton, actions);
+    updateAccountChip();
 
     updatedLabel = el("div", "last-updated", "Last updated: " + formatTime(state.updatedAt));
     searchWrap = el("div", "feed-search");
@@ -584,13 +600,17 @@
     document.querySelector(".harmonic-popup")?.remove();
     const popup = el("div", "harmonic-popup");
     for (const item of items) {
+      if (item.heading) {
+        popup.appendChild(el("div", "popup-heading", item.heading));
+        continue;
+      }
       const row = el("button", "popup-item");
       row.type = "button";
       if (item.icon) row.appendChild(svg(item.icon));
       row.appendChild(el("span", "", item.label));
-      row.addEventListener("click", () => {
+      row.addEventListener("click", (event) => {
         popup.remove();
-        item.action();
+        item.action(event);
       });
       popup.appendChild(row);
     }
@@ -609,7 +629,344 @@
     });
   }
 
-  function openFeedMenu(anchor) {
+  // ---------------------------------------------------------------------------
+// Phase 1: account chip (session chip, login hand-off, logout)
+// ---------------------------------------------------------------------------
+
+// SEC-02: the only login hand-off. The goto value is built from an allowlist of
+// Harmonic's own known paths — user-supplied query strings are never reflected.
+function currentGotoPath() {
+  if (location.pathname === "/item") {
+    const id = Number(new URLSearchParams(location.search).get("id"));
+    if (Number.isInteger(id) && id > 0) return "item?id=" + id;
+  }
+  const feedPath = FEEDS[state.feed]?.path;
+  if (feedPath && ["top", "new", "best", "ask", "show", "jobs"].includes(state.feed)) {
+    const path = feedPath.replace(/^\//, "");
+    if (["news", "newest", "front", "best", "ask", "show", "jobs"].includes(path)) return path;
+  }
+  return "news";
+}
+
+function goToLogin() {
+  const goto = currentGotoPath();
+  location.href = "https://news.ycombinator.com/login?goto=" + encodeURIComponent(goto);
+}
+
+function openHnPage(path) {
+  location.href = "https://news.ycombinator.com" + path;
+}
+
+function updateAccountChip() {
+  if (!accountChip) return;
+  const session = window.HarmonicHN?.session?.() || null;
+  accountChip.replaceChildren();
+  accountChip.classList.toggle("logged-in", Boolean(session));
+  if (session?.username) {
+    const karma = session.karma === null || session.karma === undefined ? "" : " · " + compact(session.karma) + " karma";
+    accountChip.append(svg("user", "account-chip-icon"), el("span", "account-chip-name", session.username));
+    accountChip.title = "Account: " + session.username + karma;
+    accountChip.setAttribute("aria-label", "Account menu for " + session.username);
+  } else {
+    accountChip.append(svg("user", "account-chip-icon"), el("span", "account-chip-name", "Log in"));
+    accountChip.title = "Log in to Hacker News";
+    accountChip.setAttribute("aria-label", "Log in to Hacker News");
+  }
+}
+
+function openAccountMenu(anchor) {
+  const session = window.HarmonicHN?.session?.() || null;
+  if (!session) {
+    openPopup(anchor, [
+      { label: "Log in", icon: "user", action: goToLogin },
+      { label: "Create account", icon: "external", action: goToLogin },
+    ]);
+    return;
+  }
+  const u = encodeURIComponent(session.username);
+  const karma = session.karma === null || session.karma === undefined ? "" : " · " + compact(session.karma) + " karma";
+  openPopup(anchor, [
+    { heading: session.username + karma },
+    { label: "Profile", icon: "user", action: () => openHnPage("/user?id=" + u) },
+    { label: "Threads", icon: "comment", action: () => openHnPage("/threads?id=" + u) },
+    { label: "Upvoted", icon: "up", action: () => openHnPage("/upvoted?id=" + u) },
+    { label: "Favorites", icon: "star", action: () => openHnPage("/favorites?id=" + u) },
+    { label: "Submissions", icon: "link", action: () => openHnPage("/submitted?id=" + u) },
+    { label: "Log out", icon: "power", action: performLogout },
+  ]);
+}
+
+// SEC-04: logout is a signed-in fetch handled by HarmonicHN, not a navigation
+// to /logout, so tokens are never pasted into URLs. Afterwards we reload the
+// feed so the page reflects the signed-out state.
+async function performLogout() {
+  const outcome = await window.HarmonicHN?.logout?.();
+  if (!outcome || outcome.status !== "success") {
+    showToast(outcome?.message || "Sign-out needs Hacker News");
+    return;
+  }
+  state.feedVotes.clear();
+  state.itemState = null;
+  state.pollOptions = null;
+  showToast("Signed out");
+  location.reload();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: voting (story upvote, comment up/down votes, poll options)
+// ---------------------------------------------------------------------------
+
+// Vote state seen on the feed document when Harmonic first mounted. Used to
+// light up "already voted" affordances before per-item state is fetched.
+function seedFeedVotes() {
+  const docVotes = window.HarmonicHN?.documentVoteState?.() || {};
+  for (const [id, direction] of Object.entries(docVotes)) {
+    const numeric = Number(id);
+    if (Number.isInteger(numeric) && numeric > 0) state.feedVotes.set(numeric, direction === "down" ? "down" : "up");
+  }
+}
+
+// SEC-30: Harmonic never sends an action unless the click is a real user
+// gesture. Scripted element.click() from page code has isTrusted === false.
+function requireTrustedEvent(event) {
+  if (event?.isTrusted) return true;
+  showToast("That action needs a real click");
+  return false;
+}
+
+function cancelItemState() {
+  clearTimeout(state.itemStateTimer);
+  state.itemStateTimer = 0;
+  state.itemStateToken++;
+}
+
+// Once a story has been open for 600ms, ask Hacker News (via HarmonicHN) for
+// the document state: the story's vote links and every comment's vote links.
+// This is a single signed-in GET, queued through the module's rate limiter.
+function scheduleItemState(id) {
+  cancelItemState();
+  const token = state.itemStateToken;
+  state.itemStateTimer = setTimeout(async () => {
+    if (!window.HarmonicHN || state.selectedId !== id || token !== state.itemStateToken) return;
+    await loadThreadItemState(id, token);
+  }, 600);
+}
+
+async function loadThreadItemState(id, token) {
+  try {
+    const itemState = await window.HarmonicHN.ensureItemState(id);
+    if (token !== state.itemStateToken || state.selectedId !== id) return;
+    state.itemState = itemState || null;
+    if (itemState?.story?.voted) {
+      state.feedVotes.set(id, itemState.story.votedDirection === "down" ? "down" : "up");
+    }
+    applyItemState();
+  } catch {
+    /* non-fatal: voting falls back to "sign in" prompts */
+  }
+}
+
+function applyItemState() {
+  updateThreadVoteUi();
+  renderPollOptions();
+  updateFeedVoteBadges();
+}
+
+function updateThreadVoteUi() {
+  const story = state.itemState?.story || null;
+  const voteButton = threadPane.querySelector("[data-thread-vote]");
+  if (voteButton) {
+    const pending = voteButton.dataset.pending === "1";
+    voteButton.classList.toggle("active", !pending && Boolean(story?.voted));
+    voteButton.title = story?.voted ? "Unvote" : "Upvote";
+    voteButton.setAttribute("aria-label", voteButton.title);
+    if (!pending) voteButton.disabled = false;
+  }
+  for (const row of threadPane.querySelectorAll(".comment-row[data-comment-id]")) {
+    const id = Number(row.dataset.commentId);
+    if (id > 0) syncCommentVoteUi(id);
+  }
+}
+
+function syncCommentVoteUi(commentId) {
+  const row = threadPane.querySelector('.comment-row[data-comment-id="' + commentId + '"]');
+  if (!row) return;
+  const cs = state.itemState?.comments?.[commentId] || null;
+  const voteButton = row.querySelector("[data-comment-vote]");
+  if (voteButton) {
+    const pending = voteButton.dataset.pending === "1";
+    const voted = Boolean(cs?.voted);
+    voteButton.classList.toggle("active", !pending && voted && cs?.votedDirection !== "down");
+    voteButton.title = voted ? "Unvote" : "Upvote";
+    voteButton.setAttribute("aria-label", voteButton.title);
+  }
+  const downButton = row.querySelector("[data-comment-vote-down]");
+  if (downButton) {
+    const pending = downButton.dataset.pending === "1";
+    // The down arrow stays visible while a downvote is active: the filled
+    // arrow is Hacker News's own undown affordance.
+    downButton.hidden = pending ? downButton.hidden : !(cs?.canDown || (cs?.voted && cs?.votedDirection === "down"));
+    downButton.classList.toggle("active", !pending && Boolean(cs?.voted && cs?.votedDirection === "down"));
+  }
+}
+
+function bumpThreadPoints(delta) {
+  const statNode = threadPane.querySelector("[data-thread-points]");
+  const valueNode = statNode?.querySelector("span:last-child");
+  if (!valueNode) return;
+  const current = Number(valueNode.dataset.threadPointsValue || valueNode.textContent.replace(/\D/g, "") || 0);
+  const next = Math.max(0, current + delta);
+  valueNode.dataset.threadPointsValue = String(next);
+  valueNode.textContent = compact(next);
+}
+
+async function handleStoryVote(event) {
+  if (!requireTrustedEvent(event)) return;
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to vote");
+    goToLogin();
+    return;
+  }
+  const storyId = state.selectedId;
+  if (!Number.isInteger(storyId) || storyId <= 0) return;
+  const voteButton = threadPane.querySelector("[data-thread-vote]");
+  if (!voteButton || voteButton.dataset.pending === "1") return; // one vote in flight (SEC-32)
+  const voted = Boolean(state.itemState?.story?.voted);
+  const direction = voted ? "un" : "up";
+  voteButton.dataset.pending = "1";
+  voteButton.disabled = true;
+  // Optimistic UI — rolled back below if Hacker News rejects the vote.
+  voteButton.classList.toggle("active", !voted);
+  bumpThreadPoints(voted ? -1 : 1);
+  const rollback = () => {
+    voteButton.disabled = false;
+    delete voteButton.dataset.pending;
+    voteButton.classList.toggle("active", voted);
+    bumpThreadPoints(voted ? 1 : -1);
+  };
+  try {
+    const outcome = await window.HarmonicHN.vote(storyId, direction);
+    if (outcome.status !== "success") {
+      rollback();
+      showToast(outcome.message || "The vote did not go through");
+      if (outcome.status === "rateLimited") showToast("Hacker News rate limit — try again soon, or open the story there");
+      if (outcome.status === "loginRequired") updateAccountChip();
+      return;
+    }
+    const nextState = outcome.state || null;
+    if (state.itemState) {
+      state.itemState = { ...state.itemState, story: { ...state.itemState.story, ...(nextState || {}) } };
+    }
+    voteButton.disabled = false;
+    delete voteButton.dataset.pending;
+    voteButton.classList.toggle("active", Boolean(nextState?.voted));
+    voteButton.title = nextState?.voted ? "Unvote" : "Upvote";
+    if (direction === "up") state.feedVotes.set(storyId, "up");
+    else state.feedVotes.delete(storyId);
+    updateFeedVoteBadges();
+  } catch {
+    rollback();
+    showToast("The vote did not go through");
+  }
+}
+
+async function handleCommentVote(event, commentId) {
+  if (!requireTrustedEvent(event)) return;
+  const session = window.HarmonicHN?.session?.();
+  if (!session) {
+    showToast("Sign in to vote");
+    return;
+  }
+  if (!Number.isInteger(commentId) || commentId <= 0) return;
+  const buttonNode = event.currentTarget;
+  if (buttonNode.dataset.pending === "1") return;
+  const isDown = buttonNode.hasAttribute("data-comment-vote-down");
+  const cs = state.itemState?.comments?.[commentId] || {};
+  const voted = Boolean(cs.voted);
+  const direction = voted ? "un" : isDown ? "down" : "up";
+  buttonNode.dataset.pending = "1";
+  buttonNode.classList.add("pending");
+  buttonNode.classList.toggle("active", !voted);
+  try {
+    const outcome = await window.HarmonicHN.vote(commentId, direction);
+    if (outcome.status !== "success") {
+      showToast(outcome.message || "The vote did not go through");
+      if (outcome.status === "loginRequired") updateAccountChip();
+    } else if (state.itemState) {
+      state.itemState.comments[commentId] = { ...(state.itemState.comments[commentId] || {}), ...(outcome.state || {}) };
+    }
+  } catch {
+    showToast("The vote did not go through");
+  } finally {
+    delete buttonNode.dataset.pending;
+    buttonNode.classList.remove("pending");
+    const cs = state.itemState?.comments?.[commentId] || null;
+    const votedNow = Boolean(cs?.voted);
+    buttonNode.classList.toggle("active", votedNow && cs?.votedDirection !== "down");
+    if (buttonNode.hasAttribute("data-comment-vote-down")) {
+      buttonNode.classList.toggle("active", Boolean(votedNow && cs?.votedDirection === "down"));
+    }
+    syncCommentVoteUi(commentId);
+  }
+}
+
+async function loadPollOptions(storyId) {
+  state.pollOptions = null;
+  try {
+    const item = await fetchJson(HN_API + "/item/" + storyId + ".json");
+    if (state.selectedId !== storyId || item?.type !== "poll" || !Array.isArray(item.parts)) return;
+    const options = await fetchItems(item.parts);
+    if (state.selectedId !== storyId) return;
+    state.pollOptions = options
+      .filter((option) => Number.isInteger(option.id) && option.id > 0)
+      .map((option) => ({ id: option.id, text: option.text || "", points: option.points || 0 }));
+    renderPollOptions();
+  } catch {
+    /* polls are optional decoration */
+  }
+}
+
+function renderPollOptions() {
+    // Idempotent: applyItemState runs after every item-state refresh and must
+    // not stomp in-flight votes by recreating the buttons.
+    const key = (state.pollOptions || []).map((option) => option.id + ":" + option.points).join(",");
+    if (threadPane.querySelector(".thread-poll") && key === state.pollOptionsRenderedKey) return;
+    state.pollOptionsRenderedKey = key;
+    threadPane.querySelector(".thread-poll")?.remove();
+    if (!state.pollOptions?.length || state.pollOptions.some((option) => !option.text)) return;
+    const poll = el("section", "thread-poll");
+    poll.append(el("h2", "", "Poll"));
+    for (const option of state.pollOptions) {
+      const row = el("div", "poll-option");
+      const voteButton = el("button", "poll-option-vote");
+      voteButton.type = "button";
+      voteButton.title = "Vote";
+      voteButton.setAttribute("aria-label", "Vote: " + (option.text || "option"));
+      voteButton.append(svg("up"));
+      const known = state.itemState?.comments?.[option.id];
+      if (known) voteButton.classList.toggle("active", Boolean(known.voted && known.votedDirection !== "down"));
+      voteButton.addEventListener("click", (event) => handleCommentVote(event, option.id));
+      const text = el("div", "poll-option-text");
+      appendSanitizedHtml(text, option.text);
+      const score = el("span", "poll-option-points", compact(option.points) + " points");
+      row.append(voteButton, text, score);
+      poll.appendChild(row);
+    }
+    const commentsSection = threadPane.querySelector(".comments");
+    if (commentsSection) threadPane.insertBefore(poll, commentsSection);
+    else threadPane.appendChild(poll);
+  }
+
+function updateFeedVoteBadges() {
+  for (const card of storyList.querySelectorAll(".story-card[data-story-id]")) {
+    const id = Number(card.dataset.storyId);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    applyCardVotedState(card, id);
+  }
+}
+
+function openFeedMenu(anchor) {
     openPopup(anchor, Object.entries(FEEDS).map(([key, feed]) => ({
       label: feed.label,
       action: () => switchFeed(key),
@@ -1000,7 +1357,20 @@
     const rank = el("span", "story-index", (index + 1) + ".");
     const titleLine = el("div", "story-title-line");
     titleLine.append(rank, title);
-    main.append(titleLine, storyMeta(story));
+    const meta = storyMeta(story);
+    // Phase 2: per-card overflow menu with a functional Upvote (feed token).
+    const cardMore = button("more", "Story actions", "story-card-more");
+    cardMore.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPopup(cardMore, [
+        { label: "Open discussion", icon: "comment", action: () => selectStory(story) },
+        ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(articleHref(story), "_blank", "noopener") }] : []),
+        { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
+        { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
+      ]);
+    });
+    meta.appendChild(cardMore);
+    main.append(titleLine, meta);
 
     const preview = el("a", "story-preview");
     preview.href = articleHref(story);
@@ -1034,7 +1404,6 @@
       selectStory(story);
     });
 
-    card.append(main, preview, commentButton);
     card.addEventListener("click", (event) => {
       if (event.target.closest("a,button")) return;
       markRead(story.id);
@@ -1062,7 +1431,46 @@
     } else {
       card.classList.add("no-preview");
     }
+
+    card.append(main, preview, commentButton);
+    // Phase 2: feed-level vote affordances — "already voted" badge from the
+    // harvested document plus an overflow menu with a functional Upvote.
+    applyCardVotedState(card, story.id);
     return card;
+  }
+
+  function applyCardVotedState(card, id) {
+    const voted = state.feedVotes.has(id);
+    card.classList.toggle("voted", voted);
+    card.dataset.votedDirection = voted ? (state.feedVotes.get(id) === "down" ? "down" : "up") : "";
+    if (!card.querySelector(".story-voted-badge")) {
+      const badge = el("span", "story-voted-badge", "▲");
+      badge.title = "You upvoted this";
+      card.appendChild(badge);
+    }
+  }
+
+  // Upvote/unvote straight from a feed card, using the token harvested from
+  // the feed document (or an on-demand item fetch when the story isn't on it).
+  async function voteFromFeed(event, storyId) {
+    if (!requireTrustedEvent(event)) return;
+    const session = window.HarmonicHN?.session?.();
+    if (!session) {
+      showToast("Sign in to vote");
+      return;
+    }
+    if (!Number.isInteger(storyId) || storyId <= 0) return;
+    const direction = state.feedVotes.get(storyId) ? "un" : "up";
+    const outcome = await window.HarmonicHN.vote(storyId, direction);
+    if (outcome.status === "success") {
+      if (direction === "up") state.feedVotes.set(storyId, outcome.state?.votedDirection === "down" ? "down" : "up");
+      else state.feedVotes.delete(storyId);
+      updateFeedVoteBadges();
+      showToast(direction === "up" ? "Upvoted" : "Vote removed");
+    } else {
+      showToast(outcome.message || "The vote did not go through");
+      if (outcome.status === "loginRequired") updateAccountChip();
+    }
   }
 
   function createLoading(label) {
@@ -1226,7 +1634,97 @@
       el("span", "collapsed-count", descendantCount(comment) ? descendantCount(comment) + " replies" : "")
     );
 
-    card.append(meta, body, collapsed);
+    // Phase 2: per-comment action row — vote, downvote (when HN offers it),
+    // reply hand-off, and a "More" menu (share/copy/parent/top-level/user).
+    const session = window.HarmonicHN?.session?.() || null;
+    const actionsRow = el("div", "comment-actions");
+    const voteButton = el("button", "comment-action");
+    voteButton.type = "button";
+    voteButton.title = "Upvote";
+    voteButton.setAttribute("aria-label", "Upvote");
+    voteButton.setAttribute("data-comment-vote", "1");
+    voteButton.append(svg("up"));
+    voteButton.addEventListener("click", (event) => handleCommentVote(event, comment.id));
+    const downButton = el("button", "comment-action");
+    downButton.type = "button";
+    downButton.setAttribute("data-comment-vote-down", "1");
+    downButton.hidden = true; // shown once item state says HN allows it
+    downButton.append(svg("down"));
+    downButton.addEventListener("click", (event) => handleCommentVote(event, comment.id));
+    // Apply any already-known item state (e.g. after a re-render) so buttons
+    // don't briefly flash as unvoted.
+    const known = state.itemState?.comments?.[comment.id] || null;
+    if (known) {
+      voteButton.classList.toggle("active", Boolean(known.voted && known.votedDirection !== "down"));
+      voteButton.title = known.voted ? "Unvote" : "Upvote";
+      voteButton.setAttribute("aria-label", voteButton.title);
+      downButton.hidden = !known.canDown;
+      downButton.classList.toggle("active", Boolean(known.voted && known.votedDirection === "down"));
+    }
+    const replyButton = el("button", "comment-action");
+    replyButton.type = "button";
+    replyButton.title = session ? "Reply" : "Sign in to reply";
+    replyButton.setAttribute("aria-label", replyButton.title);
+    replyButton.append(svg("comment"));
+    replyButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      if (!session) {
+        showToast("Sign in to reply");
+        return;
+      }
+      // Phase 3 brings in-Harmonic replies; hand off to HN's form meanwhile.
+      openOriginalHackerNews("/reply?id=" + comment.id + "&goto=" + encodeURIComponent("item?id=" + (state.selectedId || comment.id)));
+    });
+    const moreButton = el("button", "comment-action");
+    moreButton.type = "button";
+    moreButton.title = "More";
+    moreButton.setAttribute("aria-label", "More comment actions");
+    moreButton.append(svg("more"));
+    moreButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      const parentRow = row.parentElement?.closest?.(".comment-row");
+      const parentId = parentRow?.dataset?.commentId;
+      const hnLink = "https://news.ycombinator.com/item?id=" + comment.id;
+      openPopup(moreButton, [
+        {
+          label: "Share link",
+          icon: "share",
+          action: async () => {
+            try {
+              await navigator.clipboard.writeText(hnLink);
+              showToast("Link copied");
+            } catch {
+              window.open(hnLink, "_blank", "noopener");
+            }
+          },
+        },
+        {
+          label: "Copy text",
+          icon: "comment",
+          action: async () => {
+            const text = body.textContent || "";
+            try {
+              await navigator.clipboard.writeText(text);
+              showToast("Comment text copied");
+            } catch {}
+          },
+        },
+        ...(parentId && Number(parentId) > 0
+          ? [{ label: "Open parent", icon: "link", action: () => window.open("https://news.ycombinator.com/item?id=" + parentId, "_blank", "noopener") }]
+          : []),
+        {
+          label: "Open top level",
+          icon: "link",
+          action: () => window.open("https://news.ycombinator.com/item?id=" + (state.selectedId || comment.id), "_blank", "noopener"),
+        },
+        ...(comment.author
+          ? [{ label: "View user", icon: "user", action: () => window.open("https://news.ycombinator.com/user?id=" + encodeURIComponent(comment.author), "_blank", "noopener") }]
+          : []),
+      ]);
+    });
+    actionsRow.append(voteButton, downButton, replyButton, moreButton);
+
+    card.append(meta, actionsRow, body, collapsed);
     row.appendChild(card);
 
     const children = el("div", "comment-children");
@@ -1472,7 +1970,13 @@
 
   async function loadThread(id) {
     if (!state.activeSummary || state.activeSummary.storyId !== id) stopActiveSummary();
+    cancelItemState();
+    state.itemState = null;
+    state.pollOptions = null;
+    state.pollOptionsRenderedKey = "";
     threadPane.replaceChildren(createLoading("Loading discussion…"));
+    scheduleItemState(id);
+    loadPollOptions(id);
     try {
       const item = await fetchJson(ALGOLIA_API + "/items/" + id);
       if (state.selectedId !== id) return;
@@ -1524,21 +2028,41 @@
     authorLink.target = "_blank";
     authorLink.rel = "noopener";
     authorLink.append(svg("user"), el("span", "", item.author || "unknown"));
+    const pointsStat = stat("thumb", compact(item.points || 0));
+    pointsStat.dataset.threadPoints = "1";
+    const pointsValue = pointsStat.querySelector("span:last-child");
+    pointsValue.dataset.threadPointsValue = String(item.points || 0); // optimistic vote updates target this
     meta.append(
-      stat("thumb", compact(item.points || 0)),
+      pointsStat,
       stat("comment", compact(totalComments)),
       stat("clock", relativeTime(item.created_at_i || 0)),
       authorLink
     );
 
+    const session = window.HarmonicHN?.session?.() || null;
+    const replyAction = threadAction("comment", "Reply to post", () => {
+      if (!session) {
+        showToast("Sign in to reply");
+        return;
+      }
+      // In-Harmonic replies arrive in Phase 3; for now hand off to HN's form.
+      openOriginalHackerNews("/reply?id=" + item.id + "&goto=" + encodeURIComponent("item?id=" + item.id));
+    });
+    const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
+    const preVoted = Boolean(storyState?.voted) || Boolean(state.feedVotes.get(item.id));
+    const upvoteButton = threadAction("thumb", preVoted ? "Unvote" : "Upvote", handleStoryVote);
+    upvoteButton.setAttribute("data-thread-vote", "1");
+    upvoteButton.classList.toggle("active", preVoted);
+    if (!session) {
+      upvoteButton.title = "Sign in to vote";
+      upvoteButton.setAttribute("aria-label", "Sign in to vote");
+    }
+
     const actions = el("div", "thread-actions");
     actions.append(
       threadAction("user", "Open author", () => authorLink.click()),
-      threadAction("comment", "Reply to post", () => showToast("Replying requires Hacker News sign-in")),
-      threadAction("thumb", "Upvote", () => {
-        showToast("Voting stays on Hacker News for now");
-        window.open("https://news.ycombinator.com/item?id=" + item.id, "_blank", "noopener");
-      }),
+      replyAction,
+      upvoteButton,
       threadAction("star", "Bookmark", () => toggleBookmark(item.id), { id: item.id, active: state.bookmarks.has(item.id) }),
       threadAction("sparkle", "Story tools", () => startStorySummary(item), { summaryId: item.id, disabled: !item.url }),
       threadAction("share", "Share", async () => {
@@ -1589,6 +2113,11 @@
     for (const comment of sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
     if (!comments.childElementCount) comments.appendChild(el("div", "empty-comments", "No comments yet."));
     threadPane.appendChild(comments);
+    // Re-apply any item state that arrived (or was cached) for this story.
+    if (state.itemState && state.itemState.itemId === item.id) {
+      updateThreadVoteUi();
+      renderPollOptions();
+    }
 
     if (item.url) {
       const fakeStory = { id: item.id, url: item.url };
@@ -1794,7 +2323,20 @@
       el("p", "settings-note", "The large comment button always opens the discussion. With card-click comments enabled, open the article from the title inside the discussion. Bookmarks and read state stay local to this Chrome profile.")
     );
 
-    panel.append(header, storySection, commentsSection, headerDisplaySection, aiSection, behaviorSection);
+    // Phase 1: Account explainer. Harmonic has no password field (SEC-01);
+    // sign-in happens on Hacker News's own page and the session lives in
+    // Hacker News's cookie.
+    const session = window.HarmonicHN?.session?.() || null;
+    const accountSection = el("div", "settings-section");
+    accountSection.append(
+      el("h3", "", "Account"),
+      el("p", "settings-note", session?.username
+        ? "Signed in to Hacker News as " + session.username + (session.karma !== null && session.karma !== undefined ? " (" + compact(session.karma) + " karma)" : "") + ". Use the account chip in the toolbar to open your profile or log out."
+        : "Not signed in to Hacker News. Use the Log in chip in the toolbar — sign-in happens on Hacker News's own page in this tab."),
+      el("p", "settings-note", "Harmonic never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, Harmonic sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach Harmonic's storage or sync.")
+    );
+
+    panel.append(header, storySection, commentsSection, headerDisplaySection, accountSection, aiSection, behaviorSection);
     overlay.appendChild(panel);
     overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
@@ -1881,7 +2423,19 @@
       // Phase 0.4: harvest the original HN DOM (session state) before mount
       // replaces the body, then mount at DOMContentLoaded.
       try { window.HarmonicHN?.harvest(document); } catch {}
+      seedFeedVotes();
+      window.HarmonicHN?.onSessionChange?.((session) => {
+        // Account switched mid-session: vote affordances reset (they belong to
+        // the previous account); the chip and any open thread UI refresh.
+        state.feedVotes.clear();
+        state.itemState = null;
+        state.pollOptions = null;
+        updateAccountChip();
+        updateThreadVoteUi();
+        if (state.sessionToastReady && session?.username) showToast("Signed in as " + session.username);
+      });
       mount();
+      state.sessionToastReady = true;
     };
     if (document.body) start();
     else document.addEventListener("DOMContentLoaded", start, { once: true });

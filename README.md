@@ -24,9 +24,17 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.7.4**.
+The current extension version is **0.8.0**.
 
-Version 0.7.4 ships site-wide search: the feed toolbar can search **all of Hacker News** through the Algolia HN API with filter chips, date ranges, minimum points, author filters, and relevance/newest sorting. It also lands the Hacker News session foundation (`hn-session.js`) and the fully mocked account-action test harness that later account phases build on. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.8.0 is the first account-actions release: the toolbar gains an **account chip** (login hand-off to Hacker News's own page, profile destinations, fetch-based logout) and voting arrives in Harmonic — stories, comments, downvotes (when Hacker News offers them), poll options, and feed-card upvotes all go through `hn-session.js`'s token-based, rate-limited, one-in-flight-per-item action client, with optimistic UI, rollback, and trusted-event enforcement. It builds directly on the site-wide search of 0.7.4 and the Hacker News session foundation beneath it. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+
+## Account actions and voting
+
+- **Account chip.** Signed out, the chip reads *Log in* and hands off to Hacker News's own `/login` page in the same tab with an allowlisted `goto` (SEC-02); Harmonic never renders a password field (SEC-01). Signed in, it shows your username and karma with Profile, Threads, Upvoted, Favorites, Submissions, and Log out entries.
+- **Logout is a fetch, not a navigation** (SEC-04): the `logout?auth=…` URL never enters the address bar; the feed reloads signed out afterwards.
+- **Vote state, on demand.** ~600 ms after a discussion opens, Harmonic fetches the story's Hacker News item page through the serial queue and applies the story's and every comment's vote state; tokens missing from the cache are fetched on demand when you act.
+- **Voting UI.** Thread-header Upvote/Unvote with optimistic points and rollback; per-comment Upvote, Downvote (only where Hacker News offers it, remaining visible as the undown affordance), Reply hand-off, and a More menu (share link, copy text, open parent/top level, view user); poll options with their own vote tokens; feed cards show a ▲ badge for stories you already voted and a Story actions menu with a functional Upvote.
+- **Safety rails.** One vote in flight per item (SEC-32), exactly one fresh-token retry on expiry (SEC-33), account switches abort pending actions (SEC-35), scripted `element.click()` never votes (SEC-30), and every failure rolls the optimistic UI back with a plain-language toast.
 
 ## Feed experience
 
@@ -50,6 +58,9 @@ The feed includes:
 - **search across all of Hacker News** (see [Site-wide search](#site-wide-search))
 - incremental feed loading while scrolling
 - a refresh control
+- an account chip with login/logout and profile destinations (see [Account actions and voting](#account-actions-and-voting))
+- a per-card Story actions menu (open discussion/article, upvote/unvote, open on Hacker News)
+- a ▲ badge on cards for stories you already upvoted
 - configurable story typography and zoom
 - configurable preview image behavior
 - article/title/preview links that can open the external article in a new tab
@@ -82,7 +93,10 @@ The discussion pane includes:
 - optional hero/preview image
 - title, domain, score, comment count, age, and author
 - action buttons for common reading workflows
+- a functional Upvote/Unvote control for the story with optimistic points
 - nested comment cards
+- per-comment vote controls (Upvote, Downvote where Hacker News offers it) with a Reply hand-off and a More menu (share link, copy text, open parent/top level, view user)
+- a Poll section with per-option voting on poll stories
 - colored depth rails
 - configurable comment sorting
 - collapse-all and expand-all controls
@@ -357,6 +371,14 @@ Run the site-wide search suite (unit tests plus mocked-Algolia browser tests):
 npm run test:search
 ```
 
+Run the account-chip and voting UI suite (stateful mocked HN server drives the real extension; vote actions mutate the served documents so post-vote UI states are assertable):
+
+```bash
+npm run test:voting
+```
+
+`test:voting` asserts the chip per session state, the allowlisted `goto` login hand-off (including a query-reflection probe), the full account menu, fetch-based logout with reload, exact `how=up`/`how=un`/`how=down` request shapes with the UI state they produce (active classes, point deltas, card badges), downvote availability gated on the served document, SEC-30 refusal of scripted clicks, double-expiry and rate-limit rollback with toasts, and poll-option voting — no Hacker News credentials are needed or used.
+
 The suite verifies the areas that have historically regressed, including:
 
 - at least 30 initial story cards render
@@ -403,6 +425,7 @@ The project deliberately stays small and uses no application framework.
 - `tests/security.mjs` — security regression suite (URL policy, cookie omission, sender checks, SSRF, AI output rules)
 - `tests/hn-parser.mjs` — fixture-driven parser and session-harvest tests run against the real extension in Chromium
 - `tests/hn-auth.mjs` — fully mocked logged-in account-action suite: exact Hacker News request shapes, retry/backoff rules, account-switch safety, and token-leakage checks
+- `tests/voting.mjs` — Phase 1+2 UI suite with a stateful mocked HN server (votes mutate the served documents): account chip flows, exact vote request shapes with post-success UI state, downvote gating, SEC-30 scripted-click refusal, rollback toasts, card-menu voting, and poll-option voting
 - `tests/search.mjs` — site-wide search suite: query-construction and highlight-tokenization units plus mocked-Algolia browser tests (paging, hostile highlights, malformed hits, empty/error states, cancellation, comment-hit deep links)
 - `tests/fixtures/hn/` — redacted logged-out captures and derived logged-in synthetic documents (raw captures and any traces stay out of git)
 - `scripts/capture-fixtures.mjs`, `scripts/redact-fixtures.mjs`, `scripts/build-synthetic-fixtures.mjs` — the offline fixture pipeline
@@ -520,10 +543,13 @@ User-visible behavior changes should be written for extension users rather than 
 
 ## Near-term roadmap
 
+- Phase 3 (0.9.0): in-Harmonic commenting with drafts (reply composer, edit/delete own comments)
+- Phase 4+5 (0.10.0): favorites, hide-with-undo, flag confirmation, and the story-submission flow
+- Phase 6 (0.11.0): user profile panel and own-list browsing (upvoted/favorites/submissions)
+- Phase 7 (0.12.x): reading-parity extras (more lists, feed filters, avatars, user tags, blocked users)
+- Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts
 - closer parity for additional Harmonic story-card layout modes
 - mobile/narrow-browser navigation polish
-- keyboard navigation
-- optional favorites/read-state tooling
 - additional regression screenshots at common laptop widths
 
 The north star remains: **Harmonic on the web, not merely prettier Hacker News.**

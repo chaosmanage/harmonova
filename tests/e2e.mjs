@@ -111,7 +111,9 @@ try {
   await page.locator(".thread-title").waitFor({ state: "visible", timeout: 15000 });
   assert.equal(new URL(page.url()).searchParams.get("id"), secondId, "comment button should select discussion");
 
-  await page.getByRole("button", { name: "More" }).last().click();
+  // The thread More menu (comment rows also have per-comment "More" buttons).
+  const threadMore = page.locator(".thread-actions button.thread-action[aria-label='More']");
+  await threadMore.click();
   await page.getByRole("button", { name: /Sort comments/ }).click();
   const sortLabels = await page.locator(".harmonic-popup .popup-item").allTextContents();
   for (const mode of ["Default", "Newest first", "Oldest first", "Reply count"]) {
@@ -119,7 +121,7 @@ try {
   }
   await page.getByRole("button", { name: /Newest first/ }).click();
   await page.waitForTimeout(300);
-  await page.getByRole("button", { name: "More" }).last().click();
+  await threadMore.click();
   assert.ok((await page.locator(".harmonic-popup").textContent()).includes("Sort comments · Newest first"), "selected sort mode should persist in the thread menu");
   await page.locator(".harmonic-popup").evaluate((e) => e.remove());
 
