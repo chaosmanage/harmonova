@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.12.0**.
+The current extension version is **0.12.1**.
 
-Version 0.12.0 is reading parity, part one: **every public Hacker News list becomes a Harmonic feed** — Pool, Active Discussions, Best Comments, Launch HN, Who is Hiring, Newcomer Stories, Classic, and Past Frontpages with a date picker — plus a Manage feeds dialog (hide and reorder the menu), real feed filtering (hidden domains and title keywords, hide jobs, hide read stories, per-card "Hide this domain"), hotness-colored and compact scores, a show-domain toggle, and a favicon provider choice with an honest privacy note. It builds on the profiles and lists of 0.11.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.12.1 is reading parity, part two: **Harmonic now understands who you're reading** — OP badges on the story author's comments, deterministic local avatars for every commenter, highlighting for comments posted since your last visit, collapsible `[delayed]` placeholders, an in-thread comment filter with a live match counter plus ↑ Top / ‹ Prev / Next › navigation, private user tags, per-profile user blocking, and user-data export/import as a validated portable JSON file. It builds on the parity feeds of 0.12.0 and the profiles and lists of 0.11.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Account actions and voting
 
@@ -49,6 +49,15 @@ Version 0.12.0 is reading parity, part one: **every public Hacker News list beco
 - **Own lists.** Threads (your reply inbox, comment rows with their story context via Algolia), Upvoted, Favorites, Submissions, and Hidden open as list views with a back button, "Load more" pagination through HN's morelinks (relative `?p=2` and `x?fnid=…` both resolved against the requested path, never the host page), per-view dedupe, and an empty state.
 - **Public lists for other users.** From another user's panel: Submissions, Comments, Favorites. Private lists (threads/upvoted/hidden of someone else) are refused with a toast.
 - **SEC-05, structurally.** Profile pages are never fetched — user data comes from the public Firebase API; list paths must start with an allowlisted segment that excludes `user`. `tests/profile.mjs` serves `/user` behind a counting tripwire and every test asserts zero requests.
+
+## Comment parity
+
+- **Reading context.** The story author's comments carry an "OP" badge; every commenter gets a small deterministic avatar (a hash-tinted disc with the initial, generated entirely locally — no requests, no tracking, toggleable in Settings); comments posted since your last visit are highlighted with a "new" badge until the visit is recorded (about four seconds after the thread opens, never written in incognito); and HN's `[delayed]` placeholder comments are collapsed by default with a toggle to show them.
+- **In-thread filter and navigation.** The comments heading gains a filter box with a live "N of M match" counter — a top-level branch stays visible when anything inside it matches, with all of its descendants — and ↑ Top / ‹ Prev / Next › buttons that jump between top-level comments with a brief target flash.
+- **User tags.** "Set user tag" in a comment's More menu attaches a private note (≤ 40 characters) to any username; tagged authors show a chip beside their name in every thread. Tags live in page storage on your profile and never leave the machine.
+- **User blocking.** "Block user" hides that person's comments in every thread behind a one-line note with an Unblock button — reversible from the note or the comment menu, invisible to Hacker News.
+- **User-data export/import.** Settings gains a user-data section: Export downloads `harmonic-user-data.json` (schema version 1: bookmarks ≤ 2000, read-story ids ≤ 1500, tags and blocks ≤ 500 each); Import validates strictly (256 KB cap, JSON parse, exact version, integers-only id lists without coercion, `^[A-Za-z0-9_-]{1,32}$` usernames, tags ≤ 40 chars) and merges — never replaces — with a plain-language message for every refusal. Nothing is synced to Hacker News or any server.
+- **Covered by `test:comment-parity`.** The 10-test UI suite drives OP badges, deterministic avatars, the new-marker lifecycle (seeded seen-times → highlight → auto-clear → gone after reload), the `[delayed]` toggle, the filter and its match count, navigation flashes, tag persistence across reloads, the block/unblock round-trip, export file schema, and import merge + bad-schema refusal (bookmarks asserted in `chrome.storage.local` through the worker).
 
 ## Replying, editing, and drafts
 
@@ -127,6 +136,10 @@ The discussion pane includes:
 - an in-Harmonic reply composer for the story and every comment (Ctrl+Enter posts, drafts kept), plus inline Edit and confirmed Delete on your own comments (see [Replying, editing, and drafts](#replying-editing-and-drafts))
 - a Poll section with per-option voting on poll stories
 - Favorite and Hide controls gated on the fetched document, with hide offering an undo toast (see [Account actions and voting](#account-actions-and-voting))
+- an "OP" badge on the story author's comments, deterministic local avatars for every commenter (a Settings toggle turns them off), and highlighting for comments posted since your last visit
+- an in-thread comment filter with a live "N of M match" counter that keeps matching branches, plus ↑ Top / ‹ Prev / Next › navigation between top-level comments
+- private per-profile **user tags** (a chip beside tagged authors) and **user blocking** (their comments hide behind an Unblock note) from every comment's More menu
+- user-data **export/import** in Settings: a portable JSON file merging bookmarks, read-story ids, tags, and blocks with strict schema validation (see [Comment parity](#comment-parity))
 - colored depth rails
 - configurable comment sorting
 - collapse-all and expand-all controls
@@ -185,6 +198,9 @@ The extension currently exposes Harmonic-inspired controls for:
 - overall content zoom
 - comment card style
 - comment sorting
+- new-comment highlighting
+- `[delayed]` placeholder visibility
+- comment avatars
 - comment depth palette
 - rounded depth indicators
 - continuous depth rails
@@ -431,6 +447,12 @@ Run the feed-parity suite (parity list feeds from parsed public pages, Best Comm
 npm run test:parity
 ```
 
+Run the comment-parity suite (OP badges, deterministic avatars, the new-comment marker lifecycle, the `[delayed]` toggle, the branch-keeping in-thread filter with its match counter, top-level navigation flashes, user tags persisting across reloads, the block/unblock round-trip, export-file schema, and import merge + bad-schema refusal):
+
+```bash
+npm run test:comment-parity
+```
+
 Run the live smoke test against the real site (opt-in: set `HN_LIVE=1 HN_USER=… HN_PASS=…`; credentials are read from the environment only and never stored. Only reversible actions run — one upvote/unvote and one favorite/unfavorite pair — and Hacker News's own anti-automation wall is respected, so run it from your own machine rather than a datacenter):
 
 ```bash
@@ -489,6 +511,10 @@ The project deliberately stays small and uses no application framework.
 - `tests/comments.mjs` — Phase 3 UI suite with the same harness extended to reply/edit/delete form fixtures: exact POST `/comment` and `/xedit` payloads from HN's own forms, no-retry discipline, the background draft store in `chrome.storage.session` (autosave, restore, discard, logout clear), delete confirmation both ways, validationRequired/tooFast keep-draft behavior, and signed-out/refusal rails
 - `tests/actions.mjs` — Phase 4+5 UI suite: favorites with confirmation re-fetch, hide with undo toasts (`un=t` asserted), card-menu hide + restore, document-gated flagging with SEC-36 dialogs, SEC-37 bulk bookmark favorites (serial spacing measured, mid-run cancel), exact POST `/r` submission payload, already-submitted redirect handling, validationRequired stock-form hand-off, and scripted-click refusal
 - `tests/search.mjs` — site-wide search suite: query-construction and highlight-tokenization units plus mocked-Algolia browser tests (paging, hostile highlights, malformed hits, empty/error states, cancellation, comment-hit deep links)
+- `tests/profile.mjs` — Phase 6 UI suite (Firebase user panels, own/public account lists, the SEC-05 `/user` tripwire, allowlist refusals, login-page outcomes)
+- `tests/parity.mjs` — Phase 7 part 1 UI suite (parity list feeds, Best Comments rows, front date picker, manage-feeds, feed filters, score display, favicon provider)
+- `tests/comment-parity.mjs` — Phase 7 part 2 UI suite (OP badges, deterministic avatars, new-comment markers, `[delayed]` toggle, in-thread filter and navigation, user tags, blocking, user-data export/import)
+- `tests/live.mjs` — opt-in real-site smoke test (`HN_LIVE=1 HN_USER=… HN_PASS=…`; credentials from the environment only, reversibles only, respects HN's anti-automation wall)
 - `tests/fixtures/hn/` — redacted logged-out captures and derived logged-in synthetic documents (raw captures and any traces stay out of git)
 - `scripts/capture-fixtures.mjs`, `scripts/redact-fixtures.mjs`, `scripts/build-synthetic-fixtures.mjs` — the offline fixture pipeline
 - `scripts/package.sh` — creates the stable unpacked release folder and versioned zip
@@ -609,7 +635,7 @@ User-visible behavior changes should be written for extension users rather than 
 - ~~Phase 4+5 (0.10.0): favorites, hide-with-undo, flag confirmation, and the story-submission flow~~ — shipped
 - ~~Phase 6 (0.11.0): user profile panel and own-list browsing (threads/upvoted/favorites/submissions/hidden) plus public lists for other users~~ — shipped
 - ~~Phase 7 part 1 (0.12.0): parity list feeds, frontpage management, feed filters, score display, favicon provider~~ — shipped
-- Phase 7 part 2 (0.12.1): comment parity — new-comment markers, OP highlight, in-thread search, avatars, user tags, blocked users, bookmark import/export
+- ~~Phase 7 part 2 (0.12.1): comment parity — new-comment markers, OP highlight, in-thread search, avatars, user tags, blocked users, bookmark import/export~~ — shipped
 - Phase 7 part 3 (0.12.2): links and appearance — archive action, rich link previews, themes
 - ~~Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts~~ — skipped by request
 - closer parity for additional Harmonic story-card layout modes

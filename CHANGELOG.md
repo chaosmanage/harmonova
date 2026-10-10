@@ -9,6 +9,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.12.1] - 2026-10-10
+
+The comment-parity release, part two: Harmonic now understands who you're reading — the thread author gets an OP badge, every commenter gets a deterministic local avatar, comments posted since your last visit are highlighted, HN's `[delayed]` placeholders can be hidden, long discussions gain an in-thread filter and top-level navigation, and you can tag or block any commenter. Your tags, blocks, bookmarks, and read history can be exported and re-imported as a portable JSON file.
+
+### Added
+
+- **OP badges.** The story author's own comments are marked with a row class and an "OP" badge, so scanning a long discussion instantly shows which comments come from the person who asked or posted.
+- **Deterministic comment avatars.** Every commenter gets a small local avatar: a colored disc tinted by a hash of the username with the first letter on top. No requests, no tracking — the same name always produces the same avatar. A Settings toggle turns them off.
+- **New-comment highlighting.** When you open a discussion, comments newer than your previous visit are highlighted with a subtle marker and a "new" badge; after roughly four seconds the visit is recorded and the highlights are gone the next time you open the thread. The visit bookkeeping never writes in incognito windows.
+- **`[delayed]` handling.** HN's `[delayed]` placeholder comments are collapsed by default (matching the web experience), with a Settings toggle to show them.
+- **In-thread comment filter.** The comments heading gains a search box with a live "N of M match" counter. Filtering keeps any top-level branch with a match (including all of its descendants) and hides the rest, so context is never lost. Clearing the box restores everything.
+- **Top-level navigation.** The comments heading also gains ↑ Top / ‹ Prev / Next › buttons that jump between top-level comments, scrolling the target into view with a brief flash so you can see where you landed.
+- **User tags.** "Set user tag" in a comment's More menu attaches a private note (up to 40 characters) to any username; tagged authors show a small chip next to their name in every thread. Tags are edited from the same menu.
+- **User blocking.** "Block user" hides that person's comments in every thread behind a one-line note with an Unblock button; the block is per-profile, invisible to Hacker News, and reversible both from the note and the comment menu.
+- **User-data export/import.** Settings gains a user-data section: Export downloads `harmonic-user-data.json` (schema version 1: bookmarks capped at 2000, read-story ids at 1500, user tags and blocked users at 500 each); Import accepts a previously exported file with strict validation — 256 KB cap, JSON parse, exact schema version, integers-only id lists (no string coercion), `^[A-Za-z0-9_-]{1,32}$` usernames, tags ≤ 40 chars — and merges (never replaces) on success. Every refusal says exactly which rule failed. Nothing is synced to Hacker News or any server.
+
+### Changed
+
+- The comments heading (comment count, filter, navigation) is now rendered as part of the thread pane; the settings Comments section and a new user-data section were added to the settings panel.
+- Toggling a comment-affecting setting (new markers, `[delayed]`, avatars) re-renders the open thread immediately instead of waiting for the next visit.
+
+### Tests
+
+- **`tests/comment-parity.mjs` — the 0.12.1 UI suite (10 tests),** `npm run test:comment-parity`: OP badge presence and absence; deterministic avatars; the new-comment marker lifecycle (seeded seen-times → marker → auto-clear → gone after reload); the `[delayed]` toggle; branch-keeping filter with match count; prev/next navigation flashing the first top-level comment; tag set + render + reload persistence; block → note → unblock round-trip; export file schema; and import merge semantics (bookmarks in `chrome.storage.local` asserted through the worker) plus a bad-schema refusal that changes nothing. The suite wipes shared `localStorage` keys once per page so tests never leak into each other.
+
 ## [0.12.0] - 2026-10-10
 
 The reading-parity release, part one: every public Hacker News list becomes a feed — plus frontpage management, real feed filtering, and smarter score display — all without login.

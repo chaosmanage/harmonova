@@ -53,6 +53,10 @@
     aiSystemPrompt: "You are a helpful assistant that is an expert on summarizing articles into an information-dense, concise and brief bullet-point list. Focus on key takeaways and most important/note-worthy points in the article. Keep the summary under 500 characters where possible. Respond in markdown format. Respond with only the summarized content - nothing else before or after.",
     aiStreamResponses: true,
     aiAutoSummarize: false,
+    // Phase 7 part 2 (0.12.1): comment parity
+    markNewComments: true,
+    hideDelayed: true,
+    showAvatars: true,
     // Phase 7 (0.12.0): feed parity
     showDomain: true,
     compactPoints: false,
@@ -166,6 +170,10 @@
     composer: null, // open reply/edit composer { parentId, mode, handle, node, textarea, status, submitting }
     listView: null, // open account list view { kind, path, pendingMore, done, loading, seen }
     sessionToastReady: false, // suppress "Signed in as…" toast during startup harvest
+    threadAuthor: "", // Phase 7: OP highlight
+    userTags: new Map(), // author -> short tag (local, exportable)
+    blockedUsers: new Set(), // locally blocked authors
+    seenTimes: new Map(), // story id -> last-visit timestamp for new-comment markers
   };
 
   const fetchJson = async (url) => {
@@ -390,8 +398,33 @@
     state.readIds = new Set(readIds);
     state.bookmarks = new Set(bookmarks);
     state.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    // Phase 7 part 2: local, exportable user data lives in page storage
+    // (pageStorage helpers already (de)serialize JSON).
+    const tags = pageStorageGet("harmonicUserTags");
+    if (tags && typeof tags === "object" && !Array.isArray(tags)) {
+      state.userTags = new Map(Object.entries(tags).slice(0, 500).map(([author, tag]) => [String(author).slice(0, 40), String(tag).slice(0, 40)]));
+    }
+    const blocked = pageStorageGet("harmonicBlockedUsers");
+    if (Array.isArray(blocked)) state.blockedUsers = new Set(blocked.filter((entry) => typeof entry === "string").slice(0, 500));
+    const seen = pageStorageGet("harmonicSeenComments");
+    if (seen && typeof seen === "object" && !Array.isArray(seen)) {
+      state.seenTimes = new Map(Object.entries(seen).slice(-400).map(([id, ts]) => [Number(id), Number(ts) || 0]).filter(([id, ts]) => Number.isInteger(id) && id > 0));
+    }
     pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
     if (!synced.harmonicSettings) await chromeSyncSet({ harmonicSettings: state.settings });
+  }
+
+  function persistUserTags() {
+    pageStorageSet("harmonicUserTags", Object.fromEntries([...state.userTags].slice(0, 500)));
+  }
+
+  function persistBlockedUsers() {
+    pageStorageSet("harmonicBlockedUsers", [...state.blockedUsers].slice(0, 500));
+  }
+
+  function persistSeenTimes() {
+    if (INCOGNITO) return; // memory-only in incognito
+    pageStorageSet("harmonicSeenComments", Object.fromEntries([...state.seenTimes].slice(-400)));
   }
 
   async function markRead(id) {
@@ -2796,22 +2829,55 @@ async function refreshFeed() {
     row.dataset.commentId = String(comment.id || 0); // used by search comment hits to scroll into view
     row.dataset.createdAt = String(comment.created_at_i || 0);
     row.dataset.replies = String(descendantCount(comment));
+    if (comment.author) row.dataset.author = comment.author;
     row.style.setProperty("--depth", String(depth));
     row.style.setProperty("--rail", railColor(depth, comment.author || ""));
 
+    // Phase 7 part 2: OP highlight, new-comment marker, [delayed] hiding.
+    if (comment.author && comment.author === state.threadAuthor) row.classList.add("by-op");
+    if (state.settings.hideDelayed && comment.text && /\[delayed\]/i.test(comment.text)) row.classList.add("is-delayed");
+    const storyId = Number.isInteger(state.selectedId) ? state.selectedId : null;
+    if (state.settings.markNewComments && storyId && Number(comment.created_at_i || 0) > (state.seenTimes.get(storyId) || 0)) {
+      row.classList.add("is-new");
+    }
+    const isBlockedAuthor = comment.author && state.blockedUsers.has(comment.author);
+    if (isBlockedAuthor) row.classList.add("is-blocked");
+
     const card = el("article", "comment-card");
     const meta = el("div", "comment-meta");
+    // Generated avatars: deterministic, purely local color + initial.
+    if (state.settings.showAvatars && comment.author) {
+      const avatar = el("span", "comment-avatar", comment.author.charAt(0).toUpperCase());
+      avatar.style.background = hashTint(comment.author);
+      meta.appendChild(avatar);
+    }
     const author = el("a", "comment-author", comment.author || "[deleted]");
     if (comment.author) {
       author.href = "https://news.ycombinator.com/user?id=" + encodeURIComponent(comment.author);
       author.target = "_blank";
       author.rel = "noopener";
     }
+    if (comment.author && comment.author === state.threadAuthor) {
+      author.appendChild(el("span", "op-badge", "OP"));
+    }
+    meta.appendChild(author);
+    const tag = comment.author ? state.userTags.get(comment.author) : null;
+    if (tag) {
+      const tagChip = el("button", "comment-tag", tag);
+      tagChip.type = "button";
+      tagChip.title = "Edit tag for " + comment.author;
+      tagChip.addEventListener("click", (event) => {
+        if (!event.isTrusted) return;
+        openTagDialog(comment.author);
+      });
+      meta.appendChild(tagChip);
+    }
+    if (row.classList.contains("is-new")) meta.appendChild(el("span", "new-badge", "new"));
     const age = el("a", "comment-age", relativeTime(comment.created_at_i || 0));
     age.href = "https://news.ycombinator.com/item?id=" + comment.id;
     age.target = "_blank";
     age.rel = "noopener";
-    meta.append(author, age);
+    meta.append(age);
 
     const body = el("div", "comment-body");
     if (comment.text) appendSanitizedHtml(body, comment.text);
@@ -2965,6 +3031,26 @@ async function refreshFeed() {
         ...(comment.author
           ? [{ label: "View user", icon: "user", action: () => openUserPanel(comment.author) }]
           : []),
+        ...(comment.author
+          ? [
+              { label: state.userTags.has(comment.author) ? "Edit user tag" : "Set user tag", icon: "star", action: () => openTagDialog(comment.author) },
+              {
+                label: state.blockedUsers.has(comment.author) ? "Unblock user" : "Block user",
+                icon: "eyeOff",
+                action: async () => {
+                  if (state.blockedUsers.has(comment.author)) {
+                    state.blockedUsers.delete(comment.author);
+                    showToast("Unblocked " + comment.author);
+                  } else {
+                    state.blockedUsers.add(comment.author);
+                    showToast("Blocked " + comment.author + " — their comments stay hidden here");
+                  }
+                  persistBlockedUsers();
+                  if (state.thread) await renderThread(state.thread);
+                },
+              },
+            ]
+          : []),
         // Phase 4: flag a comment only when HN offers the link (SEC-36 dialog).
         ...(state.itemState?.comments?.[comment.id]?.flagAvailable
           ? [{ label: "Flag comment", icon: "flag", action: (popupEvent) => confirmFlagItem(popupEvent, comment.id, "comment") }]
@@ -2980,11 +3066,76 @@ async function refreshFeed() {
     for (const child of sortedComments(comment.children || [])) children.appendChild(renderComment(child, depth + 1));
     if (children.childElementCount) row.appendChild(children);
 
+    // Blocked authors keep their place in the thread but collapse into a note.
+    if (isBlockedAuthor) {
+      const note = el("div", "blocked-note");
+      note.append(el("span", "", "Hidden comment from a blocked user (" + comment.author + ")"));
+      const unblock = el("button", "blocked-unblock", "Unblock");
+      unblock.type = "button";
+      unblock.addEventListener("click", (event) => {
+        if (!event.isTrusted) return;
+        state.blockedUsers.delete(comment.author);
+        persistBlockedUsers();
+        row.classList.remove("is-blocked");
+        note.remove();
+      });
+      note.appendChild(unblock);
+      row.insertBefore(note, card);
+    }
+
     card.addEventListener("click", (event) => {
       if (event.target.closest("a, button") || window.getSelection()?.toString()) return;
       row.classList.toggle("collapsed");
     });
     return row;
+  }
+
+  // Phase 7 part 2: per-author tags — a small local dialog, no prompts.
+  function openTagDialog(author) {
+    document.querySelector(".tag-overlay")?.remove();
+    const overlay = el("div", "tag-overlay");
+    const panel = el("section", "tag-panel");
+    panel.append(el("h3", "", "Tag for " + author));
+    const input = el("input", "tag-input");
+    input.type = "text";
+    input.maxLength = 40;
+    input.value = state.userTags.get(author) || "";
+    input.placeholder = "e.g. HN legend, careful reviewer";
+    const row = el("div", "tag-actions");
+    const save = el("button", "tag-save", "Save");
+    save.type = "button";
+    save.addEventListener("click", () => {
+      const value = input.value.trim().slice(0, 40);
+      if (value) state.userTags.set(author, value);
+      else state.userTags.delete(author);
+      persistUserTags();
+      overlay.remove();
+      if (state.thread) renderThread(state.thread);
+    });
+    const remove = el("button", "tag-remove", "Remove tag");
+    remove.type = "button";
+    remove.hidden = !state.userTags.has(author);
+    remove.addEventListener("click", () => {
+      state.userTags.delete(author);
+      persistUserTags();
+      overlay.remove();
+      if (state.thread) renderThread(state.thread);
+    });
+    const cancel = el("button", "tag-cancel", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    row.append(save, remove, cancel);
+    panel.append(input, row);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    input.focus();
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && event.isTrusted) save.click();
+      if (event.key === "Escape" && event.isTrusted) overlay.remove();
+    });
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) overlay.remove();
+    });
   }
 
   function appendSummaryInline(target, text) {
@@ -3400,12 +3551,66 @@ async function refreshFeed() {
     const total = (item.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
     const heading = el("div", "comments-heading");
     heading.append(el("h2", "", total + " comments"));
+
+    // Phase 7 part 2: in-thread comment filter with a live match count.
+    state.threadAuthor = item.author || "";
+    const searchBox = el("input", "comment-search");
+    searchBox.type = "search";
+    searchBox.placeholder = "Filter comments";
+    searchBox.autocomplete = "off";
+    const matchLabel = el("span", "comment-search-count", "");
+    searchBox.addEventListener("input", () => filterThreadComments(searchBox.value, matchLabel, total));
+    const nav = el("div", "comments-nav");
+    const upButton = el("button", "comments-nav-button", "↑ Top");
+    upButton.type = "button";
+    upButton.title = "Back to the story";
+    upButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      threadPane.querySelector(".thread-header")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    let topLevelIndex = -1;
+    const topLevelRows = () => [...threadPane.querySelectorAll(".comments > .comment-row")].filter((row) => !row.hidden);
+    const jumpTopLevel = (delta) => {
+      const rows = topLevelRows();
+      if (!rows.length) return;
+      topLevelIndex = Math.min(rows.length - 1, Math.max(0, topLevelIndex + delta));
+      const target = rows[topLevelIndex];
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.remove("nav-flash");
+      // restart the flash animation
+      void target.offsetWidth;
+      target.classList.add("nav-flash");
+    };
+    const prevButton = el("button", "comments-nav-button", "‹ Prev");
+    prevButton.type = "button";
+    prevButton.title = "Previous top-level comment";
+    prevButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      jumpTopLevel(-1);
+    });
+    const nextButton = el("button", "comments-nav-button", "Next ›");
+    nextButton.type = "button";
+    nextButton.title = "Next top-level comment";
+    nextButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      jumpTopLevel(1);
+    });
+    nav.append(upButton, prevButton, nextButton);
+    heading.append(nav, searchBox, matchLabel);
     threadPane.appendChild(heading);
 
     const comments = el("section", "comments");
     for (const comment of sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
     if (!comments.childElementCount) comments.appendChild(el("div", "empty-comments", "No comments yet."));
     threadPane.appendChild(comments);
+    // Once the discussion has been read, its comments are never "new" again.
+    if (state.settings.markNewComments && Number.isInteger(item.id)) {
+      setTimeout(() => {
+        if (state.selectedId !== item.id) return;
+        state.seenTimes.set(item.id, Math.floor(Date.now() / 1000));
+        persistSeenTimes();
+      }, 4000);
+    }
     // Re-apply any item state that arrived (or was cached) for this story.
     if (state.itemState && state.itemState.itemId === item.id) {
       updateThreadVoteUi();
@@ -3431,6 +3636,34 @@ async function refreshFeed() {
 
   function setAllCommentsCollapsed(collapsed) {
     document.querySelectorAll(".comment-row").forEach((row) => row.classList.toggle("collapsed", collapsed));
+  }
+
+  // Phase 7 part 2: in-thread comment filter. A top-level branch stays visible
+  // when any comment inside it matches; non-matching branches hide entirely.
+  function filterThreadComments(query, matchLabel, total) {
+    const q = String(query || "").trim().toLowerCase();
+    const rows = [...threadPane.querySelectorAll(".comment-row")];
+    if (!q) {
+      rows.forEach((row) => { row.hidden = false; });
+      if (matchLabel) matchLabel.textContent = "";
+      return;
+    }
+    const ownMatch = new Map();
+    for (const row of rows) {
+      const card = row.querySelector(":scope > .comment-card");
+      const text = ((card?.textContent || "") + " " + (row.dataset.author || "")).toLowerCase();
+      ownMatch.set(row, text.includes(q));
+    }
+    // Children appear after their parent in DOM order, so reverse iteration
+    // settles every subtree before its ancestor is decided.
+    let kept = 0;
+    for (const row of [...rows].reverse()) {
+      const childKept = [...row.querySelectorAll(":scope > .comment-children .comment-row")].some((child) => !child.hidden);
+      const keep = ownMatch.get(row) || childKept;
+      row.hidden = !keep;
+      if (keep) kept++;
+    }
+    if (matchLabel) matchLabel.textContent = kept + " of " + total + " match";
   }
 
   function openSortMenu(anchor) {
@@ -3461,6 +3694,7 @@ async function refreshFeed() {
       await saveSettings();
       applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
+      if (state.thread && ["markNewComments", "hideDelayed", "showAvatars"].includes(key)) renderThread(state.thread);
     });
     row.append(text, input);
     return row;
@@ -3588,7 +3822,30 @@ async function refreshFeed() {
       settingSelect("Thread colors", "depthMode", [["theme_default", "Theme default"], ["material_you", "Material You"], ["colors", "Colorful"], ["author", "Author"], ["monochrome", "Monochrome"], ["none", "None"]]),
       settingToggle("Rounded depth indicators", "roundedRails", "Round the thread indicator ends"),
       settingToggle("Continuous depth indicators", "continuousRails", "Continue ancestor rails through replies"),
+      settingToggle("Mark new comments", "markNewComments", "Highlight comments posted since your last visit to a story"),
+      settingToggle("Hide [delayed]", "hideDelayed", "Collapse HN's [delayed] placeholder comments"),
+      settingToggle("Comment avatars", "showAvatars", "Show generated local avatars beside comment authors"),
       settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp")
+    );
+
+    const userDataSection = el("div", "settings-section");
+    const exportButton = el("button", "setting-button", "Export user data (JSON)");
+    exportButton.type = "button";
+    exportButton.addEventListener("click", exportUserData);
+    const importButton = el("button", "setting-button", "Import user data");
+    importButton.type = "button";
+    importButton.addEventListener("click", () => importFileInput.click());
+    const importFileInput = el("input", "setting-import-input");
+    importFileInput.type = "file";
+    importFileInput.accept = "application/json,.json";
+    importFileInput.hidden = true;
+    importFileInput.addEventListener("change", () => importUserData(importFileInput));
+    userDataSection.append(
+      el("h3", "", "Your local data"),
+      exportButton,
+      importButton,
+      importFileInput,
+      el("p", "settings-note", "Bookmarks, read stories, user tags, and blocked users are stored on this profile. Export saves them as a JSON file; import merges a previously exported file after schema validation (integers for ids, small strings for tags, 256 KB cap). Nothing here is synced to Hacker News or any server.")
     );
 
     const headerDisplaySection = el("div", "settings-section");
@@ -3639,7 +3896,7 @@ async function refreshFeed() {
       el("p", "settings-note", "Harmonic never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, Harmonic sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach Harmonic's storage or sync.")
     );
 
-    panel.append(header, storySection, commentsSection, headerDisplaySection, accountSection, aiSection, behaviorSection);
+    panel.append(header, storySection, commentsSection, userDataSection, headerDisplaySection, accountSection, aiSection, behaviorSection);
     overlay.appendChild(panel);
     overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
@@ -3648,6 +3905,104 @@ async function refreshFeed() {
       aiSection.classList.add("settings-section-highlight");
       setTimeout(() => aiSection.classList.remove("settings-section-highlight"), 1200);
     }
+  }
+
+  // Phase 7 part 2: export/import of local user data (bookmarks, read ids,
+  // user tags, blocked users). Strict schema validation on import; integers
+  // only for ids; hard size caps everywhere.
+  const USER_DATA_VERSION = 1;
+  const USER_DATA_MAX_BYTES = 262144;
+
+  function exportUserData() {
+    const payload = {
+      version: USER_DATA_VERSION,
+      exportedAt: new Date().toISOString(),
+      bookmarks: [...state.bookmarks].filter((id) => Number.isInteger(id) && id > 0).slice(0, 2000),
+      readStoryIds: [...state.readIds].filter((id) => Number.isInteger(id) && id > 0).slice(0, 1500),
+      userTags: Object.fromEntries([...state.userTags].slice(0, 500)),
+      blockedUsers: [...state.blockedUsers].slice(0, 500),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "harmonic-user-data.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast("User data exported");
+  }
+
+  const sanitizeIdList = (value, cap) => {
+    if (!Array.isArray(value)) return null;
+    const ids = value.filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length !== value.length) return null; // integers only, no coercion
+    return ids.slice(0, cap);
+  };
+
+  async function importUserData(input) {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (file.size > USER_DATA_MAX_BYTES) {
+      showToast("Import refused — file is larger than 256 KB");
+      return;
+    }
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch {
+      showToast("Import refused — not valid JSON");
+      return;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data) || data.version !== USER_DATA_VERSION) {
+      showToast("Import refused — unrecognized schema");
+      return;
+    }
+    const bookmarks = sanitizeIdList(data.bookmarks, 2000);
+    const readStoryIds = sanitizeIdList(data.readStoryIds, 1500);
+    let userTags = null;
+    if (data.userTags && typeof data.userTags === "object" && !Array.isArray(data.userTags)) {
+      userTags = {};
+      for (const [author, tag] of Object.entries(data.userTags)) {
+        if (typeof author !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(author)) return void showToast("Import refused — bad author name in tags");
+        if (typeof tag !== "string" || tag.length > 40) return void showToast("Import refused — bad tag value");
+        userTags[author] = tag;
+        if (Object.keys(userTags).length >= 500) break;
+      }
+    }
+    let blockedUsers = null;
+    if (Array.isArray(data.blockedUsers)) {
+      blockedUsers = [];
+      for (const author of data.blockedUsers) {
+        if (typeof author !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(author)) return void showToast("Import refused — bad blocked user name");
+        blockedUsers.push(author);
+        if (blockedUsers.length >= 500) break;
+      }
+    }
+    if (!bookmarks || !readStoryIds || (data.userTags !== undefined && !userTags) || (data.blockedUsers !== undefined && !blockedUsers)) {
+      showToast("Import refused — schema validation failed");
+      return;
+    }
+    // Merge, not replace: importing adds to what is already here.
+    for (const id of bookmarks) state.bookmarks.add(id);
+    for (const id of readStoryIds) state.readIds.add(id);
+    if (userTags) for (const [author, tag] of Object.entries(userTags)) state.userTags.set(author, tag);
+    if (blockedUsers) for (const author of blockedUsers) state.blockedUsers.add(author);
+    await runtimeMessage({ type: "HARMONIC_BOOKMARKS_SET", ids: [...state.bookmarks].slice(0, 2000) });
+    await runtimeMessage({ type: "HARMONIC_READ_IDS_SET", ids: [...state.readIds].slice(-1500) });
+    persistUserTags();
+    persistBlockedUsers();
+    document.querySelectorAll(".story-card").forEach((card) => {
+      if (state.readIds.has(Number(card.dataset.storyId))) card.classList.add("is-read");
+    });
+    document.querySelectorAll("[data-bookmark-id]").forEach((node) => {
+      node.classList.toggle("active", state.bookmarks.has(Number(node.dataset.bookmarkId)));
+    });
+    showToast("Imported " + bookmarks.length + " bookmarks, " + readStoryIds.length + " read stories" + (userTags ? ", " + Object.keys(userTags).length + " tags" : "") + (blockedUsers ? ", " + blockedUsers.length + " blocked" : ""));
+    filterStories();
+    if (state.thread) renderThread(state.thread);
   }
 
   function handleSettingsHash() {

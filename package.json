@@ -1,6 +1,6 @@
 {
   "name": "harmonic-hn-browser",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,7 +19,8 @@
     "test:parity": "node tests/parity.mjs",
     "test:live": "node tests/live.mjs",
     "test:lists": "node tests/lists.mjs",
-    "package": "bash scripts/package.sh"
+    "package": "bash scripts/package.sh",
+    "test:comment-parity": "node tests/comment-parity.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.1"
