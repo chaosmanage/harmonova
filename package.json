@@ -1,12 +1,14 @@
 {
   "name": "harmonic-hn-browser",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "scripts": {
     "test:reload": "node tests/reload.mjs",
     "test:ai": "node --test tests/ai-worker.mjs",
     "test:e2e": "node tests/e2e.mjs",
+    "test:security": "node --test tests/security.mjs",
+    "test:security:browser": "SECURITY_BROWSER_TESTS=1 EXTENSION_PATH=\"$PWD/dist/harmonic-hn-browser\" node tests/security.mjs",
     "package": "bash scripts/package.sh"
   },
   "devDependencies": {

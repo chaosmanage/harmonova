@@ -171,6 +171,22 @@
     } catch { return null; }
   };
 
+  // SEC-42: images must be https and must never point at the HN origin.
+  const safeImageSrc = (href) => {
+    try {
+      const url = new URL(href, "https://news.ycombinator.com");
+      if (url.protocol !== "https:") return null;
+      if (url.hostname === "news.ycombinator.com" || url.hostname.endsWith(".ycombinator.com")) return null;
+      return url.href;
+    } catch { return null; }
+  };
+
+  // SEC-41: every external link resolves through safeHref, falling back to the HN item.
+  const articleHref = (story) => safeHref(story?.url) || "https://news.ycombinator.com/item?id=" + story.id;
+
+  // SEC-51: incognito keeps read state, bookmarks, drafts, and search history in memory only.
+  const INCOGNITO = Boolean(chrome.extension?.inIncognitoContext);
+
   const normalizeQuotedParagraphs = (target) => {
     const stripQuoteMarkers = (quote) => {
       const walker = document.createTreeWalker(quote, NodeFilter.SHOW_TEXT);
@@ -256,6 +272,7 @@
   }
 
   function pageStorageSet(key, value) {
+    if (INCOGNITO) return; // SEC-51: no page-origin backups from incognito
     try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
   }
 
@@ -322,16 +339,19 @@
   async function markRead(id) {
     if (!id) return;
     state.readIds.add(id);
-    const readStoryIds = [...state.readIds].slice(-1500);
-    await runtimeMessage({ type: "HARMONIC_READ_IDS_SET", ids: readStoryIds });
+    if (!INCOGNITO) {
+      const readStoryIds = [...state.readIds].slice(-1500);
+      await runtimeMessage({ type: "HARMONIC_READ_IDS_SET", ids: readStoryIds });
+    }
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("is-read");
   }
 
   async function toggleBookmark(id) {
     if (state.bookmarks.has(id)) state.bookmarks.delete(id);
     else state.bookmarks.add(id);
-    const harmonicBookmarks = [...state.bookmarks];
-    await runtimeMessage({ type: "HARMONIC_BOOKMARKS_SET", ids: harmonicBookmarks });
+    if (!INCOGNITO) {
+      await runtimeMessage({ type: "HARMONIC_BOOKMARKS_SET", ids: [...state.bookmarks] });
+    }
     document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) => {
       node.classList.toggle("active", state.bookmarks.has(id));
     });
@@ -353,7 +373,7 @@
     if (!story?.url) return null;
     try {
       const host = new URL(story.url).hostname;
-      return "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(host) + "&sz=128";
+      return safeImageSrc("https://www.google.com/s2/favicons?domain=" + encodeURIComponent(host) + "&sz=128");
     } catch { return null; }
   };
 
@@ -544,7 +564,7 @@
 
     const main = el("div", "story-card-main");
     const title = el("a", "story-card-title", story.title || "(untitled)");
-    title.href = story.url || ("https://news.ycombinator.com/item?id=" + story.id);
+    title.href = articleHref(story);
     title.target = "_blank";
     title.rel = "noopener noreferrer";
     title.addEventListener("click", (event) => {
@@ -563,7 +583,7 @@
     main.append(titleLine, storyMeta(story));
 
     const preview = el("a", "story-preview");
-    preview.href = story.url || ("https://news.ycombinator.com/item?id=" + story.id);
+    preview.href = articleHref(story);
     preview.target = story.url ? "_blank" : "_self";
     preview.rel = "noopener noreferrer";
     preview.title = story.url ? "Open article" : "Open comments";
@@ -601,16 +621,18 @@
       if (state.settings.cardClickComments || !story.url) {
         selectStory(story);
       } else {
-        window.open(story.url, "_blank", "noopener");
+        window.open(articleHref(story), "_blank", "noopener");
       }
     });
 
     if (story.url) {
       getPreview(story).then((meta) => {
         const favicon = card.querySelector(".story-favicon");
-        if (meta.favicon && favicon) favicon.src = meta.favicon;
-        if (meta.image) {
-          previewImg.src = meta.image;
+        const faviconSrc = safeImageSrc(meta.favicon || "");
+        if (faviconSrc && favicon) favicon.src = faviconSrc;
+        const imageSrc = safeImageSrc(meta.image || "");
+        if (imageSrc) {
+          previewImg.src = imageSrc;
           card.classList.add("has-preview");
         } else {
           card.classList.add("no-preview");
@@ -801,6 +823,13 @@
     for (const match of String(text || "").matchAll(pattern)) {
       if (match.index > cursor) target.appendChild(document.createTextNode(text.slice(cursor, match.index)));
       const token = match[0];
+      // SEC-44: AI output never renders Markdown images. An image token is
+      // demoted to plain text so no remote URL is ever fetched or embedded.
+      if (text.slice(Math.max(0, match.index - 1), match.index) === "!") {
+        target.appendChild(document.createTextNode(token));
+        cursor = match.index + token.length;
+        continue;
+      }
       if (token.startsWith("`")) {
         target.appendChild(el("code", "", token.slice(1, -1)));
       } else if (token.startsWith("**")) {
@@ -1038,7 +1067,7 @@
     document.title = (item.title || "Discussion") + " — Harmonic";
     const header = el("header", "thread-header");
     const hero = el("a", "thread-hero");
-    hero.href = item.url || ("https://news.ycombinator.com/item?id=" + item.id);
+    hero.href = articleHref(item);
     hero.target = "_blank";
     hero.rel = "noopener";
     const heroImg = el("img", "thread-hero-image");
@@ -1051,11 +1080,11 @@
 
     const headerBody = el("div", "thread-header-body");
     const title = el("a", "thread-title", item.title || "(untitled)");
-    title.href = item.url || ("https://news.ycombinator.com/item?id=" + item.id);
+    title.href = articleHref(item);
     title.target = "_blank";
     title.rel = "noopener";
     const domain = el("a", "thread-domain");
-    domain.href = item.url || ("https://news.ycombinator.com/item?id=" + item.id);
+    domain.href = articleHref(item);
     domain.target = "_blank";
     domain.rel = "noopener";
     domain.append(svg("link"), el("span", "", "(" + domainOf(item.url) + ")"));
@@ -1142,8 +1171,9 @@
       const fakeStory = { id: item.id, url: item.url };
       const preview = await getPreview(fakeStory);
       if (state.selectedId !== item.id) return;
-      if (preview.image) {
-        heroImg.src = preview.image;
+      const imageSrc = safeImageSrc(preview.image || "");
+      if (imageSrc) {
+        heroImg.src = imageSrc;
         header.classList.add("has-hero");
       } else {
         hero.remove();

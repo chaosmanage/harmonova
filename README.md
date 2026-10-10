@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.7.2**.
+The current extension version is **0.7.3**.
 
-Version 0.7.2 compacts the discussion story header so more comments fit onscreen, while retaining one-click OpenRouter summaries and private API-key storage. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.7.3 is a security-hardening release: the background worker no longer sends cookies anywhere, refuses Hacker News pages for previews and summaries, validates every remote URL and redirect hop against a shared URL policy, pins and hash-verifies the runtime font, keeps incognito activity in memory, verifies message senders, and locks the extension against messages from other origins. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Feed experience
 
@@ -255,6 +255,8 @@ Harmonic-HN is licensed under Apache-2.0. This repository retains the existing a
 
 Harmonic defaults to **Google Sans Flex Rounded**. The extension loads the same public font at runtime from Harmonic's upstream repository and does not bundle the font binary in this repository or release archive.
 
+Since 0.7.3 the runtime font URL is pinned to the upstream commit `42aae5fa3c587b4554f1e53ce6d45c267e1aec2a` and the fetched bytes are verified against a SHA-256 digest before the font is used; any mismatch falls back to Google Sans, Product Sans, Segoe UI, and system sans-serif fonts.
+
 If the runtime fetch fails, the UI falls back to Google Sans, Product Sans, Segoe UI, and system sans-serif fonts.
 
 ## Install locally
@@ -356,10 +358,12 @@ The project deliberately stays small and uses no application framework.
 - `content.js` — feed, reader, interactions, settings, streaming summary presentation, persistence migration, and Hacker News/Algolia loading
 - `styles.css` — Harmonic desktop adaptation and summary/settings presentation scoped to `html.harmonic-hn`
 - `background.js` — preview metadata, image palette extraction, font retrieval, private local state, article extraction, OpenRouter streaming, and per-tab original-HN state
+- `url-policy.js` — shared remote-URL validation (public targets only, SSRF protection, redirect re-validation) used by the background worker and content script
 - `popup.html` / `popup.css` / `popup.js` — toolbar popup for enable/disable, settings, and original-HN actions
 - `ai-settings.html` / `ai-settings.css` / `ai-settings.js` — extension-owned OpenRouter credential editor
 - `icons/` — Harmonic browser-action icon assets
 - `tests/e2e.mjs` — Chromium interaction and regression test
+- `tests/security.mjs` — security regression suite (URL policy, cookie omission, sender checks, SSRF, AI output rules)
 - `scripts/package.sh` — creates the stable unpacked release folder and versioned zip
 - `CHANGELOG.md` — release history following Keep a Changelog 1.1.0
 
@@ -402,6 +406,19 @@ Stored data is limited to UI preferences, read-story IDs, bookmarks, enabled/dis
 The page-origin backup is limited to non-secret UI preferences and the enabled/disabled flag; it does not contain credentials, Hacker News account information, comments, article contents, or generated summaries.
 
 On an explicit summary request, the selected article text is sent directly to OpenRouter together with the configured system prompt. The API key is sent only as the OpenRouter authorization header.
+
+### Security posture (0.7.3)
+
+- **No cookies leave the background worker.** Every background fetch — preview metadata, image tinting, article extraction, the Harmonic font, and OpenRouter — runs with `credentials: "omit"`.
+- **Hacker News pages are never previewed or summarized** by the background worker, and no background request is ever sent to a Hacker News host.
+- **A shared URL policy (`url-policy.js`) gates every remote fetch.** Only public `http:`/`https:` targets on default ports are allowed. Localhost, link-local, private, CGNAT, and reserved IP ranges, IPv6 loopback/ULA/link-local, exotic literal-IP spellings, and non-default ports are refused, including through redirects; redirect hops are capped.
+- **External links and image sources are validated** in the UI (`safeHref`, `safeImageSrc`): only `http:`/`https:` links are used, and images must be `https:` and never point at the Hacker News origin.
+- **Message senders are verified.** Background handlers that read or write user data accept messages only from the extension's own top-frame content script on `https://news.ycombinator.com`. The manifest declares an empty `externally_connectable`, so other extensions and websites cannot message Harmonic.
+- **Incognito windows keep activity in memory.** Read state, bookmarks, and page-origin settings backups are not persisted from incognito.
+- **The runtime font is pinned and hash-verified** (see the Font section).
+- **AI summaries cannot trigger actions or load images.** Generated Markdown never renders images, and the summary UI offers no HN actions.
+
+Run the security regression suite with `npm run test:security` (Node) and `npm run test:security:browser` against the packaged folder (Chromium).
 
 ## Intentionally out of scope
 

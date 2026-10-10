@@ -1,3 +1,5 @@
+importScripts("url-policy.js");
+
 const ORIGINAL_TAB_STORAGE_KEY = "harmonicOriginalTabIds";
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonicAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonicAiApiKeySession";
@@ -5,6 +7,10 @@ const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
 const MAX_ARTICLE_CHARACTERS = 15_000;
 const MAX_SUMMARY_CHARACTERS = 64 * 1024;
+const MAX_REDIRECT_HOPS = 5;
+// SEC-60: the runtime font is pinned to an upstream commit and verified by
+// SHA-256 before it is ever injected into the UI.
+const HARMONIC_FONT_SHA256 = "6bae33495ece5b89d3a4dda657e37e1f7987ae3f3f2a8f4f797cbcb5e9c35788";
 
 const localGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
 const localSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
@@ -56,15 +62,54 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   setOriginalTab(tabId, false).catch(() => {});
 });
 
-const HARMONIC_FONT_URL = "https://raw.githubusercontent.com/SimonHalvdansson/Harmonic-HN/main/resources/src/commonMain/composeResources/font/google_sans_flex_rounded_variable_latin.ttf";
+const HARMONIC_FONT_URL = "https://raw.githubusercontent.com/SimonHalvdansson/Harmonic-HN/42aae5fa3c587b4554f1e53ce6d45c267e1aec2a/resources/src/commonMain/composeResources/font/google_sans_flex_rounded_variable_latin.ttf";
 let harmonicFontDataPromise = null;
+
+// SEC-22/SEC-24 fetch helper used by every non-HN background request:
+// cookies are never sent, the URL policy is applied to the request and to every
+// redirect hop, and the hop count is capped.
+async function fetchPolicy(url, init = {}) {
+  if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) throw new Error("Blocked URL");
+  let current = String(url);
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    if (!HarmonicUrlPolicy.isAllowedRemoteUrl(current)) throw new Error("Blocked redirect target");
+    const response = await fetch(current, {
+      ...init,
+      redirect: "manual",
+      credentials: "omit",
+    });
+    const status = response.status;
+    if (response.type === "opaqueredirect" || (status >= 300 && status < 400)) {
+      // Service-worker fetches may only expose an opaque redirect response.
+      // Try to read Location; when it is unreadable, re-dispatch once with a
+      // followed redirect and validate the final URL before using the body.
+      const location = response.headers ? response.headers.get("location") : null;
+      if (location) {
+        const resolved = new URL(location, current);
+        if (!HarmonicUrlPolicy.isAllowedRemoteUrl(resolved.href)) throw new Error("Blocked redirect target");
+        current = resolved.href;
+        continue;
+      }
+      if (hop === MAX_REDIRECT_HOPS) throw new Error("Too many redirects");
+      const followed = await fetch(current, { ...init, redirect: "follow", credentials: "omit" });
+      if (!HarmonicUrlPolicy.isAllowedRemoteUrl(followed.url)) throw new Error("Blocked redirect target");
+      return followed;
+    }
+    return response;
+  }
+  throw new Error("Too many redirects");
+}
 
 async function getHarmonicFontDataUrl() {
   if (!harmonicFontDataPromise) {
     harmonicFontDataPromise = (async () => {
-      const response = await fetch(HARMONIC_FONT_URL);
+      const response = await fetchPolicy(HARMONIC_FONT_URL, { signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error("font HTTP " + response.status);
       const bytes = new Uint8Array(await response.arrayBuffer());
+      // SEC-60: reject any font whose bytes do not match the pinned digest.
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (hex !== HARMONIC_FONT_SHA256) throw new Error("font digest mismatch");
       let binary = "";
       const chunk = 0x8000;
       for (let i = 0; i < bytes.length; i += chunk) {
@@ -159,11 +204,29 @@ function hex(rgb) {
   return "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
+// SEC-42: images used by Harmonic must be https and must never point at HN.
+function safeImageSrc(value, base) {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(value, base || undefined);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  if (HarmonicUrlPolicy.isHackerNewsHost(url.hostname)) return null;
+  return url.href;
+}
+
 async function imageTint(url) {
   if (!url) return null;
   if (paletteCache.has(url)) return paletteCache.get(url);
+  if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
+    paletteCache.set(url, null);
+    return null;
+  }
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const response = await fetchPolicy(url, { signal: AbortSignal.timeout(6000) });
     if (!response.ok) throw new Error("image");
     const bitmap = await createImageBitmap(await response.blob());
     const canvas = new OffscreenCanvas(32, 32);
@@ -205,10 +268,15 @@ async function getMetadata(url) {
   if (cached && Date.now() - cached.time < 1800000) return cached.value;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
-  let value = { image: null, favicon: null, pageUrl: url, tint: null };
+  let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false };
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
+    // SEC-23: never preview or summarize Hacker News pages.
+    if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
+      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmonicUrlPolicy.isHackerNewsUrl(url) };
+      metadataCache.set(url, { time: Date.now(), value });
+      return value;
+    }
+    const response = await fetchPolicy(url, {
       signal: controller.signal,
       headers: { Accept: "text/html,application/xhtml+xml" }
     });
@@ -216,10 +284,10 @@ async function getMetadata(url) {
     if (!response.ok || !type.includes("text/html")) throw new Error("not html");
     const html = (await response.text()).slice(0, 1500000);
     const base = response.url || url;
-    const image = absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base);
-    const favicon = absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base);
+    const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
+    const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
     // Harmonic tints from the preview image first, then the favicon when a story has no preview.
-    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon) };
+    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false };
   } catch {} finally {
     clearTimeout(timer);
   }
@@ -287,10 +355,13 @@ async function readResponseTextLimited(response, maxBytes) {
 }
 
 async function fetchArticleText(url, signal) {
+  // SEC-23/SEC-24: articles are public, non-HN http(s) documents only.
+  if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
+    if (HarmonicUrlPolicy.isHackerNewsUrl(url)) throw new Error("Hacker News pages can't be summarized");
+    throw new Error("Unsupported article URL");
+  }
   const parsed = new URL(url);
-  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Unsupported article URL");
-  const response = await fetch(parsed.href, {
-    redirect: "follow",
+  const response = await fetchPolicy(parsed.href, {
     signal,
     headers: { Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
   });
@@ -439,6 +510,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
   const response = await fetch(OPENROUTER_CHAT_URL, {
     method: "POST",
     signal: controller.signal,
+    credentials: "omit",
     headers: {
       "Authorization": "Bearer " + key,
       "Content-Type": "application/json",
@@ -508,9 +580,26 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => controller?.abort());
 });
 
+// SEC-52: message senders that carry user data must be the extension's own
+// top-frame content script running on Hacker News.
+function isTrustedHnContentSender(sender) {
+  if (!sender || sender.id !== chrome.runtime.id) return false;
+  if (sender.frameId !== 0) return false;
+  const url = sender.tab?.url || sender.url || "";
+  try {
+    return new URL(url).origin === "https://news.ycombinator.com";
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
   if (message.type === "HARMONIC_LOCAL_STATE_GET") {
+    if (!isTrustedHnContentSender(sender)) {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
     localGet({ readStoryIds: [], harmonicBookmarks: [], harmonicSettings: null })
       .then((stored) => sendResponse({
         ok: true,
@@ -522,11 +611,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "HARMONIC_READ_IDS_SET") {
+    if (!isTrustedHnContentSender(sender)) {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
     const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger).slice(-1500) : [];
     localSet({ readStoryIds: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (message.type === "HARMONIC_BOOKMARKS_SET") {
+    if (!isTrustedHnContentSender(sender)) {
+      sendResponse({ ok: false, message: "Untrusted sender" });
+      return true;
+    }
     const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger) : [];
     localSet({ harmonicBookmarks: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
@@ -583,6 +680,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type !== "HARMONIC_PREVIEW" || typeof message.url !== "string") return;
+  if (!isTrustedHnContentSender(sender)) {
+    sendResponse({ ok: false });
+    return true;
+  }
   getMetadata(message.url)
     .then((value) => sendResponse({ ok: true, ...value }))
     .catch(() => sendResponse({ ok: false }));

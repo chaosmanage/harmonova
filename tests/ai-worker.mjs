@@ -22,8 +22,16 @@ const worker = vm.createContext({
       onMessage: { addListener(fn) { listeners.message = fn; } },
     },
   },
+  importScripts: (...files) => {
+    for (const file of files) {
+      vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), worker);
+    }
+  },
   URL, AbortController, AbortSignal, TextDecoder, setTimeout, clearTimeout,
+  crypto: { subtle: { digest: (algo, bytes) => crypto.subtle.digest(algo, bytes) } },
+  btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
   fetch: async () => { throw new Error('Unexpected network request'); },
+  Response, ReadableStream, OffscreenCanvas: class {}, createImageBitmap: async () => { throw new Error('no image'); },
 });
 vm.runInContext(fs.readFileSync(new URL('../background.js', import.meta.url), 'utf8'), worker);
 const stream = (chunks) => new Response(new ReadableStream({ start(controller) {

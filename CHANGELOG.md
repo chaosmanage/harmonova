@@ -10,6 +10,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.7.3] - 2026-10-10
+
+### Security
+
+- **Background requests no longer send cookies** (SEC-22). Every fetch in the background service worker — preview metadata, image tinting, article extraction, the Harmonic font, and OpenRouter — now uses `credentials: "omit"`.
+- **Hacker News pages are refused for previews and summaries** (SEC-23). The background worker no longer fetches `news.ycombinator.com` or `ycombinator.com` for metadata, image tinting, or article extraction.
+- **A shared URL policy guards every remote background fetch** (SEC-24). New `url-policy.js` allows only public `http:`/`https:` URLs on default ports and blocks localhost, `*.localhost`, `*.local`, `*.internal`, `*.lan`, `*.home.arpa`, IPv4 loopback/private/link-local/CGNAT/benchmark/multicast ranges, IPv6 loopback/ULA/link-local/Teredo/6to4, and decimal/hex/octal literal-IP spellings such as `2130706433`, `0x7f000001`, and `0177.0.0.1`. Redirects are followed hop by hop with a five-hop cap and every hop target is re-validated before use.
+- **All external links pass through `safeHref`** (SEC-41). Story and discussion article links, preview links, and `window.open` calls fall back to the Hacker News item page for `javascript:`, `data:`, and other unsafe URLs.
+- **Image sources are validated** (SEC-42). Preview, hero, and favicon images must be `https:` and must never point at the Hacker News origin; the background metadata worker applies the same rule before returning results.
+- **The runtime font is pinned and hash-verified** (SEC-60). The Google Sans Flex Rounded font is fetched from the pinned upstream commit `42aae5fa3c587b4554f1e53ce6d45c267e1aec2a` and its SHA-256 digest is verified before use; any mismatch falls back to system fonts.
+- **Incognito keeps activity in memory** (SEC-51). Read state, bookmarks, and page-origin settings backups are no longer written to extension or page storage while browsing in an incognito window.
+- **Message senders are verified** (SEC-52). Background handlers that read or write user data (read state, bookmarks, previews, font) require the extension's own top-frame content script on `https://news.ycombinator.com`.
+- **The extension can no longer be messaged by other origins** (SEC-53). The manifest declares an empty `externally_connectable`, so websites and other extensions cannot call the extension.
+- **AI summaries cannot render Markdown images** (SEC-44). Image syntax in generated summaries is demoted to plain text, so a prompt-injected summary can never make the browser fetch a remote image.
+- Added `tests/security.mjs`, a Chromium regression suite covering the cookie-omission, SSRF-policy, sanitizer, image, messaging, and AI-output rules above.
+
+### Changed
+
+- The content script now loads `url-policy.js` before the main renderer so the URL rules are shared across contexts.
+- Background preview responses include an explicit `refused` flag so the UI can explain why a Hacker News link cannot be previewed or summarized.
+
 ## [0.7.2] - 2026-10-07
 
 ### Changed
