@@ -69,6 +69,12 @@
     feedHidden: [],
     frontDate: "",
     faviconProvider: "google",
+    // Phase 7 part 3 (0.12.2): links & appearance
+    richPreviews: true,
+    nitterRedirect: false,
+    nitterInstance: "nitter.net",
+    uiTheme: "amoled",
+    uiFont: "harmonic",
   };
 
   const ICONS = {
@@ -250,6 +256,46 @@
   // SEC-41: every external link resolves through safeHref, falling back to the HN item.
   const articleHref = (story) => safeHref(story?.url) || "https://news.ycombinator.com/item?id=" + story.id;
 
+  // Phase 7 part 3: optional Nitter redirect for X/Twitter links.
+  const NITTER_HOSTS = new Set(["twitter.com", "www.twitter.com", "mobile.twitter.com", "m.twitter.com", "x.com", "www.x.com"]);
+  const nitterInstanceHost = () => {
+    const raw = String(state.settings.nitterInstance || "nitter.net").trim().replace(/^https?:\/\//i, "").replace(/[\/?#].*$/, "");
+    return /^[a-z0-9][a-z0-9.-]{2,79}$/i.test(raw) ? raw.toLowerCase() : null;
+  };
+  const nitterize = (href) => {
+    if (!state.settings.nitterRedirect || typeof href !== "string") return href;
+    try {
+      const url = new URL(href);
+      if (!NITTER_HOSTS.has(url.hostname)) return href;
+      // An unparseable instance falls back to the default rather than dropping the redirect.
+      const instance = nitterInstanceHost() || "nitter.net";
+      return "https://" + instance + url.pathname + url.search + url.hash;
+    } catch {
+      return href;
+    }
+  };
+  // Anchors remember the un-rewritten article URL so a settings change can
+  // refresh every visible link without re-rendering the feed.
+  const setStoryLink = (anchor, story) => {
+    const raw = articleHref(story);
+    anchor.dataset.rawHref = raw;
+    anchor.href = nitterize(raw);
+  };
+  const refreshStoryLinks = () => {
+    document.querySelectorAll("a[data-raw-href]").forEach((anchor) => {
+      anchor.href = nitterize(anchor.dataset.rawHref);
+    });
+  };
+  // "View on archive": the article URL on the Wayback Machine (never HN fallbacks).
+  const archiveHref = (story) => {
+    const raw = safeHref(story?.url);
+    return raw ? "https://web.archive.org/web/2/" + raw : null;
+  };
+  const openArchive = (story) => {
+    const href = archiveHref(story);
+    if (href) window.open(href, "_blank", "noopener");
+  };
+
   // SEC-51: incognito keeps read state, bookmarks, drafts, and search history in memory only.
   const INCOGNITO = Boolean(chrome.extension?.inIncognitoContext);
 
@@ -307,7 +353,7 @@
         if (child.tagName === "A") {
           const href = safeHref(child.getAttribute("href") || "");
           if (!href) { copy(child, parent); continue; }
-          out.href = href;
+          out.href = nitterize(href);
           out.target = "_blank";
           out.rel = "noopener noreferrer";
         }
@@ -452,10 +498,13 @@
     if (!story?.url) return resolve({ image: null, tint: null, favicon: null });
     if (state.previewById.has(story.id)) return resolve(state.previewById.get(story.id));
     const timer = setTimeout(() => resolve({ image: null, tint: null, favicon: null }), 7000);
-    chrome.runtime.sendMessage({ type: "HARMONIC_PREVIEW", url: story.url }, (response) => {
+    const wantRich = state.settings.richPreviews !== false;
+    chrome.runtime.sendMessage({ type: "HARMONIC_PREVIEW", url: story.url, rich: wantRich }, (response) => {
       clearTimeout(timer);
       const value = response?.ok ? response : { image: null, tint: null, favicon: null };
-      state.previewById.set(story.id, value);
+      // Without rich facts the response stays uncached while the toggle is
+      // on, so enabling the feature refetches instead of waiting out the TTL.
+      if (value.rich || !wantRich) state.previewById.set(story.id, value);
       resolve(value);
     });
   });
@@ -517,6 +566,13 @@
     app.style.setProperty("--comment-pad-x", (16 * contentScale) + "px");
     app.style.setProperty("--thread-title-size", (32 * contentScale) + "px");
     app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
+    // Phase 7 part 3: appearance — surface theme and interface font live on
+    // the document element so they reach the body background as well.
+    const root = document.documentElement;
+    const themes = ["amoled", "charcoal", "navy"];
+    root.dataset.theme = themes.includes(state.settings.uiTheme) ? state.settings.uiTheme : "amoled";
+    const fonts = ["harmonic", "system", "serif"];
+    root.dataset.font = fonts.includes(state.settings.uiFont) ? state.settings.uiFont : "harmonic";
   }
 
   function showToast(message, options = {}) {
@@ -2432,7 +2488,7 @@ function openFeedMenu(anchor) {
 
     const main = el("div", "story-card-main");
     const title = el("a", "story-card-title", story.title || "(untitled)");
-    title.href = articleHref(story);
+    setStoryLink(title, story);
     title.target = "_blank";
     title.rel = "noopener noreferrer";
     title.addEventListener("click", (event) => {
@@ -2455,7 +2511,8 @@ function openFeedMenu(anchor) {
       event.stopPropagation();
       openPopup(cardMore, [
         { label: "Open discussion", icon: "comment", action: () => selectStory(story) },
-        ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(articleHref(story), "_blank", "noopener") }] : []),
+        ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(nitterize(articleHref(story)), "_blank", "noopener") }] : []),
+        ...(archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(story) }] : []),
         { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
         ...(window.HarmonicHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => hideFromFeed(e, story.id) }] : []),
         ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => hideDomain(story) }] : []),
@@ -3415,11 +3472,11 @@ async function refreshFeed() {
 
     const headerBody = el("div", "thread-header-body");
     const title = el("a", "thread-title", item.title || "(untitled)");
-    title.href = articleHref(item);
+    setStoryLink(title, item);
     title.target = "_blank";
     title.rel = "noopener";
     const domain = el("a", "thread-domain");
-    domain.href = articleHref(item);
+    setStoryLink(domain, item);
     domain.target = "_blank";
     domain.rel = "noopener";
     domain.append(svg("link"), el("span", "", "(" + domainOf(item.url) + ")"));
@@ -3505,6 +3562,7 @@ async function refreshFeed() {
       openPopup(event.currentTarget, [
         { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
         { label: "Open on Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
+        ...(archiveHref(item) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(item) }] : []),
         { label: "Collapse all comments", action: () => setAllCommentsCollapsed(true) },
         { label: "Expand all comments", action: () => setAllCommentsCollapsed(false) },
         // Phase 4: flag only when Hacker News offers the link, behind a
@@ -3629,6 +3687,31 @@ async function refreshFeed() {
         hero.remove();
       }
       if (preview.tint) header.style.setProperty("--header-tint", preview.tint);
+      // Phase 7 part 3: rich link previews — text-only facts from public
+      // provider APIs (GitHub, Wikipedia, arXiv), re-validated here and
+      // rendered with textContent only.
+      const rich = state.settings.richPreviews === false ? null : preview.rich;
+      if (rich && typeof rich === "object" && !Array.isArray(rich) && typeof rich.provider === "string") {
+        const providerLabels = { github: "GitHub", wikipedia: "Wikipedia", arxiv: "arXiv" };
+        const box = el("div", "rich-preview rich-preview-" + rich.provider.replace(/[^a-z0-9-]/g, ""));
+        const head = el("div", "rich-preview-head");
+        head.append(el("span", "rich-preview-provider", providerLabels[rich.provider] || "Facts"));
+        const richTitle = typeof rich.title === "string" ? rich.title.slice(0, 200) : "";
+        if (richTitle) head.append(el("strong", "rich-preview-title", richTitle));
+        box.append(head);
+        let shown = 0;
+        for (const line of Array.isArray(rich.lines) ? rich.lines : []) {
+          if (typeof line !== "string" || !line.trim()) continue;
+          if (shown >= 4) break;
+          box.append(el("p", "rich-preview-line", line.slice(0, 700)));
+          shown += 1;
+        }
+        if (shown) {
+          const summarySurface = headerBody.querySelector(".story-summary");
+          if (summarySurface) headerBody.insertBefore(box, summarySurface);
+          else headerBody.appendChild(box);
+        }
+      }
     } else {
       hero.remove();
     }
@@ -3694,7 +3777,8 @@ async function refreshFeed() {
       await saveSettings();
       applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
-      if (state.thread && ["markNewComments", "hideDelayed", "showAvatars"].includes(key)) renderThread(state.thread);
+      if (state.thread && ["markNewComments", "hideDelayed", "showAvatars", "nitterRedirect", "richPreviews"].includes(key)) renderThread(state.thread);
+      if (key === "nitterRedirect" || key === "nitterInstance") refreshStoryLinks();
     });
     row.append(text, input);
     return row;
@@ -3756,6 +3840,7 @@ async function refreshFeed() {
       state.settings[key] = input.value.trim();
       await saveSettings();
       if (key === "hiddenDomains" || key === "hiddenKeywords") filterStories();
+      if (typeof options.onChange === "function") options.onChange();
     });
     row.append(text, input);
     return row;
@@ -3855,6 +3940,29 @@ async function refreshFeed() {
       settingToggle("Preview image", "headerImage", "Show the story preview above the discussion title")
     );
 
+    // Phase 7 part 3: appearance (theme + font) and link behavior.
+    const appearanceSection = el("div", "settings-section");
+    appearanceSection.append(
+      el("h3", "", "Appearance"),
+      settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
+      settingSelect("Font", "uiFont", [["harmonic", "Harmonic"], ["system", "System UI"], ["serif", "Serif"]]),
+      el("p", "settings-note", "Themes restyle Harmonic's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
+    );
+
+    const linksSection = el("div", "settings-section");
+    linksSection.append(
+      el("h3", "", "Links"),
+      settingToggle("Rich link previews", "richPreviews", "Fetch public GitHub, Wikipedia, and arXiv facts for matching articles and show them under the thread title"),
+      settingToggle("Open X/Twitter links via Nitter", "nitterRedirect", "Rewrite twitter.com and x.com links (story titles and comment links) to a Nitter instance"),
+      settingText("Nitter instance", "nitterInstance", "Bare hostname only, e.g. nitter.net", {
+        onChange: () => {
+          refreshStoryLinks();
+          if (state.settings.nitterInstance && !nitterInstanceHost()) showToast("That doesn't look like a hostname — Nitter links keep the default");
+        },
+      }),
+      el("p", "settings-note", "Rich previews talk only to api.github.com, wikipedia.org, and export.arxiv.org; responses are validated field-by-field and rendered as plain text. Nitter replaces the host and keeps the path; nothing is sent to Harmonic.")
+    );
+
     const aiSection = el("div", "settings-section ai-settings-section");
     const resetPrompt = el("button", "setting-button", "Reset to Harmonic default");
     resetPrompt.type = "button";
@@ -3896,7 +4004,7 @@ async function refreshFeed() {
       el("p", "settings-note", "Harmonic never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, Harmonic sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach Harmonic's storage or sync.")
     );
 
-    panel.append(header, storySection, commentsSection, userDataSection, headerDisplaySection, accountSection, aiSection, behaviorSection);
+    panel.append(header, storySection, commentsSection, userDataSection, headerDisplaySection, appearanceSection, linksSection, accountSection, aiSection, behaviorSection);
     overlay.appendChild(panel);
     overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);

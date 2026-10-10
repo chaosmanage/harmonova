@@ -166,6 +166,11 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
+    // Close stray popup pages (article tabs opened by earlier flows) so they
+    // never accumulate across the persistent context.
+    for (const stray of browser.pages()) {
+      if (stray !== page) await stray.close().catch(() => {});
+    }
     await page.close();
   }
 }
@@ -195,7 +200,9 @@ const gotoFeed = async (page, seedSeen) => {
 };
 
 const openThreadFully = async (page) => {
-  await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').click();
+  // The comment button deterministically opens the discussion in this tab
+  // (a card/title click would also pop the article into a new tab).
+  await page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-comment-button').click();
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll(".comments > .comment-row").length >= 4, null, { timeout: 20000 });
 };

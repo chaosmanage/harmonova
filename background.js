@@ -127,6 +127,136 @@ async function getHarmonicFontDataUrl() {
 const metadataCache = new Map();
 const paletteCache = new Map();
 
+// Phase 7 part 3: rich link previews. Public provider APIs only — fixed,
+// allowlisted API hosts derived from the article URL by strict regexes. Every
+// field is validated and capped before use; the content script renders the
+// result as text only (never HTML). SEC-22/24: fetchPolicy sends no cookies
+// and re-validates every redirect hop.
+const richPendingCache = new Map();
+
+const capText = (value, max) => {
+  if (typeof value !== "string") return null;
+  const text = value.replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, max) : null;
+};
+
+const capCount = (value) => {
+  // Strictly numeric: JSON null, strings, and booleans never become 0.
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.min(Math.round(value), 1e12);
+};
+
+const plainObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+async function fetchRichJson(url) {
+  const response = await fetchPolicy(url, {
+    signal: AbortSignal.timeout(6000),
+    headers: { Accept: "application/json" },
+  });
+  const type = response.headers ? response.headers.get("content-type") || "" : "";
+  if (!response.ok || !type.includes("json")) throw new Error("not json");
+  const raw = await response.text();
+  if (raw.length > 262144) throw new Error("too large");
+  return JSON.parse(raw);
+}
+
+function githubRich(url) {
+  const m = /^https:\/\/github\.com\/([A-Za-z0-9-]{1,100})\/([A-Za-z0-9._-]{1,100})(?:[\/?#]|$)/.exec(url);
+  if (!m) return null;
+  return {
+    api: "https://api.github.com/repos/" + m[1] + "/" + m[2],
+    parse: (data) => {
+      if (!plainObject(data)) return null;
+      const lines = [];
+      const stars = capCount(data.stargazers_count);
+      const forks = capCount(data.forks_count);
+      const issues = capCount(data.open_issues_count);
+      const stats = [
+        stars !== null ? "★ " + stars.toLocaleString("en-US") : null,
+        forks !== null ? forks.toLocaleString("en-US") + " forks" : null,
+        issues !== null ? issues.toLocaleString("en-US") + " issues" : null,
+      ].filter(Boolean);
+      if (stats.length) lines.push(stats.join(" · "));
+      const lang = capText(data.language, 60);
+      if (lang) lines.push("Language: " + lang);
+      const license = plainObject(data.license) ? capText(data.license.spdx_id, 40) : null;
+      if (license && license !== "NOASSERTION") lines.push("License: " + license);
+      return { provider: "github", title: capText(data.full_name, 200), lines };
+    },
+  };
+}
+
+function wikipediaRich(url) {
+  const m = /^https:\/\/([a-z-]{2,8})\.wikipedia\.org\/wiki\/([^\/?#]+?)(?:[\/?#]|$)/.exec(url);
+  if (!m) return null;
+  let title = "";
+  try { title = decodeURIComponent(m[2]); } catch { title = m[2]; }
+  title = title.slice(0, 300);
+  if (!title) return null;
+  return {
+    api: "https://" + m[1] + ".wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(title),
+    parse: (data) => {
+      if (!plainObject(data) || data.type === "disambiguation") return null;
+      const lines = [];
+      const extract = capText(data.extract, 600);
+      if (extract) lines.push(extract);
+      return { provider: "wikipedia", title: capText(data.title, 300), lines };
+    },
+  };
+}
+
+function arxivRich(url) {
+  const m = /^https:\/\/arxiv\.org\/(?:abs|pdf)\/([0-9]{4}\.[0-9]{4,5}|[a-z-]{2,30}\/[0-9]{7})(?:v[0-9]+)?(?:[?#]|$)/.exec(url);
+  if (!m) return null;
+  return {
+    api: "https://export.arxiv.org/api/query?id_list=" + encodeURIComponent(m[1]) + "&max_results=1",
+    parse: (raw) => {
+      const entry = /<entry>[\s\S]*?<\/entry>/.exec(raw);
+      if (!entry) return null;
+      const pick = (tag, max) => {
+        const value = new RegExp("<" + tag + "\\b[^>]*>([\\s\\S]*?)</" + tag + ">").exec(entry[0]);
+        return value ? capText(value[1].replace(/<[^>]+>/g, " "), max) : null;
+      };
+      const lines = [];
+      const summary = pick("summary", 600);
+      if (summary) lines.push(summary);
+      const authors = [...entry[0].matchAll(/<name>([^<]{1,120})<\/name>/g)]
+        .slice(0, 3)
+        .map((match) => capText(match[1], 120))
+        .filter(Boolean);
+      if (authors.length) lines.push("By " + authors.join(", "));
+      const published = /<published>(\d{4})-/.exec(entry[0]);
+      if (published) lines.push("Published " + published[1]);
+      return { provider: "arxiv", title: pick("title", 300), lines };
+    },
+  };
+}
+
+async function getRichPreview(url) {
+  const cached = richPendingCache.get(url);
+  if (cached) return cached;
+  const job = (async () => {
+    const provider = githubRich(url) || wikipediaRich(url) || arxivRich(url);
+    if (!provider) return null;
+    try {
+      if (provider.api.endsWith("/api/query") || provider.api.includes("export.arxiv.org")) {
+        const response = await fetchPolicy(provider.api, {
+          signal: AbortSignal.timeout(6000),
+          headers: { Accept: "application/atom+xml, application/xml, text/xml" },
+        });
+        const raw = await response.text();
+        if (!response.ok || raw.length > 524288) throw new Error("arxiv");
+        return provider.parse(raw);
+      }
+      return provider.parse(await fetchRichJson(provider.api));
+    } catch {
+      return null;
+    }
+  })();
+  richPendingCache.set(url, job);
+  return job;
+}
+
 function decodeEntities(text) {
   return String(text || "")
     .replace(/&amp;/gi, "&")
@@ -263,16 +393,21 @@ async function imageTint(url) {
   }
 }
 
-async function getMetadata(url) {
+async function getMetadata(url, wantRich = false) {
   const cached = metadataCache.get(url);
-  if (cached && Date.now() - cached.time < 1800000) return cached.value;
+  if (cached && Date.now() - cached.time < 1800000) {
+    // A rich preview requested later than the page metadata is filled in once.
+    if (wantRich && cached.value.rich === undefined) cached.value.rich = await getRichPreview(url);
+    return cached.value;
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
-  let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false };
+  const richPromise = wantRich ? getRichPreview(url).catch(() => null) : null;
+  let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false, rich: null };
   try {
     // SEC-23: never preview or summarize Hacker News pages.
     if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
-      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmonicUrlPolicy.isHackerNewsUrl(url) };
+      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmonicUrlPolicy.isHackerNewsUrl(url), rich: null };
       metadataCache.set(url, { time: Date.now(), value });
       return value;
     }
@@ -287,7 +422,7 @@ async function getMetadata(url) {
     const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
     const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
     // Harmonic tints from the preview image first, then the favicon when a story has no preview.
-    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false };
+    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false, rich: richPromise ? await richPromise : null };
   } catch {} finally {
     clearTimeout(timer);
   }
@@ -794,7 +929,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: false });
     return true;
   }
-  getMetadata(message.url)
+  getMetadata(message.url, message.rich === true)
     .then((value) => sendResponse({ ok: true, ...value }))
     .catch(() => sendResponse({ ok: false }));
   return true;

@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.12.1**.
+The current extension version is **0.12.2**.
 
-Version 0.12.1 is reading parity, part two: **Harmonic now understands who you're reading** — OP badges on the story author's comments, deterministic local avatars for every commenter, highlighting for comments posted since your last visit, collapsible `[delayed]` placeholders, an in-thread comment filter with a live match counter plus ↑ Top / ‹ Prev / Next › navigation, private user tags, per-profile user blocking, and user-data export/import as a validated portable JSON file. It builds on the parity feeds of 0.12.0 and the profiles and lists of 0.11.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.12.2 is links and appearance, part three of Phase 7: **rich inline previews for GitHub repositories, Wikipedia articles, and arXiv papers** fetched from their public APIs through the background worker, an opt-in **Nitter redirect** for Twitter/X links with a configurable instance, a **View on archive** shortcut through the Wayback Machine on every story menu, three new themes (**Charcoal**, **Deep navy** alongside AMOLED black), and a font choice (Harmonic stack, System UI, or Serif). It builds on the comment parity of 0.12.1, the parity feeds of 0.12.0, and the profiles and lists of 0.11.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Account actions and voting
 
@@ -58,6 +58,15 @@ Version 0.12.1 is reading parity, part two: **Harmonic now understands who you'r
 - **User blocking.** "Block user" hides that person's comments in every thread behind a one-line note with an Unblock button — reversible from the note or the comment menu, invisible to Hacker News.
 - **User-data export/import.** Settings gains a user-data section: Export downloads `harmonic-user-data.json` (schema version 1: bookmarks ≤ 2000, read-story ids ≤ 1500, tags and blocks ≤ 500 each); Import validates strictly (256 KB cap, JSON parse, exact version, integers-only id lists without coercion, `^[A-Za-z0-9_-]{1,32}$` usernames, tags ≤ 40 chars) and merges — never replaces — with a plain-language message for every refusal. Nothing is synced to Hacker News or any server.
 - **Covered by `test:comment-parity`.** The 10-test UI suite drives OP badges, deterministic avatars, the new-marker lifecycle (seeded seen-times → highlight → auto-clear → gone after reload), the `[delayed]` toggle, the filter and its match count, navigation flashes, tag persistence across reloads, the block/unblock round-trip, export file schema, and import merge + bad-schema refusal (bookmarks asserted in `chrome.storage.local` through the worker).
+
+## Links and appearance
+
+- **Rich link previews.** Stories linking to GitHub repositories, Wikipedia articles, or arXiv papers get a compact preview box — provider chip, title, and up to four lines of text: stars/forks/issues/language/license for GitHub (`api.github.com`), the lead summary for any Wikipedia language edition (disambiguation pages skipped), and authors/abstract/date for arXiv. Previews are fetched by the background worker only (the page never touches these hosts), capped at 256 KB per response, sanitized like every other text, and cached so repeat visits are instant. Toggleable in Settings → Links.
+- **View on archive.** The card menu and the thread's More menu offer "View on archive", opening the Wayback Machine's closest-capture form (`web.archive.org/web/2/<url>`) in a new tab — useful when a linked page has vanished or gone paywalled.
+- **Nitter redirect (opt-in).** A Settings toggle rewrites Twitter/X and t.co anchors — story links and in-text links alike — to your chosen Nitter instance (default `nitter.net`). Custom instance names are validated (hostname form) with a toast and a fallback to the default instead of broken links, and the original URL is kept in `data-raw-href`.
+- **Themes.** Settings → Appearance picks the palette: **AMOLED black** (the default true black), **Charcoal** (soft dark grays), or **Deep navy** (blue-tinted dark), applied via `data-theme` across every surface token.
+- **Font choice.** Appearance also picks the reading font: Harmonic's custom stack, System UI, or Serif, wired through a `--harmonic-font-stack` variable.
+- **Covered by `test:links`.** The 14-test UI suite drives the three providers' previews from mocked APIs (chips, count caps, the 256 KB response cap), cache reuse and refetch when the toggle turns on, Nitter rewriting for story and in-text anchors plus the invalid-instance fallback, "View on archive" from both menus, theme/font application through `data-theme`/`data-font`, and the new Links and Appearance settings sections.
 
 ## Replying, editing, and drafts
 
@@ -453,6 +462,12 @@ Run the comment-parity suite (OP badges, deterministic avatars, the new-comment 
 npm run test:comment-parity
 ```
 
+Run the links-and-appearance suite (GitHub/Wikipedia/arXiv rich previews from mocked provider APIs — chips, count caps, the 256 KB response cap — cache reuse and refetch when the toggle turns on, Nitter rewriting of story and in-text anchors plus the invalid-instance fallback, "View on archive" from the card and thread menus, theme and font application through `data-theme`/`data-font`, and the new Links/Appearance settings sections):
+
+```bash
+npm run test:links
+```
+
 Run the live smoke test against the real site (opt-in: set `HN_LIVE=1 HN_USER=… HN_PASS=…`; credentials are read from the environment only and never stored. Only reversible actions run — one upvote/unvote and one favorite/unfavorite pair — and Hacker News's own anti-automation wall is respected, so run it from your own machine rather than a datacenter):
 
 ```bash
@@ -636,7 +651,7 @@ User-visible behavior changes should be written for extension users rather than 
 - ~~Phase 6 (0.11.0): user profile panel and own-list browsing (threads/upvoted/favorites/submissions/hidden) plus public lists for other users~~ — shipped
 - ~~Phase 7 part 1 (0.12.0): parity list feeds, frontpage management, feed filters, score display, favicon provider~~ — shipped
 - ~~Phase 7 part 2 (0.12.1): comment parity — new-comment markers, OP highlight, in-thread search, avatars, user tags, blocked users, bookmark import/export~~ — shipped
-- Phase 7 part 3 (0.12.2): links and appearance — archive action, rich link previews, themes
+- ~~Phase 7 part 3 (0.12.2): links and appearance — archive action, rich link previews, themes~~ — shipped
 - ~~Phase 8 (0.13.0): reply notifications, collapse sync, opt-in keyboard shortcuts~~ — skipped by request
 - closer parity for additional Harmonic story-card layout modes
 - mobile/narrow-browser navigation polish

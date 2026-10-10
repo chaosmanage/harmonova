@@ -9,6 +9,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.12.2] - 2026-10-10
+
+The links-and-appearance release, part three of Phase 7: Harmonic now makes offsite links smarter and the reading surface yours. GitHub repositories, Wikipedia articles, and arXiv papers get rich inline previews fetched directly from their public APIs; every external story link can redirect to a Nitter instance for a lighter Twitter/X experience; every story offers a one-click "View on archive" shortcut through the Wayback Machine; and the whole UI follows three new themes (AMOLED black, charcoal, deep navy) plus a choice of font stack.
+
+### Added
+
+- **Rich link previews.** Story and discussion pages render a compact preview box for three providers, with a provider chip, title, and up to four lines of plain text:
+  - **GitHub:** `owner/repo` pages show stars, forks, open issues, primary language, and license via `api.github.com`.
+  - **Wikipedia:** any language edition's article shows its lead summary via the REST summary API (disambiguation pages are skipped).
+  - **arXiv:** `abs`/`pdf` links show authors, abstract, and publication date via the export API.
+  Previews are fetched from the background worker only (the page never touches these hosts), capped at 256 KB per response, text-sanitized like everything else, and cached in the metadata cache so repeat visits are instant. A Settings toggle (Links section) turns them off.
+- **View on archive.** The card menu and the thread's More menu gain a "View on archive" entry that opens `web.archive.org/web/2/<url>` — the Wayback Machine's "closest capture to now" form — in a new tab, for stories whose pages have vanished or paywalled.
+- **Nitter redirect (opt-in).** A Links-section toggle rewrites Twitter/X and t.co links (story links, in-text anchors) to a configurable Nitter instance; the default is `nitter.net`, and any custom instance is validated (hostname form, 3–80 chars) with a toast if invalid — falling back to the default rather than breaking links.
+- **Themes.** The Appearance section adds three themes alongside the default AMOLED black: **Charcoal** (soft dark gray surfaces) and **Deep navy** (blue-tinted dark), applied via `data-theme` with palettes for every surface token.
+- **Font choice.** Appearance also adds a font selector — Harmonic's custom stack, System UI, or Serif — wired through a `--harmonic-font-stack` variable used by the reader surface.
+
+### Changed
+
+- Story, thread, and in-text external anchors are set through a single helper that applies the Nitter rewrite consistently (and records the original URL in `data-raw-href`).
+- The metadata cache now stores rich-preview payloads alongside titles/summaries; requests that ask for rich data but hit a cache entry without one trigger a background refresh so toggling the feature on fills previews without stale gaps.
+
+### Tests
+
+- **`tests/links.mjs` — the 0.12.2 suite (14 tests),** `npm run test:links`: GitHub/Wikipedia/arXiv preview rendering from mocked provider APIs with provider chips and count limits; the 262 KB response cap; preview cache reuse and refetch when the toggle turns on; Nitter rewriting of story links and in-text anchors with a valid custom instance; invalid-instance fallback to `nitter.net`; "View on archive" from the card menu and thread menu; theme and font application through `data-theme`/`data-font`; and the new Links/Appearance settings sections. Provider mocks are installed once and dispatched through mutable fixtures so per-test hit counters stay honest.
+
 ## [0.12.1] - 2026-10-10
 
 The comment-parity release, part two: Harmonic now understands who you're reading — the thread author gets an OP badge, every commenter gets a deterministic local avatar, comments posted since your last visit are highlighted, HN's `[delayed]` placeholders can be hidden, long discussions gain an in-thread filter and top-level navigation, and you can tag or block any commenter. Your tags, blocks, bookmarks, and read history can be exported and re-imported as a portable JSON file.

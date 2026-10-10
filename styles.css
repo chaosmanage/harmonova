@@ -1,5 +1,6 @@
 html.harmonic-hn{
   --harmonic-bg:#000;
+  --harmonic-void:#000;
   --harmonic-surface:#14191e;
   --harmonic-surface-high:#2b2e3a;
   --harmonic-text:#dfdfdf;
@@ -27,7 +28,7 @@ html.harmonic-hn body{
   margin:0!important;
   min-width:0!important;
   min-height:100%!important;
-  background:#000!important;
+  background:var(--harmonic-void,#000)!important;
 }
 html.harmonic-hn:not(.harmonic-ready) body{visibility:hidden!important}
 html.harmonic-hn *{box-sizing:border-box}
@@ -35,8 +36,8 @@ html.harmonic-hn *{box-sizing:border-box}
   margin:0;
   overflow:hidden;
   color:var(--harmonic-text);
-  background:#000;
-  font-family:"Google Sans Flex Rounded","Google Sans","Product Sans","Segoe UI",sans-serif;
+  background:var(--harmonic-void,#000);
+  font-family:var(--harmonic-font-stack,"Google Sans Flex Rounded","Google Sans","Product Sans","Segoe UI",sans-serif);
   font-size:16px;
   -webkit-font-smoothing:antialiased;
 }
@@ -53,7 +54,7 @@ html.harmonic-hn *{box-sizing:border-box}
   height:100vh;
   display:grid;
   grid-template-columns:clamp(430px,37vw,570px) minmax(0,1fr);
-  background:#000;
+  background:var(--harmonic-void,#000);
 }
 .harmonic-app[data-preview="small"]{--preview-width:96px}
 .harmonic-app[data-preview="off"]{--preview-width:0px}
@@ -64,7 +65,7 @@ html.harmonic-hn *{box-sizing:border-box}
   min-width:0;
   height:100vh;
   overflow:hidden;
-  background:#000;
+  background:var(--harmonic-void,#000);
   border-right:1px solid rgba(255,255,255,.055);
 }
 .feed-inner{height:100%;position:relative}
@@ -338,8 +339,8 @@ html.harmonic-hn *{box-sizing:border-box}
   min-width:0;
   overflow-x:hidden;
   overflow-y:auto;
-  background:#000;
-  scrollbar-color:#66656d #000;
+  background:var(--harmonic-void,#000);
+  scrollbar-color:#66656d var(--harmonic-void,#000);
 }
 .thread-placeholder,
 .harmonic-loading,
@@ -518,7 +519,7 @@ html.harmonic-hn *{box-sizing:border-box}
   padding:var(--comment-pad-y) var(--comment-pad-x);
   border:1px solid #2a2930;
   border-radius:8px;
-  background:#000;
+  background:var(--harmonic-void,#000);
   color:#dfdfdf;
   cursor:pointer;
 }
@@ -536,7 +537,7 @@ html.harmonic-hn *{box-sizing:border-box}
 .harmonic-app[data-rounded-rails="false"] .comment-card::before{border-radius:0}
 .harmonic-app[data-comment-style="standard"] .comment-card{border-color:transparent;background:#14191e}
 .harmonic-app[data-comment-style="raised"] .comment-card{border-color:transparent;background:#14191e;box-shadow:0 3px 10px rgba(0,0,0,.38)}
-.harmonic-app[data-comment-style="flat"] .comment-card{border:0;border-bottom:1px solid rgba(238,238,255,.10);border-radius:0;background:#000}
+.harmonic-app[data-comment-style="flat"] .comment-card{border:0;border-bottom:1px solid rgba(238,238,255,.10);border-radius:0;background:var(--harmonic-void,#000)}
 .harmonic-app[data-comment-style="flat"] .comment-card::before{top:4px;bottom:4px;left:0}
 .comment-card:hover{border-color:#3a3941;background:#030304}
 .comment-meta{
@@ -1761,3 +1762,43 @@ html.harmonic-hn *{box-sizing:border-box}
 @keyframes nav-flash-bg{0%{background:rgba(224,185,122,.22)}100%{background:transparent}}
 .setting-button{margin:4px 8px 4px 0}
 .setting-import-input[hidden]{display:none}
+
+/* Phase 7 part 3: surface themes beyond AMOLED black. Only the deepest
+   surfaces shift (--harmonic-void + cards), so accents, text, and depth
+   colors keep their contrast in every theme. */
+html.harmonic-hn[data-theme="charcoal"]{
+  --harmonic-void:#15171c;
+  --harmonic-surface:#1e2128;
+  --harmonic-surface-high:#32363f;
+}
+html.harmonic-hn[data-theme="navy"]{
+  --harmonic-void:#0b1120;
+  --harmonic-surface:#141d31;
+  --harmonic-surface-high:#263450;
+}
+html.harmonic-hn[data-font="system"]{--harmonic-font-stack:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+html.harmonic-hn[data-font="serif"]{--harmonic-font-stack:Georgia,"Times New Roman",Times,serif}
+
+/* Rich link previews: text-only facts under the thread title. */
+.rich-preview{
+  margin:10px 0 2px;
+  padding:9px 12px;
+  border:1px solid var(--harmonic-outline,rgba(238,238,255,.14));
+  border-radius:10px;
+  background:var(--harmonic-surface,#14191e);
+  max-width:640px;
+}
+.rich-preview-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rich-preview-provider{
+  font-size:10.5px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--harmonic-secondary,#bbbbcc);
+  border:1px solid var(--harmonic-outline,rgba(238,238,255,.14));
+  border-radius:5px;
+  padding:1px 6px;
+}
+.rich-preview-title{font-size:13.5px;color:var(--harmonic-text,#dfdfdf)}
+.rich-preview-line{margin:5px 0 0;font-size:12.5px;line-height:1.45;color:var(--harmonic-secondary,#bbbbcc);word-break:break-word}
+.rich-preview-line:first-of-type{margin-top:7px}
