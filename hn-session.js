@@ -122,16 +122,21 @@
 
   async function performHnRequest(path, options) {
     const method = options.method || "GET";
-    const isMutation = method !== "GET";
+    const isMutation = method !== "GET" || options.mutation === true || path.split("?")[0] === "/logout";
     let attempt = 0;
+    const maxAttempts = options.singleAttempt ? 1 : MAX_QUEUE_ATTEMPTS;
     while (true) {
       const wait = Math.max(0, MIN_SPACING_MS - (Date.now() - lastHnRequestAt));
       if (wait) await sleep(wait);
       lastHnRequestAt = Date.now();
       let response;
+      const controller = new AbortController();
+      const timeout = options.timeoutMs ? setTimeout(() => controller.abort(), options.timeoutMs) : null;
       try {
         response = await fetch(HN_ORIGIN + path, {
           method,
+          signal: controller.signal,
+          ...(options.cache ? { cache: options.cache } : {}),
           credentials: "same-origin", // SEC-20
           redirect: "follow",
           headers: { Accept: "text/html,application/xhtml+xml" },
@@ -142,20 +147,23 @@
           ...(options.body ? { body: new URLSearchParams(options.body) } : {}),
         });
       } catch (error) {
-        if (!isMutation && attempt < MAX_QUEUE_ATTEMPTS - 1) { attempt++; await sleep(1000 * attempt); continue; }
+        clearTimeout(timeout);
+        if (!isMutation && attempt < maxAttempts - 1) { attempt++; await sleep(1000 * attempt); continue; }
         throw { status: "failure", message: "Network request to Hacker News failed", detail: String(error?.message || "") };
       }
       // SEC-21: the response must come from the HN origin.
       let responseUrl = "";
       try { responseUrl = new URL(response.url).href; } catch {}
       if (!responseUrl || new URL(responseUrl).origin !== HN_ORIGIN) {
+        clearTimeout(timeout);
         throw { status: "indeterminate", message: "Hacker News response came from an unexpected origin", detail: "mutation outcome unknown" };
       }
-      const html = await response.text();
+      let html;
+      try { html = await response.text(); } finally { clearTimeout(timeout); }
       const doc = parseDocument(html);
       const classification = classifyDoc(doc);
       if (classification === "rateLimited" || response.status === 503) {
-        if (!isMutation && attempt < MAX_QUEUE_ATTEMPTS - 1) {
+        if (!isMutation && attempt < maxAttempts - 1) {
           attempt++;
           await sleep(1000 * Math.pow(2, attempt)); // 2s, 4s, 8s
           continue;
@@ -430,6 +438,7 @@
       setSession(top.username, top.karma); // clears caches when the account changed
       const logout = parseLogoutToken(top.logoutHref);
       if (logout) tokenCache.set("logout:", { auth: logout.auth, goto: logout.goto, username: top.username, fetchedAt: Date.now() });
+      else tokenCache.delete("logout:");
     }
     // Feed documents also carry vote links for every visible story. Cache
     // their tokens in memory (SEC-35) and record which stories are already
@@ -473,6 +482,7 @@
       setSession(top.username, top.karma ?? null); // clears caches when the account changed
       const logout = parseLogoutToken(top.logoutHref);
       if (logout) tokenCache.set("logout:", { auth: logout.auth, goto: logout.goto, username: top.username, fetchedAt: Date.now() });
+      else tokenCache.delete("logout:");
     } else {
       setSession(null, null);
     }
@@ -709,24 +719,44 @@
     labels: { loginRequired: "Sign in to flag", unavailable: "Flagging is not available for this item" },
   });
 
+  let logoutPending = false;
   async function logout() {
-    const token = getToken("logout", "");
-    if (!token) {
-      setSession(null, null);
-      return { status: "success", message: "Signed out" };
-    }
-    // SEC-04: fetch, never navigate — the token URL must not enter history.
-    try {
-      const page = await enqueue("/logout?" + new URLSearchParams({ auth: token.auth, goto: token.goto || "news" }).toString());
+    if (logoutPending) return { status: "pending", message: "Sign-out already in progress" };
+    logoutPending = true;
+    let username = currentSession?.username || null;
+    const unknown = () => ({ status: "indeterminate", message: "Could not confirm sign-out", username });
+    const readSession = async () => {
+      const page = await enqueue("/news", { cache: "no-store", singleAttempt: true, timeoutMs: 10000 });
+      if (page.classification === "validationRequired" || page.classification === "loginPage")
+        return { status: page.classification === "loginPage" ? "loginRequired" : "validationRequired", message: "Could not confirm sign-out", username };
+      if (page.classification !== "ok" || page.status !== 200) return unknown();
+      const top = parseTopBar(page.doc);
+      if (!top.definitive) return unknown();
       refreshSessionFromDoc(page.doc);
-      if (currentSession) {
-        return { status: "indeterminate", message: "Hacker News did not confirm sign-out. Try again.", detail: "" };
+      return top.username ? { status: "signedIn", username: top.username, message: "Still signed in to Hacker News" }
+        : { status: "success", username, message: "Signed out" };
+    };
+    try {
+      let token = getToken("logout", "");
+      if (!token) {
+        const initial = await readSession();
+        if (initial.status !== "signedIn") return initial;
+        if (username && initial.username !== username) return accountChangedOutcome();
+        username = initial.username;
+        token = getToken("logout", "");
+        if (!token) return unknown();
       }
+      // GET is a mutation here: never replay an ambiguous logout.
+      try {
+        await enqueue("/logout?" + new URLSearchParams({ auth: token.auth, goto: "news" }),
+          { mutation: true, singleAttempt: true, timeoutMs: 10000 });
+      } catch { /* Only a fresh read-back can establish the outcome. */ }
+      return await readSession();
     } catch {
-      setSession(null, null);
+      return unknown();
+    } finally {
+      logoutPending = false;
     }
-    clearCaches();
-    return { status: "success", message: "Signed out" };
   }
 
   // ---------------------------------------------------------------------------

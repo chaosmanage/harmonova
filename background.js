@@ -830,8 +830,15 @@ async function draftClear(username, parentId) {
   await saveDrafts(drafts);
 }
 
-async function draftClearAll() {
-  await sessionRemove([DRAFTS_KEY]);
+async function draftClearAll(username) {
+  const drafts = await getDrafts();
+  for (const [key, entry] of Object.entries(drafts)) {
+    if (entry.username === username) delete drafts[key];
+  }
+  await new Promise((resolve, reject) => chrome.storage.session.set({ [DRAFTS_KEY]: drafts }, () => {
+    if (chrome.runtime.lastError) reject(new Error("Draft cleanup failed"));
+    else resolve();
+  }));
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -906,7 +913,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
     }
-    draftClearAll()
+    draftClearAll(String(message.username || ""))
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;

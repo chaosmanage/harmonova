@@ -220,7 +220,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
@@ -264,7 +264,7 @@ async function test(name, fn) {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
     if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
+    return route.abort();
   });
   const page = await browser.newPage();
   const consoleMessages = [];

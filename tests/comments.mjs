@@ -247,7 +247,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
@@ -666,6 +666,41 @@ await test("untrusted scripted clicks never open the composer or hit /reply (SEC
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/reply")).length, 0, "no /reply traffic");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/edit")).length, 0, "no /edit traffic");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/delete-confirm")).length, 0, "no /delete-confirm traffic");
+});
+
+await test("P04 open composer rejects page-world click, Ctrl/Cmd+Enter and discard", async ({ page, hn }) => {
+  await gotoFeed(page);
+  await openThreadFully(page);
+  await openStoryReply(page);
+  await typeInto(page, "Preserved trusted draft");
+  await page.waitForTimeout(700);
+  await page.evaluate(() => {
+    const input = document.querySelector(".composer-input");
+    input.value = "Page-world synthetic text";
+    document.querySelector(".composer-submit").click();
+    for (const modifier of ["ctrlKey", "metaKey"]) input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", [modifier]: true, bubbles: true }));
+    document.querySelector(".composer-discard").click();
+  });
+  await page.waitForTimeout(1200);
+  assert.equal(hn.requests.filter(r => r.method === "POST").length, 0);
+  assert.equal(await page.locator(".composer-input").inputValue(), "Page-world synthetic text");
+  assert.ok(Object.values(await swDrafts()).some(d => d.text === "Preserved trusted draft"));
+  await typeInto(page, "Real trusted button text");
+  await page.locator(".composer-submit").dblclick();
+  await page.locator(".composer").waitFor({ state: "hidden", timeout: 15000 });
+  const posts = hn.requests.filter(r => r.method === "POST" && r.path === "/comment");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].params.text, "Real trusted button text");
+});
+
+await test("P04 trusted Cmd+Enter submits exactly once", async ({ page, hn }) => {
+  await gotoFeed(page);
+  await openThreadFully(page);
+  await openStoryReply(page);
+  await typeInto(page, "Trusted command keyboard");
+  await page.locator(".composer-input").press("Meta+Enter");
+  await page.locator(".composer").waitFor({ state: "hidden", timeout: 15000 });
+  assert.equal(hn.requests.filter(r => r.method === "POST").length, 1);
 });
 
 await test("signed out, replying asks for sign-in and opens no HN forms", async ({ page, hn }) => {

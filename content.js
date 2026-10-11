@@ -923,18 +923,30 @@ function openAccountMenu(anchor) {
 // SEC-04: logout is a signed-in fetch handled by HarmoNovaHN, not a navigation
 // to /logout, so tokens are never pasted into URLs. Afterwards we reload the
 // feed so the page reflects the signed-out state.
-async function performLogout() {
+async function performLogout(event) {
+  if (!event?.isTrusted || state.logoutPending) return;
+  state.logoutPending = true;
+  const username = window.HarmoNovaHN?.session?.()?.username;
+  try {
   const outcome = await window.HarmoNovaHN?.logout?.();
   if (!outcome || outcome.status !== "success") {
-    showToast(outcome?.message || "Sign-out needs Hacker News");
+    showToast(outcome?.message || "Could not confirm sign-out");
+    openConfirmDialog({ title: "Could not confirm sign-out", message: "Your drafts are kept. Check your session on Hacker News.", confirmLabel: "Open Hacker News", onConfirm: () => openOriginalHackerNews("/news") });
     return;
   }
-  draftClearAll(); // drafts are keyed by username; signing out clears them all
+  if (state.composer) closeComposer({ keepDraft: false });
+  const cleared = await draftClearAll(outcome.username || username);
+  if (!cleared) {
+    showToast("Signed out. Could not clear saved drafts.");
+    updateAccountChip();
+    return;
+  }
   state.feedVotes.clear();
   state.itemState = null;
   state.pollOptions = null;
   showToast("Signed out");
   location.reload();
+  } finally { state.logoutPending = false; }
 }
 
 // ---------------------------------------------------------------------------
@@ -1905,15 +1917,16 @@ const draftGet = (parentId) =>
       resolve(chrome.runtime.lastError ? "" : response?.ok ? response.text || "" : "");
     });
   });
-const draftSet = (parentId, text) => {
-  const session = window.HarmoNovaHN?.session?.();
-  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_SET", parentId, username: session?.username || "", text }, () => {});
+const draftSet = (parentId, text, username = window.HarmoNovaHN?.session?.()?.username || "") => {
+  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_SET", parentId, username, text }, () => {});
 };
-const draftClear = (parentId) => {
-  const session = window.HarmoNovaHN?.session?.();
-  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR", parentId, username: session?.username || "" }, () => {});
+const draftClear = (parentId, username = window.HarmoNovaHN?.session?.()?.username || "") => {
+  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR", parentId, username }, () => {});
 };
-const draftClearAll = () => chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL" }, () => {});
+const draftClearAll = (username) => new Promise((resolve) => {
+  if (!username) return resolve(true);
+  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL", username }, (response) => resolve(!chrome.runtime.lastError && response?.ok === true));
+});
 
 // SEC-36: destructive actions (delete comment) run only behind a real
 // confirmation dialog with a Cancel button.
@@ -1931,7 +1944,8 @@ function openConfirmDialog({ title, message, confirmLabel = "Confirm", danger = 
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) overlay.remove();
   });
-  confirm.addEventListener("click", () => {
+  confirm.addEventListener("click", (event) => {
+    if (!event.isTrusted) return;
     overlay.remove();
     onConfirm();
   });
@@ -2080,8 +2094,8 @@ function openComposer(options) {
   };
   const autosave = () => {
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => {
-      if (textarea.value.trim()) draftSet(mode === "edit" ? parentId : parentId, textarea.value);
+    composer.draftTimer = draftTimer = setTimeout(() => {
+      if (state.composer === composer && textarea.value.trim()) draftSet(parentId, textarea.value, composer.username);
     }, 500);
   };
   const grow = () => {
@@ -2102,8 +2116,10 @@ function openComposer(options) {
     if (!showing) renderPreview();
     textarea.hidden = !showing;
   });
-  discard.addEventListener("click", () => {
-    draftClear(parentId);
+  discard.addEventListener("click", (event) => {
+    if (!event.isTrusted || composer.submitting || state.composer !== composer) return;
+    clearTimeout(composer.draftTimer);
+    draftClear(parentId, composer.username);
     textarea.value = "";
     syncChars();
     grow();
@@ -2113,7 +2129,8 @@ function openComposer(options) {
   textarea.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
-      submitComposer();
+      if (!event.isTrusted) return;
+      submitComposer(event);
       return;
     }
     if (event.key === "Escape") {
@@ -2124,7 +2141,7 @@ function openComposer(options) {
   });
   submit.addEventListener("click", submitComposer);
 
-  const composer = { parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone };
+  const composer = { username: session.username, parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone };
   state.composer = composer;
   if (mode === "reply") {
     status.hidden = false;
@@ -2163,7 +2180,7 @@ function openComposer(options) {
   textarea.focus();
   // Surface a previously saved draft for this parent.
   draftGet(parentId).then((saved) => {
-    if (!saved || !state.composer || state.composer.parentId !== parentId) return;
+    if (!saved || state.composer !== composer) return;
     if (!textarea.value) {
       textarea.value = saved;
       status.hidden = false;
@@ -2174,9 +2191,14 @@ function openComposer(options) {
     }
   });
 
-  function submitComposer() {
-    const composer = state.composer;
-    if (!composer || composer.submitting || !composer.handle) return;
+  function submitComposer(event) {
+    if (!event?.isTrusted) return;
+    if (state.composer !== composer || composer.submitting || !composer.handle) return;
+    if (window.HarmoNovaHN.session()?.username !== composer.username) {
+      handleComposerOutcome(composer, { status: "accountChanged", message: "Account changed. Your draft is kept." }, textarea.value);
+      return;
+    }
+    const submissionHandle = composer.handle;
     const text = textarea.value;
     if (!text.trim()) {
       status.hidden = false;
@@ -2184,7 +2206,10 @@ function openComposer(options) {
       status.classList.add("error");
       return;
     }
+    clearTimeout(composer.draftTimer);
     composer.submitting = true;
+    textarea.disabled = true;
+    discard.disabled = true;
     submit.disabled = true;
     previewToggle.disabled = true;
     status.hidden = false;
@@ -2194,17 +2219,13 @@ function openComposer(options) {
       try {
         let outcome;
         if (mode === "edit") {
-          outcome = await window.HarmoNovaHN.saveEdit(handle, text);
+          outcome = await window.HarmoNovaHN.saveEdit(submissionHandle, text);
         } else {
-          outcome = await window.HarmoNovaHN.postComment(composer.handle, text);
+          outcome = await window.HarmoNovaHN.postComment(submissionHandle, text);
         }
         handleComposerOutcome(composer, outcome, text);
       } catch {
-        composer.submitting = false;
-        submit.disabled = false;
-        previewToggle.disabled = false;
-        status.textContent = "The request to Hacker News failed. Your draft is kept.";
-        status.classList.add("error");
+        handleComposerOutcome(composer, { status: "indeterminate", message: "The request to Hacker News failed. Your draft is kept." }, text);
       }
     })();
   }
@@ -2295,12 +2316,14 @@ function mergeConfirmedComments(item) {
 function handleComposerOutcome(composer, outcome, text) {
   const { status, submit, previewToggle } = composer;
   composer.submitting = false;
+  composer.textarea.disabled = false;
+  composer.discard.disabled = false;
   submit.disabled = false;
   previewToggle.disabled = false;
   if (outcome?.status === "success") {
-    draftClear(composer.parentId);
+    draftClear(composer.parentId, composer.username);
     applyLocalComment(composer, outcome, text);
-    closeComposer({ keepDraft: false });
+    if (state.composer === composer) closeComposer({ keepDraft: false });
     showToast(composer.mode === "edit" ? "Edit saved" : "Reply posted");
     return;
   }
@@ -2309,7 +2332,7 @@ function handleComposerOutcome(composer, outcome, text) {
   status.textContent = message;
   status.classList.add("error");
   // Draft is kept in all non-success outcomes (module outcomes say "draft kept").
-  draftSet(composer.parentId, text);
+  draftSet(composer.parentId, text, composer.username);
   if (outcome?.status !== "loginRequired" && outcome?.status !== "accountChanged") {
     const open = el("button", "composer-hn-open", "Check on Hacker News");
     open.type = "button";
@@ -2325,7 +2348,7 @@ function closeComposer({ keepDraft = true } = {}) {
   if (!composer) return;
   clearTimeout(composer.draftTimer);
   if (keepDraft && composer.mode === "reply" && composer.textarea.value.trim()) {
-    draftSet(composer.parentId, composer.textarea.value);
+    draftSet(composer.parentId, composer.textarea.value, composer.username);
   }
   composer.node?.remove();
   state.composer = null;

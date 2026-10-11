@@ -297,7 +297,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
