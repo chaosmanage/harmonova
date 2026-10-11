@@ -585,7 +585,7 @@ await test("New post sends the exact /r payload once and preserves data if redir
   assert.ok((await page.locator(".submit-as").textContent()).includes(USER), "modal names the acting account");
   await page.locator(".submit-title").fill("HarmoNova submits a story");
   await page.locator(".submit-url").fill("https://example.com/harmonova");
-  assert.equal((await page.locator(".submit-count").textContent()).trim(), "24/80", "title counter tracks input");
+  assert.equal((await page.locator(".submit-count").textContent()).trim(), "25/80", "title counter tracks input");
   await page.locator(".submit-go").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/submit") && request.method === "GET"), 20000, 150, "GET /submit");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/r")), 20000, 150, "POST /r");
