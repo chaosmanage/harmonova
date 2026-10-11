@@ -1,4 +1,4 @@
-// Harmonic Phase 7 (0.12.0) UI suite: feed parity — parity lists (pool,
+// HarmoNova Phase 7 (0.12.0) UI suite: feed parity — parity lists (pool,
 // active, bestcomments, launches, whoishiring, noobstories, classic, past
 // frontpages), frontpage management, and feed filters (domains, keywords,
 // hide jobs, hide read) plus points display (compact, hotness, domain toggle)
@@ -15,7 +15,7 @@ const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), 
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
 const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 const STORY_ID = 50022292;
 const STORY_2 = 50022293;
 const JOB_ID = 50022999;
@@ -68,7 +68,7 @@ function createHnMock() {
     const pathname = parsed.pathname;
     requests.push({ method: route.request().method(), path: pathname + parsed.search, params: Object.fromEntries(parsed.searchParams) });
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
     if (pathname === "/user") {
       state.userPageRequests = (state.userPageRequests || 0) + 1;
@@ -211,7 +211,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
-  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -227,16 +227,16 @@ async function test(name, fn) {
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
     if (sw) await sw.evaluate(async () => {
       await chrome.storage.sync.clear();
-      await chrome.storage.sync.set({ harmonicSettings: { feedHidden: [], feedOrder: [] } });
+      await chrome.storage.sync.set({ harmonovaSettings: { feedHidden: [], feedOrder: [] } });
     }).catch(() => {});
     await page.addInitScript(() => {
-      if (sessionStorage.getItem("harmonicParityInit")) return;
-      sessionStorage.setItem("harmonicParityInit", "1");
+      if (sessionStorage.getItem("harmonovaParityInit")) return;
+      sessionStorage.setItem("harmonovaParityInit", "1");
       try {
         localStorage.clear();
         // Parity list suites intentionally enable the optional lists that
         // are hidden by default in the 0.7.2-style feed picker.
-        localStorage.setItem("harmonic:settings:v1", JSON.stringify({ feedHidden: [] }));
+        localStorage.setItem("harmonova:settings:v1", JSON.stringify({ feedHidden: [] }));
       } catch {}
     });
     await fn({ page, hn });
@@ -259,17 +259,17 @@ const gotoFeed = async (page) => {
 
 const feedMenu = async (page, label) => {
   await page.locator(".feed-title-button").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: label }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: label }).click();
 };
 
 const openFeedMenuOnly = async (page) => {
   await page.locator(".feed-title-button").click();
-  await page.locator(".harmonic-popup .popup-item").first().waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-popup .popup-item").first().waitFor({ state: "visible", timeout: 5000 });
 };
 
 const settingsPath = async (page, sectionLabel) => {
   await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Settings" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Settings" }).click();
   const panel = page.locator(".settings-panel");
   await panel.waitFor({ state: "visible", timeout: 5000 });
   await panel.locator(".settings-category", { hasText: "Stories" }).click();
@@ -338,7 +338,7 @@ await test("manage feeds hides entries from the menu and persists", async ({ pag
   await overlay.locator(".feeds-header .icon-button").first().click(); // close button
   await page.waitForFunction(() => !document.querySelector(".feeds-overlay"), { timeout: 5000 });
   await openFeedMenuOnly(page);
-  const labels = await page.locator(".harmonic-popup .popup-item").allTextContents();
+  const labels = await page.locator(".harmonova-popup .popup-item").allTextContents();
   assert.ok(!labels.some((label) => label.includes("Jobs")), "hidden feed no longer offered; labels: " + JSON.stringify(labels));
   assert.ok(!labels.some((label) => label.includes("Classic")), "second hidden feed no longer offered; labels: " + JSON.stringify(labels));
   assert.ok(labels.some((label) => label.includes("Active Discussions")), "visible feeds remain; labels: " + JSON.stringify(labels));
@@ -358,7 +358,7 @@ await test("manage feeds reorders the menu with the arrow buttons", async ({ pag
   await page.waitForFunction(() => true);
   await overlay.locator(".feeds-header .icon-button").first().click();
   await openFeedMenuOnly(page);
-  const labels = await page.locator(".harmonic-popup .popup-item").allTextContents();
+  const labels = await page.locator(".harmonova-popup .popup-item").allTextContents();
   const classicIndex = labels.findIndex((label) => label.includes("Classic"));
   const launchesIndex = labels.findIndex((label) => label.includes("Launch HN"));
   assert.ok(classicIndex !== -1 && launchesIndex !== -1, "both feeds present; labels: " + JSON.stringify(labels));
@@ -386,7 +386,7 @@ await test("hidden-domain filter removes matching cards and the card menu adds d
   // Card menu entry hides a domain for good.
   const card = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
   await card.click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Hide this domain" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Hide this domain" }).click();
   await page.waitForFunction(
     (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
     STORY_ID,
@@ -452,7 +452,7 @@ await test("compact points drops the unit and hotness colors the score", async (
   const hotPoints = page.locator('.story-card[data-story-id="' + STORY_ID + '"] .meta-points');
   const coolPoints = page.locator('.story-card[data-story-id="' + STORY_2 + '"] .meta-points');
   assert.ok(!(await hotPoints.evaluate((node) => node.classList.contains("hotness-hot"))),
-    "hotness is off by default, preserving Harmonic's visual parity");
+    "hotness is off by default, preserving HarmoNova's visual parity");
   const hotnessPanel = await settingsPath(page);
   await settingRow(hotnessPanel, "Hotness colors", "input").click();
   await hotnessPanel.locator(".settings-header .icon-button").first().click();

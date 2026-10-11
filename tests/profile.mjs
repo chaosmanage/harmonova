@@ -1,4 +1,4 @@
-// Harmonic Phase 6 UI suite: profiles and account lists. Drives the real
+// HarmoNova Phase 6 UI suite: profiles and account lists. Drives the real
 // Chromium extension against fully mocked Hacker News list pages, the public
 // Firebase user API, and Algolia. Companion to tests/actions.mjs (actions),
 // tests/comments.mjs (composer), and tests/voting.mjs (voting); this file
@@ -16,7 +16,7 @@ const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), 
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
 const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 const OTHER_USER = "alice_2";
 
 const STORY_ID = 50022292;
@@ -103,7 +103,7 @@ function createHnMock() {
     });
 
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
     // SEC-05 tripwire: the profile HTML page must never be fetched.
     if (pathname === "/user") {
@@ -166,7 +166,7 @@ function createDataMocks() {
       id: USER,
       karma: 512,
       created: 1400000000,
-      about: 'I build <a href="https://example.com/harmonic">browser things</a>.',
+      about: 'I build <a href="https://example.com/harmonova">browser things</a>.',
       submitted: [OWN_LIST_STORY],
     },
     [OTHER_USER]: {
@@ -288,7 +288,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
-  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -328,28 +328,28 @@ const openThreadFully = async (page) => {
 
 const chipMenu = async (page, label) => {
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: label }).click();
+  await page.locator(".harmonova-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: label }).click();
 };
 
 // Content scripts live in an isolated world; page.evaluate can't see
-// HarmonicHN. Evaluate in that world over CDP (pattern from tests/hn-auth.mjs).
+// HarmoNovaHN. Evaluate in that world over CDP (pattern from tests/hn-auth.mjs).
 async function attachIsolatedWorld(page) {
   const cdp = await page.context().newCDPSession(page);
   const contexts = new Map();
   cdp.on("Runtime.executionContextCreated", (event) => contexts.set(event.context.id, event.context));
   await cdp.send("Runtime.enable");
-  let harmonicContextId = null;
-  const findHarmonicContext = async () => {
+  let harmonovaContextId = null;
+  const findHarmoNovaContext = async () => {
     for (const [id] of contexts) {
       try {
         const probe = await cdp.send("Runtime.evaluate", {
-          expression: "typeof window.HarmonicHN !== 'undefined'",
+          expression: "typeof window.HarmoNovaHN !== 'undefined'",
           contextId: id,
           returnByValue: true,
         });
         if (probe.result?.value === true) {
-          harmonicContextId = id;
+          harmonovaContextId = id;
           return id;
         }
       } catch {}
@@ -357,10 +357,10 @@ async function attachIsolatedWorld(page) {
     return null;
   };
   const evaluate = async (expression) => {
-    if (!harmonicContextId) {
-      if (!(await findHarmonicContext())) throw new Error("HarmonicHN isolated world not found");
+    if (!harmonovaContextId) {
+      if (!(await findHarmoNovaContext())) throw new Error("HarmoNovaHN isolated world not found");
     }
-    const result = await cdp.send("Runtime.evaluate", { expression, contextId: harmonicContextId, returnByValue: true, awaitPromise: true });
+    const result = await cdp.send("Runtime.evaluate", { expression, contextId: harmonovaContextId, returnByValue: true, awaitPromise: true });
     if (result.exceptionDetails) throw new Error("Isolated-world evaluation failed: " + JSON.stringify(result.exceptionDetails.exception?.description || result.exceptionDetails.text));
     return result.result?.value;
   };
@@ -374,7 +374,7 @@ async function attachIsolatedWorld(page) {
 await test("account chip Profile opens a Firebase-backed panel for your own account", async ({ page }) => {
   await gotoFeed(page);
   await chipMenu(page, "Profile");
-  const panel = page.locator(".harmonic-user");
+  const panel = page.locator(".harmonova-user");
   await panel.waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(
     () => document.querySelector(".user-karma")?.textContent?.includes("512 karma"),
@@ -386,10 +386,10 @@ await test("account chip Profile opens a Firebase-backed panel for your own acco
   );
   const about = await page.locator(".user-about").innerHTML();
   assert.ok(about.includes("browser things"), "about HTML rendered");
-  assert.ok((await page.locator('.user-about a[href^="https://example.com/harmonic"]').count()) === 1, "safe about link kept");
+  assert.ok((await page.locator('.user-about a[href^="https://example.com/harmonova"]').count()) === 1, "safe about link kept");
   assert.ok((await page.locator(".user-hn-link").count()) >= 1, "Open profile on HN link present");
   await page.locator(".user-close").click();
-  assert.equal(await page.locator(".harmonic-user-overlay").count(), 0, "close button removes the panel");
+  assert.equal(await page.locator(".harmonova-user-overlay").count(), 0, "close button removes the panel");
 });
 
 await test("another user's panel sanitizes hostile about HTML (SEC-05)", async ({ page, hn }) => {
@@ -397,7 +397,7 @@ await test("another user's panel sanitizes hostile about HTML (SEC-05)", async (
   await openThreadFully(page);
   // Comment author anchors carry href user?id=…; clicking opens the panel.
   await page.locator('.comment-card .comment-author[href*="user?id=' + OTHER_USER + '"]').first().click();
-  await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator(".harmonova-user").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await page.locator(".user-header h3").textContent()), OTHER_USER, "panel names the viewed user");
   await page.waitForFunction(
     () => document.querySelector(".user-karma")?.textContent?.includes("karma") &&
@@ -431,7 +431,7 @@ await test("missing profiles say so instead of rendering a broken panel", async 
   // thread header author anchor is a real user?id link inside the app.
   await openThreadFully(page);
   await page.locator('.thread-author[href*="user?id=submitter_0"]').click();
-  await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator(".harmonova-user").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await page.locator(".user-header h3").textContent()), "submitter_0", "panel names the unknown user");
   await page.waitForFunction(
     () => document.querySelector(".user-karma")?.textContent?.includes("not available"),
@@ -547,7 +547,7 @@ await test("user panel links open public lists for another user", async ({ page,
   await gotoFeed(page);
   await openThreadFully(page);
   await page.locator('.comment-card .comment-author[href*="user?id=' + OTHER_USER + '"]').first().click();
-  await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator(".harmonova-user").waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => document.querySelector(".user-karma")?.textContent?.includes("karma"), { timeout: 10000 });
 
   await page.locator(".user-tabs .user-tab", { hasText: "Submissions" }).click();
@@ -560,7 +560,7 @@ await test("user panel links open public lists for another user", async ({ page,
 
   // Comments list for the other user: comment rows via Algolia.
   await page.locator('.comment-card .comment-author[href*="user?id=' + OTHER_USER + '"]').first().click();
-  await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator(".harmonova-user").waitFor({ state: "visible", timeout: 10000 });
   await page.locator(".user-tabs .user-tab", { hasText: "Comments" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/comments?id=" + OTHER_USER)), 20000, 150, "GET /comments?id=alice_2");
   await page.waitForFunction(
@@ -570,7 +570,7 @@ await test("user panel links open public lists for another user", async ({ page,
 
   // Favorites list for the other user.
   await page.locator('.comment-card .comment-author[href*="user?id=' + OTHER_USER + '"]').first().click();
-  await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator(".harmonova-user").waitFor({ state: "visible", timeout: 10000 });
   await page.locator(".user-tabs .user-tab", { hasText: "Favorites" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/favorites?id=" + OTHER_USER)), 20000, 150, "GET /favorites?id=alice_2");
   await page.waitForFunction(
@@ -583,11 +583,11 @@ await test("fetchListPage refuses off-allowlist paths like /user (SEC-05 list gu
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   for (const bad of ["/user?id=alice_2", "user?id=alice_2", "/vote?foo=1", "/item?id=50022292"]) {
-    const outcome = await world.evaluate('window.HarmonicHN.fetchListPage(' + JSON.stringify(bad) + ")");
+    const outcome = await world.evaluate('window.HarmoNovaHN.fetchListPage(' + JSON.stringify(bad) + ")");
     assert.equal(outcome.status, "failure", "off-allowlist path refused: " + bad);
     assert.ok((outcome.message || "").includes("not available"), "refusal message: " + outcome.message);
   }
-  const okOutcome = await world.evaluate('window.HarmonicHN.fetchListPage("/upvoted?id=' + USER + '")');
+  const okOutcome = await world.evaluate('window.HarmoNovaHN.fetchListPage("/upvoted?id=' + USER + '")');
   assert.equal(okOutcome.status, "ok", "allowlisted own list passes validation");
   await new Promise((resolve) => setTimeout(resolve, 800));
   assert.equal(
@@ -603,11 +603,11 @@ await test("login page served for a list surfaces loginRequired and clears the s
   await gotoFeed(page);
   await chipMenu(page, "Upvoted");
   await page.waitForFunction(
-    () => document.querySelector(".list-view-body .harmonic-error")?.textContent?.includes("Sign in"),
+    () => document.querySelector(".list-view-body .harmonova-error")?.textContent?.includes("Sign in"),
     { timeout: 20000 }
   );
   await page.waitForFunction(
-    () => document.querySelector("#harmonic-account-chip .account-chip-name")?.textContent === "Log in",
+    () => document.querySelector("#harmonova-account-chip .account-chip-name")?.textContent === "Log in",
     { timeout: 10000 }
   );
 });
@@ -623,11 +623,11 @@ await test("untrusted scripted clicks open no user panel or list view", async ({
   await page.evaluate(() => {
     document.querySelector(".list-view-back")?.click();
     document.querySelector(".list-view-more")?.click();
-    document.querySelector("#harmonic-account-chip")?.click();
+    document.querySelector("#harmonova-account-chip")?.click();
   });
   await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.equal(await page.locator(".harmonic-user-overlay").count(), 0, "no panel from scripted clicks");
-  assert.equal(await page.locator(".harmonic-popup").count(), 0, "no chip menu from a scripted click");
+  assert.equal(await page.locator(".harmonova-user-overlay").count(), 0, "no panel from scripted clicks");
+  assert.equal(await page.locator(".harmonova-popup").count(), 0, "no chip menu from a scripted click");
   assert.equal(await page.locator(".list-view").count(), 1, "scripted back click did not close the list view");
   assert.equal(hn.requests.filter((request) => request.path.includes("p=2")).length, 0, "no extra list pages fetched");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/upvoted")).length, 1, "no reload of the list from scripted clicks");

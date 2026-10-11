@@ -1,8 +1,8 @@
-# How Harmonic works
+# How HarmoNova works
 
 [← Back to README](../README.md) · [Development](DEVELOPMENT.md) · [Privacy & security](PRIVACY.md)
 
-Harmonic is a **Manifest V3 browser extension**, not a separate website or a port of the Android app. Open HN as usual and the extension replaces the reading interface. Stories and discussion content still come from HN-related APIs; signing in still happens on Hacker News. There is no project-owned backend or build step.
+HarmoNova is a **Manifest V3 browser extension**, not a separate website or a port of the Android app. Open HN as usual and the extension replaces the reading interface. Stories and discussion content still come from HN-related APIs; signing in still happens on Hacker News. There is no project-owned backend or build step.
 
 The content script draws the UI and an extension service worker handles cross-origin requests. That separation keeps optional OpenRouter credentials out of the Hacker News page.
 
@@ -32,9 +32,9 @@ The Mermaid diagram renders on GitHub. The important boundary is between the **H
 | `styles.css` | Desktop layout, cards, comment depth, reader themes, typography, and overlays. |
 | `hn-session.js` | HN login/session detection, bounded form parsing, voting, replies, submissions, account actions, and a serialized HN request queue. |
 | `hn-search.js` | Algolia site-wide search, query validation, pagination, and safe result highlights. |
-| `background.js` | Metadata fetching, previews, font integrity, URL-checked fetches, storage, original-HN tab mode, and streaming AI requests. |
+| `background.js` | Metadata fetching, previews, URL-checked fetches, storage, original-HN tab mode, and streaming AI requests. |
 | `url-policy.js` | Validates external HTTP(S) targets and redirects to avoid unsafe destinations. |
-| `popup.*` | Extension icon popup for toggling Harmonic, opening settings, and original-HN tabs. |
+| `popup.*` | Extension icon popup for toggling HarmoNova, opening settings, and original-HN tabs. |
 | `ai-settings.*` | Extension-owned OpenRouter API-key editor, isolated from the Hacker News page. |
 | `icons/` | Four Chrome icon sizes and their exact attribution record. |
 | `tests/` | Node and Chromium regression tests, including mocked HN forms and sanitized fixtures. |
@@ -46,7 +46,7 @@ There are no npm runtime dependencies required to **use** the unpacked source. `
 
 1. A browser opens `https://news.ycombinator.com/news` or another HN URL.
 2. Chrome injects `url-policy.js`, `hn-session.js`, `hn-search.js`, `content.js`, and `styles.css` at `document_start`.
-3. Harmonic checks the enabled preference and whether the tab was explicitly marked for original HN. If either check says not to replace the page, it leaves the native site visible.
+3. HarmoNova checks the enabled preference and whether the tab was explicitly marked for original HN. If either check says not to replace the page, it leaves the native site visible.
 4. Otherwise the content script builds the feed, queries HN's Firebase API for public stories, and loads discussion trees from Algolia. Original HN pages remain authoritative for account actions.
 5. Optional metadata and image fetches go through the background worker, which applies URL rules before touching external hosts. Preview results are short-lived and cached.
 6. UI state remains in the tab while non-secret preferences and optional account-related local reader state persist in their appropriate Chrome storage areas.
@@ -68,7 +68,7 @@ The original-HN action creates a separate tab identified as a bypass tab in sess
 3. Article text is bounded, normalized, and sent to OpenRouter with the chosen prompt/model and the user's key. Generated tokens stream over a Chrome extension port into a summary card.
 4. The user can stop the request. Summary text stays in the current page's memory rather than Chrome Sync.
 
-The options page owns API-key entry and storage. The HN document does not receive the key. Font loading and external previews use validated credential-free worker fetches.
+The options page owns API-key entry and storage. The HN document does not receive the key. External previews use validated credential-free worker fetches.
 
 ## Testing philosophy
 

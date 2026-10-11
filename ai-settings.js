@@ -37,7 +37,7 @@ function renderStatus(status) {
 }
 
 async function refresh() {
-  renderStatus(await send({ type: "HARMONIC_AI_STATUS" }));
+  renderStatus(await send({ type: "HARMONOVA_AI_STATUS" }));
 }
 
 saveButton.addEventListener("click", async () => {
@@ -50,7 +50,7 @@ saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
   setMessage("Saving…");
   const result = await send({
-    type: "HARMONIC_AI_SAVE_KEY",
+    type: "HARMONOVA_AI_SAVE_KEY",
     apiKey: value,
     storage: selectedStorage(),
   });
@@ -67,7 +67,7 @@ saveButton.addEventListener("click", async () => {
 clearButton.addEventListener("click", async () => {
   clearButton.disabled = true;
   setMessage("Clearing…");
-  const result = await send({ type: "HARMONIC_AI_CLEAR_KEY" });
+  const result = await send({ type: "HARMONOVA_AI_CLEAR_KEY" });
   if (!result?.ok) {
     setMessage(result?.message || "Could not clear the API key.", "error");
     clearButton.disabled = false;

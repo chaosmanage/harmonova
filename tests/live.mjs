@@ -1,4 +1,4 @@
-// Harmonic LIVE smoke test: drives the real Chromium extension against the
+// HarmoNova LIVE smoke test: drives the real Chromium extension against the
 // REAL Hacker News with a real account. Gated behind environment variables —
 // without them the suite exits cleanly with a skip note. Credentials are read
 // from HN_USER / HN_PASS at runtime only; they must never be committed.
@@ -42,7 +42,7 @@ const pageErrors = [];
 
 async function openAccountMenu() {
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup .popup-item").first().click();
 }
 
 const waitFor = async (fn, timeout = 45000, step = 250, label = "condition") => {
@@ -81,7 +81,7 @@ await test("real login through HN's own form yields a signed-in chip", async () 
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 30000 });
   await openAccountMenu();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Log in" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Log in" }).click();
   await page.waitForURL(/\/login/, { timeout: 30000 });
   // HN's login page carries a login and a create-account form, both with no
   // action attribute; the login form comes first and holds input[name="pw"].
@@ -99,20 +99,20 @@ await test("real login through HN's own form yields a signed-in chip", async () 
   await page.waitForURL(/news\.ycombinator\.com\/(news|$|\?)/, { timeout: 30000 }).catch(() => {});
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 30000 });
   await waitFor(
-    () => page.evaluate((user) => document.querySelector("#harmonic-account-chip .account-chip-name")?.textContent === user || null, USER),
+    () => page.evaluate((user) => document.querySelector("#harmonova-account-chip .account-chip-name")?.textContent === user || null, USER),
     30000,
     300,
     "chip showing the real username"
   );
-  const karmaText = await page.evaluate(() => document.querySelector("#harmonic-account-chip")?.title || "");
+  const karmaText = await page.evaluate(() => document.querySelector("#harmonova-account-chip")?.title || "");
   if (!/\d/.test(karmaText)) throw new Error("chip shows no karma for the signed-in account");
   loggedIn = true;
 });
 
 await test("profile panel loads real Firebase data for the signed-in user", async () => {
   await openAccountMenu();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Profile" }).click();
-  await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 30000 });
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Profile" }).click();
+  await page.locator(".harmonova-user").waitFor({ state: "visible", timeout: 30000 });
   await page.waitForFunction(
     (user) => document.querySelector(".user-karma")?.textContent?.includes("karma") &&
       !document.querySelector(".user-karma")?.textContent?.includes("Loading"),
@@ -128,7 +128,7 @@ await test("profile panel loads real Firebase data for the signed-in user", asyn
 
 await test("submissions list view loads real items", async () => {
   await openAccountMenu();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Submissions" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Submissions" }).click();
   await page.locator(".list-view").waitFor({ state: "visible", timeout: 30000 });
   await page.waitForFunction(
     () => document.querySelectorAll(".list-view-body .story-card, .list-view-body .list-empty").length > 0,
@@ -171,9 +171,9 @@ await test("top story opens, vote state applies, and reversible actions toggle",
 
 await test("real logout via the chip returns to a signed-out chip", async () => {
   await openAccountMenu();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Log out" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Log out" }).click();
   await page.waitForFunction(
-    () => document.querySelector("#harmonic-account-chip .account-chip-name")?.textContent === "Log in",
+    () => document.querySelector("#harmonova-account-chip .account-chip-name")?.textContent === "Log in",
     { timeout: 30000 }
   );
 });

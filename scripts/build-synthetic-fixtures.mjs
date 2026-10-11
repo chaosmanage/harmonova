@@ -1,9 +1,9 @@
 // Builds synthetic logged-in fixtures from the redacted logged-out captures.
 //
-// Harmonic has no Hacker News credentials available in this environment, so
+// HarmoNova has no Hacker News credentials available in this environment, so
 // logged-in fixtures are SYNTHETIC: they are derived from real logged-out
 // captures and carry placeholder tokens (0*40 / 1*40) and the placeholder
-// username `harmonic_test`. They exist to exercise parsers and mocked flows;
+// username `harmonova_test`. They exist to exercise parsers and mocked flows;
 // verify authenticated behavior separately with an authorized, interactive
 // Hacker News session; do not commit real credentials or action tokens.
 import fs from "node:fs";
@@ -17,7 +17,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const TA = "0".repeat(40); // token placeholder A
 const TB = "1".repeat(40); // token placeholder B
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 
 const read = (name) => fs.readFileSync(path.join(fixtureDir, name), "utf8");
 const write = (name, html) => {

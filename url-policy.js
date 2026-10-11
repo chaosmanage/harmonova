@@ -1,4 +1,4 @@
-// Harmonic URL policy — shared by the background service worker (via importScripts)
+// HarmoNova URL policy — shared by the background service worker (via importScripts)
 // and the content script (loaded as the first content script).
 //
 // Implements the remote-URL rules from docs/implementation-plan.md:
@@ -148,13 +148,13 @@
   }
 
   // Public API.
-  const HarmonicUrlPolicy = {
+  const HarmoNovaUrlPolicy = {
     isHackerNewsHost,
 
     // SEC-23 convenience: does this URL string point at Hacker News?
     isHackerNewsUrl(value) {
       try {
-        return HarmonicUrlPolicy.isHackerNewsHost(new URL(String(value)).hostname);
+        return HarmoNovaUrlPolicy.isHackerNewsHost(new URL(String(value)).hostname);
       } catch {
         return false;
       }
@@ -184,6 +184,6 @@
   };
 
   if (typeof globalThis !== "undefined") {
-    globalThis.HarmonicUrlPolicy = HarmonicUrlPolicy;
+    globalThis.HarmoNovaUrlPolicy = HarmoNovaUrlPolicy;
   }
 })();

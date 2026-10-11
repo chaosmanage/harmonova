@@ -1,24 +1,48 @@
 importScripts("url-policy.js");
 
-const ORIGINAL_TAB_STORAGE_KEY = "harmonicOriginalTabIds";
-const AI_KEY_LOCAL_STORAGE_KEY = "harmonicAiApiKey";
-const AI_KEY_SESSION_STORAGE_KEY = "harmonicAiApiKeySession";
+const ORIGINAL_TAB_STORAGE_KEY = "harmonovaOriginalTabIds";
+const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
+const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
 const MAX_ARTICLE_CHARACTERS = 15_000;
 const MAX_SUMMARY_CHARACTERS = 64 * 1024;
 const MAX_REDIRECT_HOPS = 5;
-// SEC-60: the runtime font is pinned to an upstream commit and verified by
-// SHA-256 before it is ever injected into the UI.
-const HARMONIC_FONT_SHA256 = "6bae33495ece5b89d3a4dda657e37e1f7987ae3f3f2a8f4f797cbcb5e9c35788";
 
-const localGet = (keys) => new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+// Read old on-disk keys exactly once during upgrades, then store them under the
+// HarmoNova namespace. Never overwrite existing new-format data.
+const oldStorageKey = (key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic");
+async function migratedGet(area, keys) {
+  const defaults = Array.isArray(keys) ? {} : { ...keys };
+  const requested = Array.isArray(keys) ? keys : Object.keys(keys);
+  const prior = requested.map(oldStorageKey);
+  const raw = await new Promise((resolve) => area.get([...requested, ...prior], resolve));
+  const updates = {};
+  const removals = [];
+  const result = { ...defaults };
+  for (const key of requested) {
+    const older = oldStorageKey(key);
+    if (Object.hasOwn(raw, key)) {
+      result[key] = raw[key];
+    } else if (older !== key && Object.hasOwn(raw, older)) {
+      result[key] = raw[older];
+      updates[key] = raw[older];
+      removals.push(older);
+    }
+  }
+  if (Object.keys(updates).length) {
+    await new Promise((resolve) => area.set(updates, resolve));
+    await new Promise((resolve) => area.remove(removals, resolve));
+  }
+  return result;
+}
+const localGet = (keys) => migratedGet(chrome.storage.local, keys);
 const localSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
 const localRemove = (keys) => new Promise((resolve) => chrome.storage.local.remove(keys, resolve));
-const sessionGet = (keys) => new Promise((resolve) => chrome.storage.session.get(keys, resolve));
+const sessionGet = (keys) => migratedGet(chrome.storage.session, keys);
 const sessionSet = (value) => new Promise((resolve) => chrome.storage.session.set(value, resolve));
 const sessionRemove = (keys) => new Promise((resolve) => chrome.storage.session.remove(keys, resolve));
-const syncGet = (keys) => new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
+const syncGet = (keys) => migratedGet(chrome.storage.sync, keys);
 
 for (const area of [chrome.storage.local, chrome.storage.session]) {
   if (typeof area.setAccessLevel === "function") {
@@ -62,17 +86,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   setOriginalTab(tabId, false).catch(() => {});
 });
 
-const HARMONIC_FONT_URL = "https://raw.githubusercontent.com/SimonHalvdansson/Harmonic-HN/42aae5fa3c587b4554f1e53ce6d45c267e1aec2a/resources/src/commonMain/composeResources/font/google_sans_flex_rounded_variable_latin.ttf";
-let harmonicFontDataPromise = null;
-
 // SEC-22/SEC-24 fetch helper used by every non-HN background request:
 // cookies are never sent, the URL policy is applied to the request and to every
 // redirect hop, and the hop count is capped.
 async function fetchPolicy(url, init = {}) {
-  if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) throw new Error("Blocked URL");
+  if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) throw new Error("Blocked URL");
   let current = String(url);
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    if (!HarmonicUrlPolicy.isAllowedRemoteUrl(current)) throw new Error("Blocked redirect target");
+    if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(current)) throw new Error("Blocked redirect target");
     const response = await fetch(current, {
       ...init,
       redirect: "manual",
@@ -86,42 +107,18 @@ async function fetchPolicy(url, init = {}) {
       const location = response.headers ? response.headers.get("location") : null;
       if (location) {
         const resolved = new URL(location, current);
-        if (!HarmonicUrlPolicy.isAllowedRemoteUrl(resolved.href)) throw new Error("Blocked redirect target");
+        if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(resolved.href)) throw new Error("Blocked redirect target");
         current = resolved.href;
         continue;
       }
       if (hop === MAX_REDIRECT_HOPS) throw new Error("Too many redirects");
       const followed = await fetch(current, { ...init, redirect: "follow", credentials: "omit" });
-      if (!HarmonicUrlPolicy.isAllowedRemoteUrl(followed.url)) throw new Error("Blocked redirect target");
+      if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(followed.url)) throw new Error("Blocked redirect target");
       return followed;
     }
     return response;
   }
   throw new Error("Too many redirects");
-}
-
-async function getHarmonicFontDataUrl() {
-  if (!harmonicFontDataPromise) {
-    harmonicFontDataPromise = (async () => {
-      const response = await fetchPolicy(HARMONIC_FONT_URL, { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error("font HTTP " + response.status);
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      // SEC-60: reject any font whose bytes do not match the pinned digest.
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      if (hex !== HARMONIC_FONT_SHA256) throw new Error("font digest mismatch");
-      let binary = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-      }
-      return "data:font/ttf;base64," + btoa(binary);
-    })().catch((error) => {
-      harmonicFontDataPromise = null;
-      throw error;
-    });
-  }
-  return harmonicFontDataPromise;
 }
 
 const metadataCache = new Map();
@@ -334,7 +331,7 @@ function hex(rgb) {
   return "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-// SEC-42: images used by Harmonic must be https and must never point at HN.
+// SEC-42: images used by HarmoNova must be https and must never point at HN.
 function safeImageSrc(value, base) {
   if (!value) return null;
   let url;
@@ -344,14 +341,14 @@ function safeImageSrc(value, base) {
     return null;
   }
   if (url.protocol !== "https:") return null;
-  if (HarmonicUrlPolicy.isHackerNewsHost(url.hostname)) return null;
+  if (HarmoNovaUrlPolicy.isHackerNewsHost(url.hostname)) return null;
   return url.href;
 }
 
 async function imageTint(url) {
   if (!url) return null;
   if (paletteCache.has(url)) return paletteCache.get(url);
-  if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
+  if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
     paletteCache.set(url, null);
     return null;
   }
@@ -406,8 +403,8 @@ async function getMetadata(url, wantRich = false) {
   let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false, rich: null };
   try {
     // SEC-23: never preview or summarize Hacker News pages.
-    if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
-      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmonicUrlPolicy.isHackerNewsUrl(url), rich: null };
+    if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
+      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmoNovaUrlPolicy.isHackerNewsUrl(url), rich: null };
       metadataCache.set(url, { time: Date.now(), value });
       return value;
     }
@@ -421,7 +418,7 @@ async function getMetadata(url, wantRich = false) {
     const base = response.url || url;
     const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
     const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
-    // Harmonic tints from the preview image first, then the favicon when a story has no preview.
+    // HarmoNova tints from the preview image first, then the favicon when a story has no preview.
     value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false, rich: richPromise ? await richPromise : null };
   } catch {} finally {
     clearTimeout(timer);
@@ -491,8 +488,8 @@ async function readResponseTextLimited(response, maxBytes) {
 
 async function fetchArticleText(url, signal) {
   // SEC-23/SEC-24: articles are public, non-HN http(s) documents only.
-  if (!HarmonicUrlPolicy.isAllowedRemoteUrl(url)) {
-    if (HarmonicUrlPolicy.isHackerNewsUrl(url)) throw new Error("Hacker News pages can't be summarized");
+  if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
+    if (HarmoNovaUrlPolicy.isHackerNewsUrl(url)) throw new Error("Hacker News pages can't be summarized");
     throw new Error("Unsupported article URL");
   }
   const parsed = new URL(url);
@@ -502,7 +499,7 @@ async function fetchArticleText(url, signal) {
   });
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      const error = new Error("Article access denied (HTTP " + response.status + "). This website does not allow Harmonic to read the article automatically. You can open it in your browser or summarize the public Hacker News discussion instead.");
+      const error = new Error("Article access denied (HTTP " + response.status + "). This website does not allow HarmoNova to read the article automatically. You can open it in your browser or summarize the public Hacker News discussion instead.");
       error.code = "ARTICLE_ACCESS_DENIED";
       throw error;
     }
@@ -520,8 +517,8 @@ async function fetchArticleText(url, signal) {
 }
 
 async function aiKeyStorageMode() {
-  const synced = await syncGet({ harmonicAiKeyStorage: "persistent" });
-  return synced.harmonicAiKeyStorage === "session" ? "session" : "persistent";
+  const synced = await syncGet({ harmonovaAiKeyStorage: "persistent" });
+  return synced.harmonovaAiKeyStorage === "session" ? "session" : "persistent";
 }
 
 async function getAiKey() {
@@ -548,19 +545,19 @@ async function saveAiKey(value, storage) {
   if (!key) throw new Error("API key is required");
   if (mode === "session") {
     await sessionSet({ [AI_KEY_SESSION_STORAGE_KEY]: key });
-    await localRemove(AI_KEY_LOCAL_STORAGE_KEY);
+    await localRemove([AI_KEY_LOCAL_STORAGE_KEY, oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]);
   } else {
     await localSet({ [AI_KEY_LOCAL_STORAGE_KEY]: key });
-    await sessionRemove(AI_KEY_SESSION_STORAGE_KEY);
+    await sessionRemove([AI_KEY_SESSION_STORAGE_KEY, oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]);
   }
-  await chrome.storage.sync.set({ harmonicAiKeyStorage: mode });
+  await chrome.storage.sync.set({ harmonovaAiKeyStorage: mode });
   return aiKeyStatus();
 }
 
 async function clearAiKey() {
   await Promise.all([
-    localRemove(AI_KEY_LOCAL_STORAGE_KEY),
-    sessionRemove(AI_KEY_SESSION_STORAGE_KEY),
+    localRemove([AI_KEY_LOCAL_STORAGE_KEY, oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]),
+    sessionRemove([AI_KEY_SESSION_STORAGE_KEY, oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]),
   ]);
   return aiKeyStatus();
 }
@@ -702,7 +699,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
       "Authorization": "Bearer " + key,
       "Content-Type": "application/json",
       "Accept": stream ? "text/event-stream" : "application/json",
-      "X-Title": "Harmonic for Hacker News",
+      "X-Title": "HarmoNova for Hacker News",
     },
     body: JSON.stringify(requestPayload),
   });
@@ -724,7 +721,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
       port.postMessage({ type: "status", storyId, status: "generating", detail: "Retrying without streaming…" });
       const retry = await fetch(OPENROUTER_CHAT_URL, {
         method: "POST", signal: controller.signal, credentials: "omit",
-        headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", "X-Title": "Harmonic for Hacker News" },
+        headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", "X-Title": "HarmoNova for Hacker News" },
         body: JSON.stringify({ ...requestPayload, stream: false, max_tokens: 3500 }),
       });
       if (!retry.ok) {
@@ -740,7 +737,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "harmonic-ai") return;
+  if (port.name !== "harmonova-ai") return;
   let controller = null;
   port.onMessage.addListener((message) => {
     if (message?.type === "cancel") {
@@ -790,10 +787,10 @@ function isTrustedHnContentSender(sender) {
 // Composer drafts (Phase 3, SEC-50). Drafts live in chrome.storage.session —
 // they vanish with the browser session, are keyed by acting username + parent
 // item, are capped at 20 KB of text and 50 entries, and are only reachable
-// from trusted Harmonic content-script senders.
+// from trusted HarmoNova content-script senders.
 // ---------------------------------------------------------------------------
 
-const DRAFTS_KEY = "harmonicDrafts";
+const DRAFTS_KEY = "harmonovaDrafts";
 const DRAFT_MAX_BYTES = 20_000;
 const DRAFT_MAX_COUNT = 50;
 
@@ -856,22 +853,22 @@ async function draftClearAll() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
-  if (message.type === "HARMONIC_LOCAL_STATE_GET") {
+  if (message.type === "HARMONOVA_LOCAL_STATE_GET") {
     if (!isTrustedHnContentSender(sender)) {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
     }
-    localGet({ readStoryIds: [], harmonicBookmarks: [], harmonicSettings: null })
+    localGet({ readStoryIds: [], harmonovaBookmarks: [], harmonovaSettings: null })
       .then((stored) => sendResponse({
         ok: true,
         readStoryIds: Array.isArray(stored.readStoryIds) ? stored.readStoryIds : [],
-        harmonicBookmarks: Array.isArray(stored.harmonicBookmarks) ? stored.harmonicBookmarks : [],
-        harmonicSettings: stored.harmonicSettings || null,
+        harmonovaBookmarks: Array.isArray(stored.harmonovaBookmarks) ? stored.harmonovaBookmarks : [],
+        harmonovaSettings: stored.harmonovaSettings || null,
       }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_READ_IDS_SET") {
+  if (message.type === "HARMONOVA_READ_IDS_SET") {
     if (!isTrustedHnContentSender(sender)) {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
@@ -880,18 +877,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     localSet({ readStoryIds: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_BOOKMARKS_SET") {
+  if (message.type === "HARMONOVA_BOOKMARKS_SET") {
     if (!isTrustedHnContentSender(sender)) {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
     }
     const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger) : [];
-    localSet({ harmonicBookmarks: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    localSet({ harmonovaBookmarks: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
     return true;
   }
   // Composer drafts (SEC-50): trusted HN content-script senders only. The
   // acting username always comes from the content script's own session state.
-  if (message.type === "HARMONIC_DRAFT_GET") {
+  if (message.type === "HARMONOVA_DRAFT_GET") {
     if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0) {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
@@ -901,7 +898,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_DRAFT_SET") {
+  if (message.type === "HARMONOVA_DRAFT_SET") {
     if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0 || typeof message.text !== "string") {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
@@ -911,7 +908,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_DRAFT_CLEAR") {
+  if (message.type === "HARMONOVA_DRAFT_CLEAR") {
     if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0) {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
@@ -921,7 +918,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_DRAFT_CLEAR_ALL") {
+  if (message.type === "HARMONOVA_DRAFT_CLEAR_ALL") {
     if (!isTrustedHnContentSender(sender)) {
       sendResponse({ ok: false, message: "Untrusted sender" });
       return true;
@@ -931,58 +928,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_AI_STATUS") {
+  if (message.type === "HARMONOVA_AI_STATUS") {
     aiKeyStatus().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Status unavailable" }));
     return true;
   }
-  if (["HARMONIC_AI_SAVE_KEY", "HARMONIC_AI_CLEAR_KEY"].includes(message.type)
+  if (["HARMONOVA_AI_SAVE_KEY", "HARMONOVA_AI_CLEAR_KEY"].includes(message.type)
       && sender.url !== chrome.runtime.getURL("ai-settings.html")) {
     sendResponse({ ok: false, message: "Use the extension credential settings page" });
     return;
   }
-  if (message.type === "HARMONIC_AI_SAVE_KEY") {
+  if (message.type === "HARMONOVA_AI_SAVE_KEY") {
     saveAiKey(message.apiKey, message.storage)
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, message: error?.message || "Could not save API key" }));
     return true;
   }
-  if (message.type === "HARMONIC_AI_CLEAR_KEY") {
+  if (message.type === "HARMONOVA_AI_CLEAR_KEY") {
     clearAiKey().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Could not clear API key" }));
     return true;
   }
-  if (message.type === "HARMONIC_OPEN_AI_SETTINGS") {
+  if (message.type === "HARMONOVA_OPEN_AI_SETTINGS") {
     chrome.runtime.openOptionsPage()
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_TAB_MODE") {
+  if (message.type === "HARMONOVA_TAB_MODE") {
     const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
     originalTabIds()
       .then((ids) => sendResponse({ ok: true, original: Number.isInteger(tabId) && ids.includes(tabId) }))
       .catch(() => sendResponse({ ok: false, original: false }));
     return true;
   }
-  if (message.type === "HARMONIC_OPEN_ORIGINAL") {
+  if (message.type === "HARMONOVA_OPEN_ORIGINAL") {
     openOriginalTab(message.url)
       .then((tabId) => sendResponse({ ok: true, tabId }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_ENABLE_TAB") {
+  if (message.type === "HARMONOVA_ENABLE_TAB") {
     const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
     setOriginalTab(tabId, false)
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "HARMONIC_FONT") {
-    getHarmonicFontDataUrl()
-      .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type !== "HARMONIC_PREVIEW" || typeof message.url !== "string") return;
+  if (message.type !== "HARMONOVA_PREVIEW" || typeof message.url !== "string") return;
   if (!isTrustedHnContentSender(sender)) {
     sendResponse({ ok: false });
     return true;

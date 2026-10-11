@@ -9,7 +9,7 @@ const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), ".."
 const fixture = (name) => fs.readFileSync(path.join(root, "tests/fixtures/hn/synthetic", name), "utf8");
 const storyId = 50022292;
 const newId = 91919991;
-const postedText = "Harmonic browser regression reply";
+const postedText = "HarmoNova browser regression reply";
 const requests = [];
 let posted = false;
 let voted = true;
@@ -23,7 +23,7 @@ function hnItem() {
     html = html.replace(unv, '<span id="unv_' + storyId + '"></span>').replace('id="up_' + storyId + '" class="nosee"', 'id="up_' + storyId + '"');
   }
   if (posted) {
-    const row = '<tr class="athing comtr" id="' + newId + '"><td><table><tbody><tr><td><span class="comhead"><a class="hnuser" href="user?id=harmonic_test">harmonic_test</a></span></td></tr><tr><td><span class="commtext"><p>' + postedText + '</p></span></td></tr></tbody></table></td></tr>';
+    const row = '<tr class="athing comtr" id="' + newId + '"><td><table><tbody><tr><td><span class="comhead"><a class="hnuser" href="user?id=harmonova_test">harmonova_test</a></span></td></tr><tr><td><span class="commtext"><p>' + postedText + '</p></span></td></tr></tbody></table></td></tr>';
     html = html.replace('<table border="0" class="comment-tree"><tbody>', '<table border="0" class="comment-tree"><tbody>' + row);
   }
   return html;
@@ -92,7 +92,7 @@ try {
 
   const more = page.locator(".thread-actions .thread-action[aria-label='More']");
   await more.click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Reply to story" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Reply to story" }).click();
   await page.locator(".composer-submit:enabled").waitFor({ timeout: 20000 });
   assert.ok(await page.locator(".composer-format-help").isVisible());
   await page.locator(".composer-input").fill(postedText);
@@ -107,8 +107,8 @@ try {
   console.log("ok - Chromium confirms via item fetch and inserts reply without waiting for Algolia");
 
   await page.locator(".thread-actions .thread-action[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Sort comments" }).click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Newest first" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Sort comments" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Newest first" }).click();
   await page.locator('.comment-row[data-comment-id="' + newId + '"]').waitFor({ state: "visible", timeout: 20000 });
   console.log("ok - newly posted comment survives thread rerender");
 

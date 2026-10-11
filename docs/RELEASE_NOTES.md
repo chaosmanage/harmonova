@@ -1,26 +1,23 @@
-# Harmonic for Hacker News v0.13.7
+# HarmoNova for Hacker News v0.13.8
 
-**Documentation and onboarding update.** Harmonic is a Chrome extension that brings a Harmonic-inspired reading experience to Hacker News on desktop. A huge thank-you to [Simon Halvdansson and the original Harmonic Android app](https://github.com/SimonHalvdansson/Harmonic-HN), which inspired this project.
+**New name, new identity.** The independent Chrome extension previously called Harmonic for Hacker News is now **HarmoNova**.
 
-## Install in Chrome — no build needed
+Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson. This project is not affiliated with or endorsed by the original developer, Hacker News, or Y Combinator.
 
-1. Download **`harmonic-hn-browser-0.13.7.zip`** from the Assets section below.
-2. Unzip it. You'll find a folder named **`harmonic-hn-browser`** inside.
-3. Open **`chrome://extensions`**, turn on **Developer mode**, and click **Load unpacked**.
-4. Select that inner **`harmonic-hn-browser`** folder (the one containing `manifest.json`).
-5. Open [Hacker News](https://news.ycombinator.com/) or refresh an existing tab.
+## What's changed
 
-You can also [clone or download the repository](https://github.com/chaosmanage/harmonic-hn-browser) and load its root folder directly. No Node.js or build step is necessary for either route.
+- New HarmoNova name throughout the extension, guides, and download package.
+- A new original HarmoNova icon and wordmark replace the reused Harmonic launcher artwork.
+- No longer downloads the Harmonic Android project's rounded font at runtime; system UI and serif fonts remain available.
+- Updated GitHub repository and documentation links.
 
-## What's new
+## Install in Chrome
 
-- A shorter README explaining why I brought the Harmonic Android experience to my desktop, including trying the app in an emulator before making a Chrome extension.
-- Much simpler installation instructions, with a picture of the Chrome **Load unpacked** button. No terminal or build required.
-- Screenshots of feeds, search, appearance, story settings, and the optional AI summarization interface. The summary example is clearly marked as a demo.
-- More focused feature, privacy, troubleshooting, and architecture guides. The extension itself works the same as v0.13.6.
+1. Download **harmonova-0.13.8.zip** from the assets below and extract it.
+2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.
+3. Select the extracted `harmonova` folder (containing `manifest.json`).
+4. Open or refresh [Hacker News](https://news.ycombinator.com/).
 
-**Known limitation:** editing and deleting existing comments is handled through Hacker News' original pages after confirmation.
+You can also [clone the repository](https://github.com/chaosmanage/harmonova) and load its root folder directly. No build step is required for users.
 
-See the [README](https://github.com/chaosmanage/harmonic-hn-browser#readme), [feature guide](https://github.com/chaosmanage/harmonic-hn-browser/blob/main/docs/FEATURES.md), and [changelog](https://github.com/chaosmanage/harmonic-hn-browser/blob/main/CHANGELOG.md) for details.
-
-**Independent community extension; not affiliated with Harmonic Android, Hacker News, or Y Combinator.**
+**Known limitation:** editing or deleting existing comments currently uses an explicit handoff to Hacker News's original page.

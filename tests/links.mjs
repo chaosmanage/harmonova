@@ -1,4 +1,4 @@
-// Harmonic Phase 7 part 3 (0.12.2) UI suite: links & appearance — rich link
+// HarmoNova Phase 7 part 3 (0.12.2) UI suite: links & appearance — rich link
 // previews from public provider APIs (GitHub, Wikipedia, arXiv) with strict
 // validation and text-only rendering, the "View on archive" action (Wayback
 // Machine) from the thread and card menus, the optional Nitter redirect for
@@ -33,7 +33,7 @@ function createHnMock() {
     const parsed = new URL(route.request().url());
     const pathname = parsed.pathname;
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
     switch (pathname) {
       case "/news":
@@ -144,8 +144,8 @@ const ARTICLE_HOSTS = [
 // Factories (not shared objects): each test gets fresh specs with fresh hit
 // counters so counts never leak across tests.
 const GITHUB_GOOD = () => [
-  providerSpec("api.github.com", "^/repos/octocat/harmonic$", JSON.stringify({
-    full_name: "octocat/harmonic",
+  providerSpec("api.github.com", "^/repos/octocat/harmonova$", JSON.stringify({
+    full_name: "octocat/harmonova",
     description: "A mocked repository for tests.",
     stargazers_count: 12345,
     forks_count: 678,
@@ -182,7 +182,7 @@ const WIKI_GOOD = () => [
   providerSpec("en.wikipedia.org", "^/api/rest_v1/page/summary/Harmonic_(?:%28|\\()mathematics(?:%29|\\))$", JSON.stringify({
     type: "standard",
     title: "Harmonic (mathematics)",
-    extract: "A <b>harmonic</b> function is a twice-differentiable function that satisfies Laplace's equation.",
+    extract: "A <b>harmonova</b> function is a twice-differentiable function that satisfies Laplace's equation.",
   })),
 ];
 
@@ -201,7 +201,7 @@ const ARXIV_XML = () => [
     '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>ArXiv Query</title>' +
       "<entry><id>http://arxiv.org/abs/2401.01234v1</id>" +
       "<title>A Mocked Study of <i>Harmonic</i> Analysis</title>" +
-      "<summary>  We study harmonic\n functions in a mocked setting. </summary>" +
+      "<summary>  We study harmonova\n functions in a mocked setting. </summary>" +
       "<author><name>Alice Author</name></author><author><name>Bob Builder</name></author>" +
       "<published>2024-01-05T18:00:00Z</published></entry></feed>",
     "application/atom+xml"
@@ -260,7 +260,7 @@ async function test(name, fixtures, fn) {
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
     if (sw) {
       await sw.evaluate(() => Promise.all([chrome.storage.sync.clear(), chrome.storage.local.clear()])).catch(() => {});
-      if (fixtures.settings) await sw.evaluate((value) => chrome.storage.sync.set({ harmonicSettings: value }), fixtures.settings);
+      if (fixtures.settings) await sw.evaluate((value) => chrome.storage.sync.set({ harmonovaSettings: value }), fixtures.settings);
     }
     await fn({ page, providers: activeMocks.providers });
     passed++;
@@ -292,13 +292,13 @@ const richBox = (page) => page.locator(".thread-header .rich-preview").first();
 
 // ---------------------------------------------------------------------------
 
-await test("GitHub rich preview renders validated text facts", { storyUrl: "https://github.com/octocat/harmonic", providers: GITHUB_GOOD() }, async ({ page }) => {
+await test("GitHub rich preview renders validated text facts", { storyUrl: "https://github.com/octocat/harmonova", providers: GITHUB_GOOD() }, async ({ page }) => {
   await gotoFeed(page);
   await openThread(page);
   const box = richBox(page);
   await box.waitFor({ state: "visible", timeout: 20000 });
   assert.equal(await box.locator(".rich-preview-provider").textContent(), "GitHub", "provider chip says GitHub");
-  assert.equal(await box.locator(".rich-preview-title").textContent(), "octocat/harmonic", "repo full_name rendered");
+  assert.equal(await box.locator(".rich-preview-title").textContent(), "octocat/harmonova", "repo full_name rendered");
   const text = await box.textContent();
   assert.ok(text.includes("★ 12,345"), "star count rendered: " + text);
   assert.ok(text.includes("678 forks"), "fork count rendered");
@@ -324,7 +324,7 @@ await test("Wikipedia rich preview shows the extract as plain text", { storyUrl:
   assert.equal(await box.locator(".rich-preview-provider").textContent(), "Wikipedia", "provider chip says Wikipedia");
   assert.equal(await box.locator(".rich-preview-title").textContent(), "Harmonic (mathematics)", "summary title rendered");
   const text = await box.textContent();
-  assert.ok(text.includes("A <b>harmonic</b> function"), "markup arrives as literal text: " + text);
+  assert.ok(text.includes("A <b>harmonova</b> function"), "markup arrives as literal text: " + text);
   assert.equal(await box.locator("b,script,img").count(), 0, "extract is never parsed as HTML");
 });
 
@@ -344,7 +344,7 @@ await test("arXiv rich preview parses the Atom XML as text", { storyUrl: "https:
   assert.equal(await box.locator(".rich-preview-provider").textContent(), "arXiv", "provider chip says arXiv");
   assert.equal(await box.locator(".rich-preview-title").textContent(), "A Mocked Study of Harmonic Analysis", "title tags stripped");
   const text = await box.textContent();
-  assert.ok(text.includes("We study harmonic functions in a mocked setting."), "summary rendered");
+  assert.ok(text.includes("We study harmonova functions in a mocked setting."), "summary rendered");
   assert.ok(text.includes("By Alice Author, Bob Builder"), "authors rendered");
   assert.ok(text.includes("Published 2024"), "publication year rendered");
   assert.equal(await box.locator("i,script,img").count(), 0, "arXiv box is text-only");
@@ -371,26 +371,26 @@ const openWayback = async (page) => {
   return popupPromise;
 };
 
-await test("View on archive opens the Wayback URL from the thread menu", { storyUrl: "https://github.com/octocat/harmonic", providers: GITHUB_GOOD() }, async ({ page }) => {
+await test("View on archive opens the Wayback URL from the thread menu", { storyUrl: "https://github.com/octocat/harmonova", providers: GITHUB_GOOD() }, async ({ page }) => {
   await gotoFeed(page);
   await openThread(page);
   const popupPromise = openWayback(page);
   await page.locator(".thread-actions button[aria-label='More']").first().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "View on archive" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "View on archive" }).click();
   const popup = await popupPromise;
-  await popup.waitForURL("https://web.archive.org/web/2/https://github.com/octocat/harmonic", { timeout: 15000 });
-  assert.ok(popup.url().startsWith("https://web.archive.org/web/2/https://github.com/octocat/harmonic"), "Wayback URL carries the article: " + popup.url());
+  await popup.waitForURL("https://web.archive.org/web/2/https://github.com/octocat/harmonova", { timeout: 15000 });
+  assert.ok(popup.url().startsWith("https://web.archive.org/web/2/https://github.com/octocat/harmonova"), "Wayback URL carries the article: " + popup.url());
   await popup.close();
 });
 
-await test("View on archive opens the Wayback URL from the card menu", { storyUrl: "https://github.com/octocat/harmonic", providers: GITHUB_GOOD() }, async ({ page }) => {
+await test("View on archive opens the Wayback URL from the card menu", { storyUrl: "https://github.com/octocat/harmonova", providers: GITHUB_GOOD() }, async ({ page }) => {
   await gotoFeed(page);
   const popupPromise = openWayback(page);
   await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "View on archive" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "View on archive" }).click();
   const popup = await popupPromise;
-  await popup.waitForURL("https://web.archive.org/web/2/https://github.com/octocat/harmonic", { timeout: 15000 });
-  assert.ok(popup.url().startsWith("https://web.archive.org/web/2/https://github.com/octocat/harmonic"), "card menu archive URL matches");
+  await popup.waitForURL("https://web.archive.org/web/2/https://github.com/octocat/harmonova", { timeout: 15000 });
+  assert.ok(popup.url().startsWith("https://web.archive.org/web/2/https://github.com/octocat/harmonova"), "card menu archive URL matches");
   await popup.close();
 });
 
@@ -435,11 +435,11 @@ await test("theme and font settings apply and persist through a reload", { story
   assert.equal(await page.locator("html").getAttribute("data-font"), "serif", "font persists through a reload");
 });
 
-await test("default theme and font are AMOLED black + Harmonic", { storyUrl: "https://plain-example.com/x" }, async ({ page }) => {
+await test("default theme and font are AMOLED black + HarmoNova", { storyUrl: "https://plain-example.com/x" }, async ({ page }) => {
   await gotoFeed(page);
   const root = page.locator("html");
   assert.equal(await root.getAttribute("data-theme"), "amoled", "default theme is amoled");
-  assert.equal(await root.getAttribute("data-font"), "harmonic", "default font is harmonic");
+  assert.equal(await root.getAttribute("data-font"), "system", "default font is harmonova");
   const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   assert.equal(bodyBg, "rgb(0, 0, 0)", "default body background is pure black");
 });

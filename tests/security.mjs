@@ -1,4 +1,4 @@
-// Harmonic security regression suite (Phase H).
+// HarmoNova security regression suite (Phase H).
 // Part 1 runs background.js and url-policy.js in a Node vm with a mock chrome API.
 // Part 2 runs Chromium against the real extension to exercise the live code paths.
 import assert from "node:assert/strict";
@@ -17,7 +17,7 @@ const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), 
 const loadPolicy = () => {
   const context = vm.createContext({ URL, console });
   vm.runInContext(fs.readFileSync(path.join(repoRoot, "url-policy.js"), "utf8"), context);
-  return context.HarmonicUrlPolicy;
+  return context.HarmoNovaUrlPolicy;
 };
 
 test("SEC-24: url policy blocks every private or unexpected remote target", () => {
@@ -270,24 +270,6 @@ test("SEC-42: metadata images must be https and off the HN origin", async () => 
   assert.equal(meta.favicon, "https://ok.example.com/favicon.ico");
 });
 
-test("SEC-60: font must match the pinned SHA-256 digest", async () => {
-  const fontUrl = "https://raw.githubusercontent.com/SimonHalvdansson/Harmonic-HN/42aae5fa3c587b4554f1e53ce6d45c267e1aec2a/resources/src/commonMain/composeResources/font/google_sans_flex_rounded_variable_latin.ttf";
-  const { context } = loadBackground({
-    fetchImpl: async (url) => {
-      assert.equal(String(url), fontUrl, "font URL must be the pinned commit");
-      return new Response(Buffer.from("tampered bytes"), { headers: { "content-type": "font/ttf" } });
-    },
-  });
-  await assert.rejects(() => context.getHarmonicFontDataUrl(), /digest mismatch/);
-  // The failed promise must reset so a later good fetch can succeed.
-  const bytes = new Uint8Array(303488);
-  bytes[0] = 0x00; bytes[1] = 0x01; bytes[2] = 0x00; bytes[3] = 0x00;
-  context.fetch = async () => new Response(Buffer.from(bytes), { headers: { "content-type": "font/ttf" } });
-  // Digest of arbitrary bytes will not match the pinned font either — the worker
-  // must still refuse it, proving the digest check always runs.
-  await assert.rejects(() => context.getHarmonicFontDataUrl(), /digest mismatch/);
-});
-
 test("SEC-52: state handlers only accept the extension's top-frame HN sender", async () => {
   const { context, listeners, stores } = loadBackground({ fetchImpl: async () => new Response("") });
   const send = (message, sender) => new Promise((resolve) => {
@@ -295,12 +277,12 @@ test("SEC-52: state handlers only accept the extension's top-frame HN sender", a
     assert.ok(ok, "handler should respond async");
   });
   const trusted = { id: "test-extension-id", frameId: 0, tab: { id: 1, url: "https://news.ycombinator.com/item?id=9" } };
-  const read = await send({ type: "HARMONIC_READ_IDS_SET", ids: [5, 6] }, trusted);
+  const read = await send({ type: "HARMONOVA_READ_IDS_SET", ids: [5, 6] }, trusted);
   assert.equal(read.ok, true);
   assert.deepEqual(stores.local.readStoryIds, [5, 6]);
-  const bookmarks = await send({ type: "HARMONIC_BOOKMARKS_SET", ids: [7] }, trusted);
+  const bookmarks = await send({ type: "HARMONOVA_BOOKMARKS_SET", ids: [7] }, trusted);
   assert.equal(bookmarks.ok, true);
-  assert.deepEqual(stores.local.harmonicBookmarks, [7]);
+  assert.deepEqual(stores.local.harmonovaBookmarks, [7]);
 
   for (const [name, sender] of [
     ["wrong extension id", { id: "other", frameId: 0, tab: { id: 1, url: "https://news.ycombinator.com/" } }],
@@ -309,10 +291,10 @@ test("SEC-52: state handlers only accept the extension's top-frame HN sender", a
     ["no tab", { id: "test-extension-id", frameId: 0, url: "chrome-extension://test-extension-id/ai-settings.html" }],
   ]) {
     const before = JSON.stringify(stores.local);
-    const reply = await send({ type: "HARMONIC_READ_IDS_SET", ids: [99] }, sender);
+    const reply = await send({ type: "HARMONOVA_READ_IDS_SET", ids: [99] }, sender);
     assert.equal(reply.ok, false, name + " must be refused");
     assert.equal(JSON.stringify(stores.local), before, name + " must not write");
-    const reply2 = await send({ type: "HARMONIC_BOOKMARKS_SET", ids: [99] }, sender);
+    const reply2 = await send({ type: "HARMONOVA_BOOKMARKS_SET", ids: [99] }, sender);
     assert.equal(reply2.ok, false, name + " bookmarks must be refused");
   }
 });
@@ -320,9 +302,9 @@ test("SEC-52: state handlers only accept the extension's top-frame HN sender", a
 test("SEC-52: local state reads require a trusted HN sender", async () => {
   const { context, listeners } = loadBackground({ fetchImpl: async () => new Response("") });
   const send = (message, sender) => new Promise((resolve) => listeners.message(message, sender, resolve));
-  const evil = await send({ type: "HARMONIC_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, tab: { url: "https://evil.test/" } });
+  const evil = await send({ type: "HARMONOVA_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, tab: { url: "https://evil.test/" } });
   assert.equal(evil.ok, false);
-  const good = await send({ type: "HARMONIC_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, tab: { url: "https://news.ycombinator.com/news" } });
+  const good = await send({ type: "HARMONOVA_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, tab: { url: "https://news.ycombinator.com/news" } });
   assert.equal(good.ok, true);
 });
 
@@ -361,15 +343,15 @@ const runBrowserTests = async () => {
     { id: 910002, path: "article-two" },
   ];
   const algoliaItem = (story) => JSON.stringify({
-    id: story.id, title: "Harmonic security fixture " + story.id, url: "https://example.test/" + story.path,
-    author: "harmonic_test", points: 42, created_at_i: Math.floor(Date.now() / 1000) - 3600,
+    id: story.id, title: "HarmoNova security fixture " + story.id, url: "https://example.test/" + story.path,
+    author: "harmonova_test", points: 42, created_at_i: Math.floor(Date.now() / 1000) - 3600,
     text: null, children: [{
-      id: story.id + 10, author: "harmonic_test", created_at_i: Math.floor(Date.now() / 1000) - 1800,
+      id: story.id + 10, author: "harmonova_test", created_at_i: Math.floor(Date.now() / 1000) - 1800,
       text: "A comment.", children: [],
     }],
   });
   const storyFixture = (story) => JSON.stringify({
-    id: story.id, type: "story", by: "harmonic_test", title: "Harmonic security fixture " + story.id,
+    id: story.id, type: "story", by: "harmonova_test", title: "HarmoNova security fixture " + story.id,
     url: "https://example.test/" + story.path, score: 42, time: Math.floor(Date.now() / 1000) - 3600,
     descendants: 1, kids: [],
   });
@@ -384,7 +366,7 @@ const runBrowserTests = async () => {
       // Top-level navigation sets a SameSite=None cookie for the origin.
       return route.fulfill({
         status: 200,
-        headers: { "set-cookie": "harmonic-cookie-test=1; SameSite=None; Secure" },
+        headers: { "set-cookie": "harmonova-cookie-test=1; SameSite=None; Secure" },
         contentType: "text/html",
         body: "<html><body>cookie page</body></html>",
       });
@@ -455,7 +437,7 @@ const runBrowserTests = async () => {
     const cookiePage = await context.newPage();
     await cookiePage.goto("https://example.test/cookie-page", { waitUntil: "domcontentloaded" });
     const jarCookie = await cookiePage.evaluate(() => document.cookie);
-    assert.ok(jarCookie.includes("harmonic-cookie-test=1"), "the routed origin must hold the test cookie");
+    assert.ok(jarCookie.includes("harmonova-cookie-test=1"), "the routed origin must hold the test cookie");
     await cookiePage.close();
 
     // Serve fresh story URLs (new cache keys) so previews refetch with the cookie present.
@@ -476,7 +458,7 @@ const runBrowserTests = async () => {
     // -- SEC-53: ordinary pages cannot message the extension ----------------
     const messageProbe = await page.evaluate((extId) => {
       try {
-        chrome.runtime?.sendMessage?.(extId, { type: "HARMONIC_PREVIEW", url: "https://evil.test/x" }, () => {});
+        chrome.runtime?.sendMessage?.(extId, { type: "HARMONOVA_PREVIEW", url: "https://evil.test/x" }, () => {});
         return "sent";
       } catch {
         return "blocked";
@@ -485,7 +467,7 @@ const runBrowserTests = async () => {
     assert.ok(["sent", "blocked"].includes(messageProbe));
     assert.equal(evilRequests.length, 0, "SEC-53: messaging from a web page must never reach handlers");
 
-    // -- SEC-43: Harmonic DOM never uses names hn.js reacts to --------------
+    // -- SEC-43: HarmoNova DOM never uses names hn.js reacts to --------------
     const reserved = await page.evaluate(() => {
       const offenders = [];
       const reservedClasses = ["clicky", "togg", "nosee", "noshow", "coll", "comtr", "athing", "votelinks"];
@@ -497,11 +479,11 @@ const runBrowserTests = async () => {
       }
       return offenders;
     });
-    assert.deepEqual(reserved, [], "SEC-43: no hn.js-reserved class or id names in Harmonic DOM");
+    assert.deepEqual(reserved, [], "SEC-43: no hn.js-reserved class or id names in HarmoNova DOM");
 
-    // -- SEC-01: no password inputs in Harmonic DOM -------------------------
+    // -- SEC-01: no password inputs in HarmoNova DOM -------------------------
     const passwordInputs = await page.evaluate(() => document.querySelectorAll('input[type="password"]').length);
-    assert.equal(passwordInputs, 0, "SEC-01: no password inputs in the Harmonic UI");
+    assert.equal(passwordInputs, 0, "SEC-01: no password inputs in the HarmoNova UI");
 
     fs.writeFileSync(path.join(outDir, "security.png"), await page.screenshot());
   } finally {

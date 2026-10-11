@@ -42,7 +42,7 @@ function redact(source) {
   let text = String(source || "");
   text = text.replace(TOKEN40, "0".repeat(40));
   text = text.replace(EMAIL, "removed@example.invalid");
-  if (actingUser) text = text.split(actingUser).join("harmonic_test");
+  if (actingUser) text = text.split(actingUser).join("harmonova_test");
   // No field value from a login form is retained even in an unexpected page.
   text = text.replace(/(<input[^>]*name=["'](?:acct|pw|password)["'][^>]*value=["'])[^"']*(["'])/gi, "$1REDACTED$2");
   text = text.replace(/(<input[^>]*value=["'])[^"']*(["'][^>]*name=["'](?:acct|pw|password)["'])/gi, "$1REDACTED$2");

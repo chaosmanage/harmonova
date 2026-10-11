@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 const extensionPath = path.resolve(process.env.EXTENSION_PATH || '.');
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'harmonic-reload-'));
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'harmonova-reload-'));
 const launch = () => chromium.launchPersistentContext(profile, {
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -25,7 +25,7 @@ try {
   await options.locator('#api-key').fill('sk-or-v1-reload-test');
   await options.locator('#save').click();
   await options.waitForFunction(() => document.querySelector('#message').textContent.includes('saved'));
-  await worker.evaluate(() => chrome.storage.sync.set({ harmonicSettings: { aiModel: 'openrouter/free', aiStreamResponses: false, aiAutoSummarize: true } }));
+  await worker.evaluate(() => chrome.storage.sync.set({ harmonovaSettings: { aiModel: 'openrouter/free', aiStreamResponses: false, aiAutoSummarize: true } }));
   const reload = async () => {
     await context.close();
     context = await launch();
@@ -35,7 +35,7 @@ try {
   };
   await reload();
   assert.ok((await options.locator('#key-status').textContent()).includes('saved locally'), 'persistent key should survive browser restart');
-  const settings = await worker.evaluate(async () => (await chrome.storage.sync.get('harmonicSettings')).harmonicSettings);
+  const settings = await worker.evaluate(async () => (await chrome.storage.sync.get('harmonovaSettings')).harmonovaSettings);
   assert.deepEqual(settings, { aiModel: 'openrouter/free', aiStreamResponses: false, aiAutoSummarize: true });
   await options.locator('#api-key').fill('sk-or-v1-session-test');
   await options.locator('input[value="session"]').check();

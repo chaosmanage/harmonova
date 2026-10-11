@@ -1,16 +1,20 @@
-# Harmonic for Hacker News - Chrome Browser Extension
+# HarmoNova for Hacker News — Chrome Browser Extension
+
+**Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson.** This is an independent project, not affiliated with or endorsed by the original developer.
 
 **A better place to read Hacker News on your browser.**
 
-Harmonic for Hacker News is a Chrome extension that gives [Hacker News](https://news.ycombinator.com/) a cleaner, more enjoyable desktop interface. Read stories, follow discussions, search Hacker News, and use your HN account without leaving the website.
+HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https://news.ycombinator.com/) a cleaner, more enjoyable desktop interface. Read stories, follow discussions, search Hacker News, and use your HN account without leaving the website.
 
-![Harmonic showing colorful stories on the left and a discussion on the right](docs/assets/overview.png)
+<p align="center"><img src="icons/harmonova-logo.svg" alt="HarmoNova for Hacker News" width="660"></p>
+
+![HarmoNova showing colorful stories on the left and a discussion on the right](docs/assets/overview.png)
 
 ## Why I made this
 
 I really enjoy using [**Harmonic for Hacker News on Android**](https://github.com/SimonHalvdansson/Harmonic-HN). Compared with Harmonic, the regular Hacker News website never felt particularly appealing or intuitive to me. I wanted to bring that same reading experience to my computer.
 
-I even tried running the Android app in an emulator. It worked as an experiment, but it wasn't how I wanted to use Hacker News every day. A **Chrome extension** turned out to be the better solution: open Hacker News in a normal browser tab, and get the Harmonic-style interface right there.
+I even tried running the Android app in an emulator. It worked as an experiment, but it wasn't how I wanted to use Hacker News every day. A **Chrome extension** turned out to be the better solution: open Hacker News in a normal browser tab, and get the Harmonic-inspired interface right there.
 
 **A huge thank-you to [Simon Halvdansson](https://github.com/SimonHalvdansson/Harmonic-HN) for the original Harmonic Android app.** Its design, thoughtful approach to reading, and open-source code are the reason this project exists. I've taken a lot of inspiration from it, including the story cards, colors, typography, and comment layout. This is an independent browser adaptation, not an official Harmonic desktop app.
 
@@ -20,21 +24,21 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 
 **No coding or building required.** Just download the extension, extract it, and tell Chrome where the folder is.
 
-1. **Download:** Go to [**Releases**](https://github.com/chaosmanage/harmonic-hn-browser/releases/latest) and download the ZIP named `harmonic-hn-browser-<version>.zip` under **Assets**.
-2. **Unzip it:** Extract the downloaded ZIP. Open the extracted folder; inside you'll find a folder named **`harmonic-hn-browser`**. Keep it somewhere permanent, like Documents.
+1. **Download:** Go to [**Releases**](https://github.com/chaosmanage/harmonova/releases/latest) and download the ZIP named `harmonova-<version>.zip` under **Assets**.
+2. **Unzip it:** Extract the downloaded ZIP. Open the extracted folder; inside you'll find a folder named **`harmonova`**. Keep it somewhere permanent, like Documents.
 3. **Open Chrome extensions:** Type **`chrome://extensions`** into Chrome's address bar.
 4. **Turn on Developer mode** using the switch in the top-right corner, then click **Load unpacked**.
-5. **Choose the folder:** Select the inner **`harmonic-hn-browser`** folder — the one that directly contains the file **`manifest.json`**. Don't select the ZIP itself.
+5. **Choose the folder:** Select the inner **`harmonova`** folder — the one that directly contains the file **`manifest.json`**. Don't select the ZIP itself.
 6. **You're done:** Open [news.ycombinator.com](https://news.ycombinator.com/), or refresh it if it was already open.
 
 ![Chrome Extensions page with Developer mode on and Load unpacked at the top](docs/assets/install-chrome.png)
 
 ### Prefer downloading the source or using Git?
 
-That works too. On the [repository page](https://github.com/chaosmanage/harmonic-hn-browser), choose **Code → Download ZIP** and extract it, or clone it:
+That works too. On the [repository page](https://github.com/chaosmanage/harmonova), choose **Code → Download ZIP** and extract it, or clone it:
 
 ```bash
-git clone https://github.com/chaosmanage/harmonic-hn-browser.git
+git clone https://github.com/chaosmanage/harmonova.git
 ```
 
 Then follow **steps 3–6 above**, selecting the downloaded or cloned **repository folder** (the folder with `manifest.json`). **You still don't need to build anything.**
@@ -55,7 +59,7 @@ To update an unpacked installation, keep the same folder location, replace its c
 
 | Feeds | Search Hacker News |
 | --- | --- |
-| ![Choosing feeds in Harmonic](docs/assets/feeds.png) | ![Site-wide search and filters](docs/assets/search.png) |
+| ![Choosing feeds in HarmoNova](docs/assets/feeds.png) | ![Site-wide search and filters](docs/assets/search.png) |
 
 | Appearance | Story settings |
 | --- | --- |
@@ -65,7 +69,7 @@ To update an unpacked installation, keep the same folder location, replace its c
 
 ## AI summaries: articles or discussions
 
-Sometimes I want the main points of an article before reading it. Other times the **Hacker News comments** are the interesting part. Harmonic has a separate button for each:
+Sometimes I want the main points of an article before reading it. Other times the **Hacker News comments** are the interesting part. HarmoNova has a separate button for each:
 
 - **Article** reads the linked page and summarizes its content.
 - **Discussion** summarizes the public Hacker News conversation instead.
@@ -78,9 +82,9 @@ Both use [OpenRouter](https://openrouter.ai/) and are optional. Add your own API
 
 ## A couple of things to know
 
-You don't need to sign in just to read. For voting, replying, or posting, Harmonic uses your Hacker News session; login happens on HN itself. Editing or deleting **existing** comments currently opens HN's original edit/delete page after asking for confirmation.
+You don't need to sign in just to read. For voting, replying, or posting, HarmoNova uses your Hacker News session; login happens on HN itself. Editing or deleting **existing** comments currently opens HN's original edit/delete page after asking for confirmation.
 
-You can always open **original Hacker News** from the menu or turn off Harmonic from the extension icon without uninstalling it. The extension runs on `news.ycombinator.com`; it has no project-run server or analytics. [Read more about privacy and permissions.](docs/PRIVACY.md)
+You can always open **original Hacker News** from the menu or turn off HarmoNova from the extension icon without uninstalling it. The extension runs on `news.ycombinator.com`; it has no project-run server or analytics. [Read more about privacy and permissions.](docs/PRIVACY.md)
 
 ## More information
 
@@ -88,6 +92,8 @@ You can always open **original Hacker News** from the menu or turn off Harmonic 
 
 ## Credits and license
 
-Once again, **thank you to [Simon Halvdansson and the original Harmonic Android project](https://github.com/SimonHalvdansson/Harmonic-HN)** for the inspiration. The extension uses the original Harmonic launcher artwork, with its source documented in [icons/README.md](icons/README.md), and loads the upstream rounded font at runtime.
+**Credit:** HarmoNova was inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN), created by Simon Halvdansson. Thanks to Simon for publishing the original Android project under Apache License 2.0 and for the design inspiration.
 
-This project is licensed under **[Apache License 2.0](LICENSE)**, the same license used by the original Harmonic project. It isn't affiliated with the original Harmonic developers, Hacker News, or Y Combinator.
+HarmoNova's icon and wordmark are independently designed, and the extension now uses browser/system fonts rather than the original project's rounded font. See [branding details](icons/README.md).
+
+HarmoNova is an independent project and is **not affiliated with or endorsed by** the Harmonic developer, Hacker News, or Y Combinator. This extension is licensed under [Apache License 2.0](LICENSE).

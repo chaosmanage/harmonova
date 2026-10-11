@@ -1,4 +1,4 @@
-// Harmonic site-wide search suite (Phase S).
+// HarmoNova site-wide search suite (Phase S).
 // Part 1: hn-search.js unit tests in a Node vm (query construction, hit
 //         validation, SEC-40 highlight tokenization, paging, errors, aborts).
 // Part 2: browser end-to-end tests with a fully mocked Algolia API.
@@ -73,11 +73,11 @@ let failedUnit = 0;
 const failures = [];
 
 const context = makeVm();
-const HarmonicSearch = context.HarmonicSearch;
-assert.ok(HarmonicSearch, "hn-search.js exposes HarmonicSearch");
+const HarmoNovaSearch = context.HarmoNovaSearch;
+assert.ok(HarmoNovaSearch, "hn-search.js exposes HarmoNovaSearch");
 
 runUnit("buildSearchUrl: full options produce the exact /search URL", () => {
-  const built = HarmonicSearch.buildSearchUrl({
+  const built = HarmoNovaSearch.buildSearchUrl({
     query: "  sqlite wal  ",
     tags: ["story", "author_pg"],
     since: 1700000000,
@@ -97,46 +97,46 @@ runUnit("buildSearchUrl: full options produce the exact /search URL", () => {
 });
 
 runUnit("buildSearchUrl: newest sort uses /search_by_date", () => {
-  const built = HarmonicSearch.buildSearchUrl({ query: "x", sort: "newest" });
+  const built = HarmoNovaSearch.buildSearchUrl({ query: "x", sort: "newest" });
   assert.ok(built.url.includes("/search_by_date?"));
 });
 
 runUnit("buildSearchUrl: query is trimmed and capped at 200 chars", () => {
-  const built = HarmonicSearch.buildSearchUrl({ query: "  " + "x".repeat(300) + "  " });
+  const built = HarmoNovaSearch.buildSearchUrl({ query: "  " + "x".repeat(300) + "  " });
   const parsed = new URL(built.url);
   assert.equal(parsed.searchParams.get("query"), "x".repeat(200));
 });
 
 runUnit("buildSearchUrl: empty query is an error", () => {
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "   " }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "   " }).error);
 });
 
 runUnit("buildSearchUrl: hostile tags are rejected", () => {
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", tags: ["story;drop"] }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", tags: ["author_bad name!"] }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", tags: ["author_" + "a".repeat(40)] }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", tags: [["story"]] }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", tags: ["story;drop"] }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", tags: ["author_bad name!"] }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", tags: ["author_" + "a".repeat(40)] }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", tags: [["story"]] }).error);
   // Valid author names pass.
-  assert.ok(!HarmonicSearch.buildSearchUrl({ query: "x", tags: ["author_pg"] }).error);
+  assert.ok(!HarmoNovaSearch.buildSearchUrl({ query: "x", tags: ["author_pg"] }).error);
 });
 
 runUnit("buildSearchUrl: numeric filters accept integers only", () => {
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", since: 1.5 }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", since: "10" }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", minPoints: 2.5 }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", minPoints: -1 }).error);
-  assert.ok(!HarmonicSearch.buildSearchUrl({ query: "x", minPoints: 0 }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", since: 1.5 }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", since: "10" }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", minPoints: 2.5 }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", minPoints: -1 }).error);
+  assert.ok(!HarmoNovaSearch.buildSearchUrl({ query: "x", minPoints: 0 }).error);
 });
 
 runUnit("buildSearchUrl: hitsPerPage is capped at 50 and pages bounded", () => {
-  const capped = new URL(HarmonicSearch.buildSearchUrl({ query: "x", hitsPerPage: 500 }).url);
+  const capped = new URL(HarmoNovaSearch.buildSearchUrl({ query: "x", hitsPerPage: 500 }).url);
   assert.equal(capped.searchParams.get("hitsPerPage"), "50");
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", page: -1 }).error);
-  assert.ok(HarmonicSearch.buildSearchUrl({ query: "x", page: 1.5 }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", page: -1 }).error);
+  assert.ok(HarmoNovaSearch.buildSearchUrl({ query: "x", page: 1.5 }).error);
 });
 
 runUnit("validateHit: story and comment hits map to safe shapes", () => {
-  const story = HarmonicSearch.validateHit({
+  const story = HarmoNovaSearch.validateHit({
     objectID: "42", title: "A story", url: "https://example.test/a", author: "pg",
     points: 100, num_comments: 7, created_at_i: 1700000000,
   });
@@ -145,12 +145,12 @@ runUnit("validateHit: story and comment hits map to safe shapes", () => {
     id: 42, kind: "story", title: "A story", url: "https://example.test/a",
     author: "pg", points: 100, numComments: 7, created_at_i: 1700000000,
   });
-  const modernStory = HarmonicSearch.validateHit({
+  const modernStory = HarmoNovaSearch.validateHit({
     objectID: "27016630", story_id: 27016630, _tags: ["story", "author_pg"],
     title: "SQLite WAL", author: "pg", comment_text: null, points: 42,
   });
   assert.equal(modernStory.kind, "story", "Algolia story_id must not turn stories into comments");
-  const comment = HarmonicSearch.validateHit({
+  const comment = HarmoNovaSearch.validateHit({
     objectID: "99", author: "pg", story_id: 42, story_title: "A story",
     comment_text: "hello", points: 5, created_at_i: 1700000001,
   });
@@ -160,25 +160,25 @@ runUnit("validateHit: story and comment hits map to safe shapes", () => {
 });
 
 runUnit("validateHit: malformed hits are dropped", () => {
-  assert.equal(HarmonicSearch.validateHit(null), null);
-  assert.equal(HarmonicSearch.validateHit("nope"), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "abc" }), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "-4" }), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "4.5" }), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "4", points: "12" }), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "4", title: 9 }), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "4", author: ["pg"] }), null);
-  assert.equal(HarmonicSearch.validateHit({ objectID: "4", story_id: "42" }), null, "story_id must be a number");
-  assert.equal(HarmonicSearch.validateHit({ objectID: "4", comment_text: "x" }), null, "comment without story_id is dropped");
+  assert.equal(HarmoNovaSearch.validateHit(null), null);
+  assert.equal(HarmoNovaSearch.validateHit("nope"), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "abc" }), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "-4" }), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "4.5" }), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "4", points: "12" }), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "4", title: 9 }), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "4", author: ["pg"] }), null);
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "4", story_id: "42" }), null, "story_id must be a number");
+  assert.equal(HarmoNovaSearch.validateHit({ objectID: "4", comment_text: "x" }), null, "comment without story_id is dropped");
   // Absent fields become null/defaults instead of dropping the hit.
-  const sparse = HarmonicSearch.validateHit({ objectID: "7" });
+  const sparse = HarmoNovaSearch.validateHit({ objectID: "7" });
   assert.equal(sparse.kind, "story");
   assert.equal(sparse.title, null);
   assert.equal(sparse.author, null);
 });
 
 runUnit("validateHit: keeps SEC-40 highlight strings verbatim", () => {
-  const hit = HarmonicSearch.validateHit({
+  const hit = HarmoNovaSearch.validateHit({
     objectID: "9", story_id: 8, comment_text: "plain",
     _highlightResult: { comment_text: { value: "<em>hi</em> <img onerror=alert(1) src=x>" } },
   });
@@ -186,7 +186,7 @@ runUnit("validateHit: keeps SEC-40 highlight strings verbatim", () => {
 });
 
 runUnit("buildHighlightSegments: tokenizes literal <em> only (SEC-40)", () => {
-  const segments = (value) => JSON.parse(JSON.stringify(HarmonicSearch.buildHighlightSegments(value)));
+  const segments = (value) => JSON.parse(JSON.stringify(HarmoNovaSearch.buildHighlightSegments(value)));
   assert.deepEqual(segments("plain <em>bold</em> tail"), [
     { text: "plain ", highlighted: false },
     { text: "bold", highlighted: true },
@@ -234,7 +234,7 @@ await runAsyncUnit("runSearch: validates payloads and respects nbPages", async (
     status: 200,
     json: { hits: [{ objectID: "1", title: "one" }, { objectID: "bad" }, { objectID: "2", title: 5 }], page: 0, nbPages: 4 },
   });
-  const result = await HarmonicSearch.runSearch({ query: "test" });
+  const result = await HarmoNovaSearch.runSearch({ query: "test" });
   assert.equal(result.error, undefined);
   assert.equal(result.hits.length, 1, "malformed hits are dropped");
   assert.equal(result.nbPages, 4);
@@ -248,18 +248,18 @@ runUnit("runSearch (sync paths): non-array hits is malformed", () => {
 
 await runAsyncUnit("runSearch: non-array hits and non-JSON bodies are errors", async () => {
   unitResponder = () => ({ ok: true, status: 200, json: { hits: "nope" } });
-  assert.ok((await HarmonicSearch.runSearch({ query: "x" })).error, "string hits is an error");
+  assert.ok((await HarmoNovaSearch.runSearch({ query: "x" })).error, "string hits is an error");
   unitResponder = () => ({ ok: true, status: 200, json: { hits: null } });
-  assert.ok((await HarmonicSearch.runSearch({ query: "x" })).error, "null hits is an error");
+  assert.ok((await HarmoNovaSearch.runSearch({ query: "x" })).error, "null hits is an error");
   unitResponder = () => ({ ok: true, status: 200, jsonThrows: true });
-  assert.ok((await HarmonicSearch.runSearch({ query: "x" })).error, "invalid JSON is an error");
+  assert.ok((await HarmoNovaSearch.runSearch({ query: "x" })).error, "invalid JSON is an error");
   unitResponder = () => ({ ok: true, status: 200, json: null });
-  assert.ok((await HarmonicSearch.runSearch({ query: "x" })).error, "null payload is an error");
+  assert.ok((await HarmoNovaSearch.runSearch({ query: "x" })).error, "null payload is an error");
 });
 
 await runAsyncUnit("runSearch: HTTP errors and network failures are reported", async () => {
   unitResponder = () => ({ ok: false, status: 503 });
-  const failed = await HarmonicSearch.runSearch({ query: "x" });
+  const failed = await HarmoNovaSearch.runSearch({ query: "x" });
   assert.ok(failed.error.includes("503"));
 });
 
@@ -267,7 +267,7 @@ await runAsyncUnit("runSearch: aborted requests report aborted, not error", asyn
   unitCalls.length = 0;
   unitDeferred = {};
   const controller = new AbortController();
-  const promise = HarmonicSearch.runSearch({ query: "x" }, { signal: controller.signal });
+  const promise = HarmoNovaSearch.runSearch({ query: "x" }, { signal: controller.signal });
   await new Promise((resolve) => setTimeout(resolve, 10));
   controller.abort();
   unitDeferred.reject(new Error("The operation was aborted"));
@@ -529,7 +529,7 @@ await runBrowser("browser: filters, paging, empty and error states work", async 
   // Error state; retry re-issues the request.
   await page.locator(".feed-search-input").fill("fail");
   await page.locator(".feed-search-input").press("Enter");
-  await page.locator(".harmonic-error").waitFor({ state: "visible", timeout: 10000 });
+  await page.locator(".harmonova-error").waitFor({ state: "visible", timeout: 10000 });
   const requestsBeforeRetry = algolia.requests.length;
   await page.locator(".hn-search-retry").click();
   await page.waitForTimeout(600);

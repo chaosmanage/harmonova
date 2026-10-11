@@ -1,12 +1,12 @@
-# Using Harmonic
+# Using HarmoNova
 
 [← Back to README](../README.md) · [Installation help](TROUBLESHOOTING.md)
 
-Harmonic changes how you **read** Hacker News, not where the discussions live. Open [news.ycombinator.com](https://news.ycombinator.com/) with the extension enabled. There are two panes: stories on the left, the selected discussion on the right. Both scroll independently.
+HarmoNova changes how you **read** Hacker News, not where the discussions live. Open [news.ycombinator.com](https://news.ycombinator.com/) with the extension enabled. There are two panes: stories on the left, the selected discussion on the right. Both scroll independently.
 
 ## The reading view
 
-![Harmonic showing a story list and nested conversation](assets/overview.png)
+![HarmoNova showing a story list and nested conversation](assets/overview.png)
 
 ### Stories on the left
 
@@ -16,7 +16,7 @@ Choose a feed from the title menu: Top, New, Best, Ask HN, Show HN, Jobs, and ad
 
 Each story card can show its title, points, domain, age, reply count, favicon, and an optional preview image. Card tints help stories stand apart without turning the entire page into a grid of boxes. Story settings let you change density, preview sizing, points display, dimming for read stories, keyword/domain filters, and whether a card click opens the article or its comments.
 
-Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; Harmonic doesn't trap external links in its own reader.
+Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; HarmoNova doesn't trap external links in its own reader.
 
 ### The discussion on the right
 
@@ -33,33 +33,33 @@ The search field has two distinct modes:
 - **Loaded stories** filters what is already on your screen. This stays in the browser.
 - **All of Hacker News** queries the public [Algolia HN Search](https://hn.algolia.com/) index. You can filter stories or comments by category, date, points, and author, and sort by relevance or time.
 
-Search results open inside the same reader. For comment results, Harmonic can take you to the relevant discussion and comment. Site-wide results come from Algolia's index, so an extremely recent comment may not be indexed immediately.
+Search results open inside the same reader. For comment results, HarmoNova can take you to the relevant discussion and comment. Site-wide results come from Algolia's index, so an extremely recent comment may not be indexed immediately.
 
 ![Site-wide search controls showing content types, dates, sorting and author filters](assets/search.png)
 
 ## Your Hacker News account
 
-Reading needs no login. To interact as a user, sign in through **Hacker News's own login page** using the account entry in Harmonic. Harmonic doesn't ask for, read, or store your HN password.
+Reading needs no login. To interact as a user, sign in through **Hacker News's own login page** using the account entry in HarmoNova. HarmoNova doesn't ask for, read, or store your HN password.
 
 When HN supplies the appropriate signed-in controls, you can upvote stories and comments, downvote eligible comments, reply to stories and comments, submit new stories, favorite, hide, and flag eligible items. A flag or destructive action asks for confirmation. Hide also offers an immediate undo. Account views include your threads, submissions, favorites, hidden, and upvoted lists, as well as public user profiles and their public activity.
 
 ### Replies, drafts, and limits
 
-**Add reply** and the reply action on individual comments open the built-in composer. It includes a preview, character counter, and `Ctrl+Enter` to submit. Drafts are saved temporarily for the current browser session, keyed to the current account and comment, so closing and reopening a composer doesn't throw away what you typed. If Hacker News requires additional validation, Harmonic preserves the draft and offers the original HN form.
+**Add reply** and the reply action on individual comments open the built-in composer. It includes a preview, character counter, and `Ctrl+Enter` to submit. Drafts are saved temporarily for the current browser session, keyed to the current account and comment, so closing and reopening a composer doesn't throw away what you typed. If Hacker News requires additional validation, HarmoNova preserves the draft and offers the original HN form.
 
-**Editing or deleting an existing comment is not yet supported inside Harmonic.** Choose Edit or Delete on one of your own comments, review the notice, and continue to the actual Hacker News form in a separate original-HN tab. Cancelling leaves the comment alone. HN's own anti-automation and rate-limit checks can also prevent other account actions; do not assume a failed confirmation means HN accepted the action.
+**Editing or deleting an existing comment is not yet supported inside HarmoNova.** Choose Edit or Delete on one of your own comments, review the notice, and continue to the actual Hacker News form in a separate original-HN tab. Cancelling leaves the comment alone. HN's own anti-automation and rate-limit checks can also prevent other account actions; do not assume a failed confirmation means HN accepted the action.
 
 ## Make it your reader
 
-Open **Settings** from Harmonic's menu or the extension toolbar popup.
+Open **Settings** from HarmoNova's menu or the extension toolbar popup.
 
-![Harmonic's settings panel organized by category](assets/settings.png)
+![HarmoNova's settings panel organized by category](assets/settings.png)
 
 Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; adjust reading fonts, zoom and story display; change comment treatment; control preview images and favicons; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
 
 | Appearance | Story settings |
 | --- | --- |
-| ![Harmonic theme and font controls](assets/appearance.png) | ![Harmonic story customization controls](assets/story-settings.png) |
+| ![HarmoNova theme and font controls](assets/appearance.png) | ![HarmoNova story customization controls](assets/story-settings.png) |
 
 Tags and blocking are **private local reading preferences**, not HN account features. Tagging a username helps you recognize them later; blocking replaces their comments with an unblockable placeholder. Neither setting changes what other users see on Hacker News.
 
@@ -80,11 +80,11 @@ The **Article** and **Discussion** buttons are separate for a reason: one summar
 3. Open a story and click **Article** or **Discussion**. The request runs only when you click.
 4. You can stop a running summary or regenerate it. The summary appears in the current reader, not in a new service.
 
-![AI settings and OpenRouter configuration in the Harmonic settings pane](assets/ai-settings.png)
+![AI settings and OpenRouter configuration in the HarmoNova settings pane](assets/ai-settings.png)
 
-For an article summary, Harmonic fetches and extracts readable article text. Some websites block this; you may then choose to summarize public HN discussion separately. For a discussion summary, the source is the public comments rather than the external article. **Extracted source text is sent to OpenRouter** along with the configured summary prompt. Generated summaries can be inaccurate, especially on ambiguous threads.
+For an article summary, HarmoNova fetches and extracts readable article text. Some websites block this; you may then choose to summarize public HN discussion separately. For a discussion summary, the source is the public comments rather than the external article. **Extracted source text is sent to OpenRouter** along with the configured summary prompt. Generated summaries can be inaccurate, especially on ambiguous threads.
 
-![AI summary presentation in Harmonic using test-only sample output](assets/ai-summary-demo.png)
+![AI summary presentation in HarmoNova using test-only sample output](assets/ai-summary-demo.png)
 
 *Demonstration screenshot with a mocked OpenRouter response. The example text is not a real summary of the visible article.*
 
@@ -95,6 +95,6 @@ The AI key can be stored **in this Chrome profile** or **for this browser sessio
 You have two choices that do not require uninstalling anything:
 
 - **Open original Hacker News** opens an untouched HN tab. Navigation inside that tab remains in original-HN mode.
-- **Disable Harmonic** in the extension toolbar popup or in-page menu turns off the Harmonic layout. Switch **Enable Harmonic** back on to restore it.
+- **Disable HarmoNova** in the extension toolbar popup or in-page menu turns off the HarmoNova layout. Switch **Enable HarmoNova** back on to restore it.
 
 If something isn't displaying correctly, see [Troubleshooting](TROUBLESHOOTING.md). For implementation details, see [Architecture](ARCHITECTURE.md).

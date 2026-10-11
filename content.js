@@ -2,10 +2,10 @@
   const HN_API = "https://hacker-news.firebaseio.com/v0";
   const ALGOLIA_API = "https://hn.algolia.com/api/v1";
   const FEED_BATCH_SIZE = 40;
-  const SETTINGS_BACKUP_KEY = "harmonic:settings:v1";
-  const ENABLED_BACKUP_KEY = "harmonic:enabled:v1";
-  const SETTINGS_HASH = "#harmonic-settings";
-  const ORIGINAL_HASH = "#harmonic-original";
+  const SETTINGS_BACKUP_KEY = "harmonova:settings:v1";
+  const ENABLED_BACKUP_KEY = "harmonova:enabled:v1";
+  const SETTINGS_HASH = "#harmonova-settings";
+  const ORIGINAL_HASH = "#harmonova-original";
   const FEEDS = {
     top: { path: "/news", label: "Top Stories", endpoint: "topstories" },
     new: { path: "/newest", label: "New Stories", endpoint: "newstories" },
@@ -75,7 +75,7 @@
     nitterRedirect: false,
     nitterInstance: "nitter.net",
     uiTheme: "amoled",
-    uiFont: "harmonic",
+    uiFont: "system",
   };
 
   const ICONS = {
@@ -110,7 +110,7 @@
     const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     s.setAttribute("viewBox", "0 0 24 24");
     s.setAttribute("aria-hidden", "true");
-    s.setAttribute("class", "harmonic-icon " + className);
+    s.setAttribute("class", "harmonova-icon " + className);
     s.innerHTML = ICONS[name] || "";
     return s;
   };
@@ -317,7 +317,7 @@
     };
 
     target.querySelectorAll("blockquote").forEach((quote) => {
-      quote.classList.add("harmonic-quote");
+      quote.classList.add("harmonova-quote");
       stripQuoteMarkers(quote);
     });
 
@@ -325,7 +325,7 @@
       const text = paragraph.textContent || "";
       if (!text.trimStart().startsWith(">")) return;
       const quote = document.createElement("blockquote");
-      quote.className = "harmonic-quote";
+      quote.className = "harmonova-quote";
       while (paragraph.firstChild) quote.appendChild(paragraph.firstChild);
       stripQuoteMarkers(quote);
       paragraph.replaceWith(quote);
@@ -336,7 +336,7 @@
       const text = node.textContent || "";
       if (!text.trimStart().startsWith(">")) continue;
       const quote = document.createElement("blockquote");
-      quote.className = "harmonic-quote";
+      quote.className = "harmonova-quote";
       quote.textContent = text.replace(/(^|\n)(\s*)>\s?/g, "$1$2");
       node.replaceWith(quote);
     }
@@ -373,7 +373,26 @@
     normalizeQuotedParagraphs(target);
   };
 
-  const chromeSyncGet = (keys) => new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
+  // Migrate pre-HarmoNova Chrome Sync names without overwriting new settings.
+  const chromeSyncGet = async (keys) => {
+    const older = keys.map((key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic"));
+    const values = await new Promise((resolve) => chrome.storage.sync.get([...keys, ...older], resolve));
+    const update = {}, remove = [];
+    const result = {};
+    keys.forEach((key, i) => {
+      if (Object.hasOwn(values, key)) result[key] = values[key];
+      else if (key !== older[i] && Object.hasOwn(values, older[i])) {
+        result[key] = values[older[i]];
+        update[key] = values[older[i]];
+        remove.push(older[i]);
+      }
+    });
+    if (Object.keys(update).length) {
+      await new Promise((resolve) => chrome.storage.sync.set(update, resolve));
+      await new Promise((resolve) => chrome.storage.sync.remove(remove, resolve));
+    }
+    return result;
+  };
   const chromeSyncSet = (value) => new Promise((resolve) => chrome.storage.sync.set(value, resolve));
   const runtimeMessage = (message) => new Promise((resolve) => {
     chrome.runtime.sendMessage(message, (response) => {
@@ -384,7 +403,15 @@
 
   function pageStorageGet(key) {
     try {
-      const value = localStorage.getItem(key);
+      let value = localStorage.getItem(key);
+      if (value === null && key.startsWith("harmonova")) {
+        const legacy = key.replace(/^harmonova/, "harmonic");
+        value = localStorage.getItem(legacy);
+        if (value !== null && !INCOGNITO) {
+          localStorage.setItem(key, value);
+          localStorage.removeItem(legacy);
+        }
+      }
       return value === null ? undefined : JSON.parse(value);
     } catch {
       return undefined;
@@ -397,10 +424,10 @@
   }
 
   async function loadEnabledPreference() {
-    const synced = await chromeSyncGet(["harmonicEnabled"]);
-    let enabled = typeof synced.harmonicEnabled === "boolean" ? synced.harmonicEnabled : pageStorageGet(ENABLED_BACKUP_KEY);
+    const synced = await chromeSyncGet(["harmonovaEnabled"]);
+    let enabled = typeof synced.harmonovaEnabled === "boolean" ? synced.harmonovaEnabled : pageStorageGet(ENABLED_BACKUP_KEY);
     if (typeof enabled !== "boolean") enabled = true;
-    if (typeof synced.harmonicEnabled !== "boolean") await chromeSyncSet({ harmonicEnabled: enabled });
+    if (typeof synced.harmonovaEnabled !== "boolean") await chromeSyncSet({ harmonovaEnabled: enabled });
     pageStorageSet(ENABLED_BACKUP_KEY, enabled);
     return enabled;
   }
@@ -408,7 +435,7 @@
   async function isOriginalTab() {
     if (location.hash === ORIGINAL_HASH) return true;
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "HARMONIC_TAB_MODE" }, (response) => {
+      chrome.runtime.sendMessage({ type: "HARMONOVA_TAB_MODE" }, (response) => {
         resolve(Boolean(response?.original));
       });
     });
@@ -417,68 +444,50 @@
   async function saveSettings() {
     const settings = { ...state.settings };
     pageStorageSet(SETTINGS_BACKUP_KEY, settings);
-    await chromeSyncSet({ harmonicSettings: settings });
-  }
-
-  async function loadHarmonicFont() {
-    try {
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: "HARMONIC_FONT" }, (result) => resolve(result));
-      });
-      if (!response?.ok || !response.dataUrl || typeof FontFace !== "function") return false;
-      const face = new FontFace("Google Sans Flex Rounded", `url(${response.dataUrl})`, {
-        style: "normal",
-        weight: "100 900",
-        display: "swap",
-      });
-      await face.load();
-      document.fonts.add(face);
-      document.documentElement.classList.add("harmonic-font-loaded");
-      return true;
-    } catch {
-      return false;
-    }
+    await chromeSyncSet({ harmonovaSettings: settings });
   }
 
   async function loadPersistentState() {
     const [stored, synced] = await Promise.all([
-      runtimeMessage({ type: "HARMONIC_LOCAL_STATE_GET" }),
-      chromeSyncGet(["harmonicSettings"]),
+      runtimeMessage({ type: "HARMONOVA_LOCAL_STATE_GET" }),
+      chromeSyncGet(["harmonovaSettings"]),
     ]);
     const backedUpSettings = pageStorageGet(SETTINGS_BACKUP_KEY);
     const readIds = Array.isArray(stored?.readStoryIds) ? stored.readStoryIds : [];
-    const bookmarks = Array.isArray(stored?.harmonicBookmarks) ? stored.harmonicBookmarks : [];
-    const settings = synced.harmonicSettings || backedUpSettings || stored?.harmonicSettings || DEFAULT_SETTINGS;
+    const bookmarks = Array.isArray(stored?.harmonovaBookmarks) ? stored.harmonovaBookmarks : [];
+    const settings = synced.harmonovaSettings || backedUpSettings || stored?.harmonovaSettings || DEFAULT_SETTINGS;
     state.readIds = new Set(readIds);
     state.bookmarks = new Set(bookmarks);
     state.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    // Existing installations may have selected the removed upstream font.
+    if (state.settings.uiFont === "harmonic") state.settings.uiFont = "system";
     // Phase 7 part 2: local, exportable user data lives in page storage
     // (pageStorage helpers already (de)serialize JSON).
-    const tags = pageStorageGet("harmonicUserTags");
+    const tags = pageStorageGet("harmonovaUserTags");
     if (tags && typeof tags === "object" && !Array.isArray(tags)) {
       state.userTags = new Map(Object.entries(tags).slice(0, 500).map(([author, tag]) => [String(author).slice(0, 40), String(tag).slice(0, 40)]));
     }
-    const blocked = pageStorageGet("harmonicBlockedUsers");
+    const blocked = pageStorageGet("harmonovaBlockedUsers");
     if (Array.isArray(blocked)) state.blockedUsers = new Set(blocked.filter((entry) => typeof entry === "string").slice(0, 500));
-    const seen = pageStorageGet("harmonicSeenComments");
+    const seen = pageStorageGet("harmonovaSeenComments");
     if (seen && typeof seen === "object" && !Array.isArray(seen)) {
       state.seenTimes = new Map(Object.entries(seen).slice(-400).map(([id, ts]) => [Number(id), Number(ts) || 0]).filter(([id, ts]) => Number.isInteger(id) && id > 0));
     }
     pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
-    if (!synced.harmonicSettings) await chromeSyncSet({ harmonicSettings: state.settings });
+    if (!synced.harmonovaSettings) await chromeSyncSet({ harmonovaSettings: state.settings });
   }
 
   function persistUserTags() {
-    pageStorageSet("harmonicUserTags", Object.fromEntries([...state.userTags].slice(0, 500)));
+    pageStorageSet("harmonovaUserTags", Object.fromEntries([...state.userTags].slice(0, 500)));
   }
 
   function persistBlockedUsers() {
-    pageStorageSet("harmonicBlockedUsers", [...state.blockedUsers].slice(0, 500));
+    pageStorageSet("harmonovaBlockedUsers", [...state.blockedUsers].slice(0, 500));
   }
 
   function persistSeenTimes() {
     if (INCOGNITO) return; // memory-only in incognito
-    pageStorageSet("harmonicSeenComments", Object.fromEntries([...state.seenTimes].slice(-400)));
+    pageStorageSet("harmonovaSeenComments", Object.fromEntries([...state.seenTimes].slice(-400)));
   }
 
   async function markRead(id) {
@@ -486,7 +495,7 @@
     state.readIds.add(id);
     if (!INCOGNITO) {
       const readStoryIds = [...state.readIds].slice(-1500);
-      await runtimeMessage({ type: "HARMONIC_READ_IDS_SET", ids: readStoryIds });
+      await runtimeMessage({ type: "HARMONOVA_READ_IDS_SET", ids: readStoryIds });
     }
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("is-read");
   }
@@ -495,7 +504,7 @@
     if (state.bookmarks.has(id)) state.bookmarks.delete(id);
     else state.bookmarks.add(id);
     if (!INCOGNITO) {
-      await runtimeMessage({ type: "HARMONIC_BOOKMARKS_SET", ids: [...state.bookmarks] });
+      await runtimeMessage({ type: "HARMONOVA_BOOKMARKS_SET", ids: [...state.bookmarks] });
     }
     document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) => {
       node.classList.toggle("active", state.bookmarks.has(id));
@@ -509,7 +518,7 @@
     if (cached?.failedUntil) state.previewById.delete(story.id);
     const timer = setTimeout(() => resolve({ image: null, tint: null, favicon: null }), 7000);
     const wantRich = state.settings.richPreviews !== false;
-    chrome.runtime.sendMessage({ type: "HARMONIC_PREVIEW", url: story.url, rich: wantRich }, (response) => {
+    chrome.runtime.sendMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich }, (response) => {
       clearTimeout(timer);
       const value = response?.ok ? response : { image: null, tint: null, favicon: null };
       // Without rich facts the response stays uncached while the toggle is
@@ -543,11 +552,11 @@
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           previewObserver.unobserve(entry.target);
-          entry.target._loadHarmonicPreview?.();
-          delete entry.target._loadHarmonicPreview;
+          entry.target._loadHarmoNovaPreview?.();
+          delete entry.target._loadHarmoNovaPreview;
         }
       }, { root: storyList, rootMargin: "300px" });
-      card._loadHarmonicPreview = add;
+      card._loadHarmoNovaPreview = add;
       previewObserver.observe(card);
     } else add();
   };
@@ -594,7 +603,7 @@
     const storyScale = storySetting / 17.5;
     const commentSetting = Number(state.settings.commentTextSize || 15);
     app.dataset.cardClickComments = String(state.settings.cardClickComments);
-    // Harmonic's semantic settings rendered at desktop density. The Android app's dp/sp
+    // HarmoNova's semantic settings rendered at desktop density. The Android app's dp/sp
     // values are physically larger on a high-density display, so this preserves the same
     // visual scale on a standard-density laptop instead of shrinking the UI.
     app.style.setProperty("--story-text-size", ((23 + (storySetting - 17.5) * 1.25) * contentScale) + "px");
@@ -614,21 +623,21 @@
     const root = document.documentElement;
     const themes = ["amoled", "charcoal", "navy"];
     root.dataset.theme = themes.includes(state.settings.uiTheme) ? state.settings.uiTheme : "amoled";
-    const fonts = ["harmonic", "system", "serif"];
-    root.dataset.font = fonts.includes(state.settings.uiFont) ? state.settings.uiFont : "harmonic";
+    const fonts = ["system", "serif"];
+    root.dataset.font = fonts.includes(state.settings.uiFont) ? state.settings.uiFont : "system";
   }
 
   function showToast(message, options = {}) {
-    let toast = document.querySelector(".harmonic-toast");
+    let toast = document.querySelector(".harmonova-toast");
     if (!toast) {
-      toast = el("div", "harmonic-toast");
+      toast = el("div", "harmonova-toast");
       document.body.appendChild(toast);
     }
     // Phase 4: toasts can carry one action button (e.g. Undo for hide).
     toast.replaceChildren();
-    toast.appendChild(el("span", "harmonic-toast-message", message));
+    toast.appendChild(el("span", "harmonova-toast-message", message));
     if (options.actionLabel && typeof options.onAction === "function") {
-      const action = el("button", "harmonic-toast-action", options.actionLabel);
+      const action = el("button", "harmonova-toast-action", options.actionLabel);
       action.type = "button";
       action.addEventListener("click", () => {
         clearTimeout(showToast.timer);
@@ -674,7 +683,7 @@
     moreButton.addEventListener("click", (event) => openMoreMenu(event.currentTarget));
     accountChip = el("button", "account-chip");
     accountChip.type = "button";
-    accountChip.id = "harmonic-account-chip";
+    accountChip.id = "harmonova-account-chip";
     accountChip.addEventListener("click", (event) => {
       if (!event.isTrusted) return; // SEC-30: scripted clicks never open menus
       openAccountMenu(event.currentTarget);
@@ -808,8 +817,8 @@
   }
 
   function openPopup(anchor, items, pointer = null) {
-    document.querySelector(".harmonic-popup")?.remove();
-    const popup = el("div", "harmonic-popup");
+    document.querySelector(".harmonova-popup")?.remove();
+    const popup = el("div", "harmonova-popup");
     for (const item of items) {
       if (item.heading) {
         popup.appendChild(el("div", "popup-heading", item.heading));
@@ -854,7 +863,7 @@
 // ---------------------------------------------------------------------------
 
 // SEC-02: the only login hand-off. The goto value is built from an allowlist of
-// Harmonic's own known paths — user-supplied query strings are never reflected.
+// HarmoNova's own known paths — user-supplied query strings are never reflected.
 function currentGotoPath() {
   if (location.pathname === "/item") {
     const id = Number(new URLSearchParams(location.search).get("id"));
@@ -879,7 +888,7 @@ function openHnPage(path) {
 
 function updateAccountChip() {
   if (!accountChip) return;
-  const session = window.HarmonicHN?.session?.() || null;
+  const session = window.HarmoNovaHN?.session?.() || null;
   accountChip.replaceChildren();
   accountChip.classList.toggle("logged-in", Boolean(session));
   if (session?.username) {
@@ -895,7 +904,7 @@ function updateAccountChip() {
 }
 
 function openAccountMenu(anchor) {
-  const session = window.HarmonicHN?.session?.() || null;
+  const session = window.HarmoNovaHN?.session?.() || null;
   if (!session) {
     openPopup(anchor, [
       { label: "Log in", icon: "user", action: goToLogin },
@@ -916,11 +925,11 @@ function openAccountMenu(anchor) {
   ]);
 }
 
-// SEC-04: logout is a signed-in fetch handled by HarmonicHN, not a navigation
+// SEC-04: logout is a signed-in fetch handled by HarmoNovaHN, not a navigation
 // to /logout, so tokens are never pasted into URLs. Afterwards we reload the
 // feed so the page reflects the signed-out state.
 async function performLogout() {
-  const outcome = await window.HarmonicHN?.logout?.();
+  const outcome = await window.HarmoNovaHN?.logout?.();
   if (!outcome || outcome.status !== "success") {
     showToast(outcome?.message || "Sign-out needs Hacker News");
     return;
@@ -937,17 +946,17 @@ async function performLogout() {
 // Phase 2: voting (story upvote, comment up/down votes, poll options)
 // ---------------------------------------------------------------------------
 
-// Vote state seen on the feed document when Harmonic first mounted. Used to
+// Vote state seen on the feed document when HarmoNova first mounted. Used to
 // light up "already voted" affordances before per-item state is fetched.
 function seedFeedVotes() {
-  const docVotes = window.HarmonicHN?.documentVoteState?.() || {};
+  const docVotes = window.HarmoNovaHN?.documentVoteState?.() || {};
   for (const [id, direction] of Object.entries(docVotes)) {
     const numeric = Number(id);
     if (Number.isInteger(numeric) && numeric > 0) state.feedVotes.set(numeric, direction === "down" ? "down" : "up");
   }
 }
 
-// SEC-30: Harmonic never sends an action unless the click is a real user
+// SEC-30: HarmoNova never sends an action unless the click is a real user
 // gesture. Scripted element.click() from page code has isTrusted === false.
 function requireTrustedEvent(event) {
   if (event?.isTrusted) return true;
@@ -961,21 +970,21 @@ function cancelItemState() {
   state.itemStateToken++;
 }
 
-// Once a story has been open for 600ms, ask Hacker News (via HarmonicHN) for
+// Once a story has been open for 600ms, ask Hacker News (via HarmoNovaHN) for
 // the document state: the story's vote links and every comment's vote links.
 // This is a single signed-in GET, queued through the module's rate limiter.
 function scheduleItemState(id) {
   cancelItemState();
   const token = state.itemStateToken;
   state.itemStateTimer = setTimeout(async () => {
-    if (!window.HarmonicHN || state.selectedId !== id || token !== state.itemStateToken) return;
+    if (!window.HarmoNovaHN || state.selectedId !== id || token !== state.itemStateToken) return;
     await loadThreadItemState(id, token);
   }, 600);
 }
 
 async function loadThreadItemState(id, token) {
   try {
-    const itemState = await window.HarmonicHN.ensureItemState(id);
+    const itemState = await window.HarmoNovaHN.ensureItemState(id);
     if (token !== state.itemStateToken || state.selectedId !== id) return;
     state.itemState = itemState || null;
     if (itemState?.story?.voted) state.feedVotes.set(id, itemState.story.votedDirection === "down" ? "down" : "up");
@@ -1068,7 +1077,7 @@ function bumpThreadPoints(delta) {
 
 async function handleStoryVote(event) {
   if (!requireTrustedEvent(event)) return;
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to vote");
     goToLogin();
@@ -1103,7 +1112,7 @@ async function handleStoryVote(event) {
     bumpThreadPoints(voted ? 1 : -1);
   };
   try {
-    const outcome = await window.HarmonicHN.vote(storyId, direction);
+    const outcome = await window.HarmoNovaHN.vote(storyId, direction);
     if (outcome.status !== "success") {
       rollback();
       showToast(outcome.message || "The vote did not go through");
@@ -1130,7 +1139,7 @@ async function handleStoryVote(event) {
 
 async function handleCommentVote(event, commentId, requestedDown = null) {
   if (!requireTrustedEvent(event)) return;
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to vote");
     return;
@@ -1155,7 +1164,7 @@ async function handleCommentVote(event, commentId, requestedDown = null) {
   buttonNode.classList.add("pending");
   buttonNode.classList.toggle("active", !voted);
   try {
-    const outcome = await window.HarmonicHN.vote(commentId, direction);
+    const outcome = await window.HarmoNovaHN.vote(commentId, direction);
     if (outcome.status !== "success") {
       showToast(outcome.message || "The vote did not go through");
       if (outcome.status === "loginRequired") updateAccountChip();
@@ -1183,7 +1192,7 @@ async function handleCommentVote(event, commentId, requestedDown = null) {
 
 async function handleStoryFavorite(event) {
   if (!requireTrustedEvent(event)) return;
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to favorite");
     goToLogin();
@@ -1198,7 +1207,7 @@ async function handleStoryFavorite(event) {
   favoriteButton.classList.add("pending");
   favoriteButton.classList.toggle("active", !favorited); // optimistic
   try {
-    const outcome = await window.HarmonicHN.setFavorite(storyId, !favorited);
+    const outcome = await window.HarmoNovaHN.setFavorite(storyId, !favorited);
     if (outcome.status === "success") {
       if (state.itemState && state.itemState.itemId === storyId && outcome.state) {
         state.itemState.story = { ...state.itemState.story, ...outcome.state };
@@ -1219,7 +1228,7 @@ async function handleStoryFavorite(event) {
 
 async function handleStoryHide(event) {
   if (!requireTrustedEvent(event)) return;
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to hide");
     goToLogin();
@@ -1233,7 +1242,7 @@ async function handleStoryHide(event) {
   hideButton.dataset.pending = "1";
   hideButton.classList.add("pending");
   try {
-    const outcome = await window.HarmonicHN.setHidden(storyId, !hidden);
+    const outcome = await window.HarmoNovaHN.setHidden(storyId, !hidden);
     if (outcome.status === "success") {
       if (state.itemState && state.itemState.itemId === storyId) {
         state.itemState.story = { ...state.itemState.story, hidden: !hidden };
@@ -1262,7 +1271,7 @@ async function handleStoryHide(event) {
 
 async function unhideStory(storyId) {
   try {
-    const outcome = await window.HarmonicHN.setHidden(storyId, false);
+    const outcome = await window.HarmoNovaHN.setHidden(storyId, false);
     if (outcome.status === "success") {
       if (state.itemState && state.itemState.itemId === storyId) state.itemState.story.hidden = false;
       showToast("Story unhidden");
@@ -1287,7 +1296,7 @@ function confirmFlagItem(event, itemId, kind) {
     danger: true,
     onConfirm: async () => {
       try {
-        const outcome = await window.HarmonicHN.setFlagged(itemId, true);
+        const outcome = await window.HarmoNovaHN.setFlagged(itemId, true);
         showToast(outcome.status === "success" ? capitalize(kind) + " flagged" : outcome.message || "Flagging did not go through");
       } catch {
         showToast("Flagging did not go through");
@@ -1304,14 +1313,14 @@ function capitalize(text) {
 // and an undo toast brings it back without reloading the feed.
 async function hideFromFeed(event, storyId) {
   if (!requireTrustedEvent(event)) return;
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to hide");
     return;
   }
   const card = document.querySelector('.story-card[data-story-id="' + storyId + '"]');
   try {
-    const outcome = await window.HarmonicHN.setHidden(storyId, true);
+    const outcome = await window.HarmoNovaHN.setHidden(storyId, true);
     if (outcome.status !== "success") {
       if (outcome.status === "loginRequired" || outcome.status === "accountChanged") updateAccountChip();
       showToast(outcome.message || "The story could not be hidden");
@@ -1323,7 +1332,7 @@ async function hideFromFeed(event, storyId) {
       duration: 6000,
       onAction: async () => {
         try {
-          const undo = await window.HarmonicHN.setHidden(storyId, false);
+          const undo = await window.HarmoNovaHN.setHidden(storyId, false);
           if (undo.status === "success") {
             card?.classList.remove("is-hidden");
             showToast("Story unhidden");
@@ -1344,7 +1353,7 @@ async function hideFromFeed(event, storyId) {
 // and stay cancellable between items.
 let bulkFavoritesCancelled = false;
 function addBookmarksToFavorites() {
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to use your Hacker News favorites");
     return;
@@ -1382,7 +1391,7 @@ async function runBulkFavorites(ids) {
       },
     });
     try {
-      const outcome = await window.HarmonicHN.setFavorite(ids[index], true);
+      const outcome = await window.HarmoNovaHN.setFavorite(ids[index], true);
       if (outcome.status === "success") {
         added++;
       } else if (outcome.status === "loginRequired" || outcome.status === "accountChanged") {
@@ -1404,7 +1413,7 @@ async function runBulkFavorites(ids) {
 // ---------------------------------------------------------------------------
 
 function startNewPost() {
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to submit");
     return;
@@ -1413,14 +1422,14 @@ function startNewPost() {
 }
 
 function openSubmitModal() {
-  document.querySelector(".harmonic-submit-overlay")?.remove();
-  const session = window.HarmonicHN?.session?.();
+  document.querySelector(".harmonova-submit-overlay")?.remove();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to submit");
     return;
   }
-  const overlay = el("div", "harmonic-submit-overlay");
-  const panel = el("div", "harmonic-submit");
+  const overlay = el("div", "harmonova-submit-overlay");
+  const panel = el("div", "harmonova-submit");
   const header = el("div", "submit-header");
   header.append(
     el("h3", "", "New post"),
@@ -1480,7 +1489,7 @@ function openSubmitModal() {
       open.type = "button";
       open.addEventListener("click", () => openOriginalHackerNews("/submit"));
       status.appendChild(open);
-      const session = window.HarmonicHN?.session?.();
+      const session = window.HarmoNovaHN?.session?.();
       if (session?.username) {
         const check = el("button", "submit-hn-open", "Check my submissions");
         check.type = "button";
@@ -1520,14 +1529,14 @@ function openSubmitModal() {
     status.textContent = "Opening the Hacker News submit form…";
     (async () => {
       try {
-        const opened = await window.HarmonicHN.openSubmitForm();
+        const opened = await window.HarmoNovaHN.openSubmitForm();
         if (opened.status !== "ok") {
           if (opened.status === "loginRequired") updateAccountChip();
           fail(opened.message || "Could not open the Hacker News submit form. Open it on Hacker News instead.", true);
           return;
         }
         status.textContent = "Posting your story…";
-        const outcome = await window.HarmonicHN.submitStory(opened.handle, { title, url, text });
+        const outcome = await window.HarmoNovaHN.submitStory(opened.handle, { title, url, text });
         handleSubmitOutcome(outcome);
       } catch {
         fail("The request to Hacker News failed. Your values are kept.");
@@ -1550,7 +1559,7 @@ function openSubmitModal() {
     }
     if (outcome.status === "validationRequired") {
       // Keep the entered values and hand off to HN's own stock form —
-      // Harmonic never auto-fills a form on hacker news itself.
+      // HarmoNova never auto-fills a form on hacker news itself.
       const open = el("button", "submit-hn-open", "Open the Hacker News submit form");
       open.type = "button";
       open.addEventListener("click", () => openOriginalHackerNews("/submit"));
@@ -1593,7 +1602,7 @@ const PUBLIC_LIST_TITLES = {
 async function openListView(kind, username) {
   const config = LIST_VIEWS[kind];
   if (!config) return;
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   const own = !username || username === session?.username;
   if (!own && !config.public) {
     showToast("That list is private on Hacker News");
@@ -1654,10 +1663,10 @@ async function loadListViewBatch() {
   const path = view.pendingMore || view.path;
   if (body && firstBatch) body.replaceChildren(createLoading("Loading your " + view.kind + "…"));
   try {
-    const result = await window.HarmonicHN.fetchListPage(path);
+    const result = await window.HarmoNovaHN.fetchListPage(path);
     if (state.listView !== view) return;
     if (result.status !== "ok") {
-      if (body) body.replaceChildren(el("div", "harmonic-error", result.message || "Hacker News did not return the list"));
+      if (body) body.replaceChildren(el("div", "harmonova-error", result.message || "Hacker News did not return the list"));
       view.loading = false;
       if (moreButton) moreButton.hidden = true;
       return;
@@ -1682,7 +1691,7 @@ async function loadListViewBatch() {
     if (body && !body.childElementCount) body.appendChild(el("div", "list-empty", "Nothing here yet."));
   } catch {
     view.loading = false;
-    if (body) body.replaceChildren(el("div", "harmonic-error", "The list could not be loaded. Try again shortly."));
+    if (body) body.replaceChildren(el("div", "harmonova-error", "The list could not be loaded. Try again shortly."));
     if (moreButton) moreButton.hidden = true;
   }
 }
@@ -1728,9 +1737,9 @@ function memberSince(created) {
 // profile HTML is never fetched, so no cookies or tokens flow to /user.
 async function openUserPanel(username) {
   if (!/^[A-Za-z0-9_-]{1,32}$/.test(username || "")) return;
-  document.querySelector(".harmonic-user-overlay")?.remove();
-  const overlay = el("div", "harmonic-user-overlay");
-  const panel = el("div", "harmonic-user");
+  document.querySelector(".harmonova-user-overlay")?.remove();
+  const overlay = el("div", "harmonova-user-overlay");
+  const panel = el("div", "harmonova-user");
   const header = el("div", "user-header");
   header.append(
     el("h3", "", username),
@@ -1748,7 +1757,7 @@ async function openUserPanel(username) {
   const submissionsTitle = el("h4", "", "Recent items");
   const submissions = el("div", "user-submissions");
   const links = el("div", "user-links");
-  // Segmented public-list tabs open inside Harmonic, for own and other users.
+  // Segmented public-list tabs open inside HarmoNova, for own and other users.
   const tabs = el("nav", "user-tabs");
   for (const kind of ["submissions", "comments", "favorites"]) {
     const tab = el("button", "user-tab", kind[0].toUpperCase() + kind.slice(1));
@@ -1897,32 +1906,32 @@ function updateFeedVoteBadges() {
 // logout and after a successful post. They never touch disk or sync.
 const draftGet = (parentId) =>
   new Promise((resolve) => {
-    const session = window.HarmonicHN?.session?.();
-    chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_GET", parentId, username: session?.username || "" }, (response) => {
+    const session = window.HarmoNovaHN?.session?.();
+    chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_GET", parentId, username: session?.username || "" }, (response) => {
       resolve(chrome.runtime.lastError ? "" : response?.ok ? response.text || "" : "");
     });
   });
 const draftSet = (parentId, text) => {
-  const session = window.HarmonicHN?.session?.();
-  chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_SET", parentId, username: session?.username || "", text }, () => {});
+  const session = window.HarmoNovaHN?.session?.();
+  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_SET", parentId, username: session?.username || "", text }, () => {});
 };
 const draftClear = (parentId) => {
-  const session = window.HarmonicHN?.session?.();
-  chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_CLEAR", parentId, username: session?.username || "" }, () => {});
+  const session = window.HarmoNovaHN?.session?.();
+  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR", parentId, username: session?.username || "" }, () => {});
 };
-const draftClearAll = () => chrome.runtime.sendMessage({ type: "HARMONIC_DRAFT_CLEAR_ALL" }, () => {});
+const draftClearAll = () => chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL" }, () => {});
 
 // SEC-36: destructive actions (delete comment) run only behind a real
 // confirmation dialog with a Cancel button.
 function openConfirmDialog({ title, message, confirmLabel = "Confirm", danger = false, onConfirm }) {
-  document.querySelector(".harmonic-confirm-overlay")?.remove();
-  const overlay = el("div", "harmonic-confirm-overlay");
-  const panel = el("div", "harmonic-confirm");
-  panel.append(el("h3", "", title), el("p", "harmonic-confirm-message", message));
-  const row = el("div", "harmonic-confirm-actions");
-  const cancel = el("button", "harmonic-confirm-cancel", "Cancel");
+  document.querySelector(".harmonova-confirm-overlay")?.remove();
+  const overlay = el("div", "harmonova-confirm-overlay");
+  const panel = el("div", "harmonova-confirm");
+  panel.append(el("h3", "", title), el("p", "harmonova-confirm-message", message));
+  const row = el("div", "harmonova-confirm-actions");
+  const cancel = el("button", "harmonova-confirm-cancel", "Cancel");
   cancel.type = "button";
-  const confirm = el("button", "harmonic-confirm-confirm" + (danger ? " danger" : ""), confirmLabel);
+  const confirm = el("button", "harmonova-confirm-confirm" + (danger ? " danger" : ""), confirmLabel);
   confirm.type = "button";
   cancel.addEventListener("click", () => overlay.remove());
   overlay.addEventListener("click", (event) => {
@@ -1992,7 +2001,7 @@ function openComposer(options) {
   const { parentId, storyId, mode = "reply", handle = null, initialText = "", anchor = null, onDone = null } = options;
   if (!Number.isInteger(parentId) || parentId <= 0) return;
   closeComposer({ keepDraft: true });
-  const session = window.HarmonicHN?.session?.();
+  const session = window.HarmoNovaHN?.session?.();
   if (!session) {
     showToast("Sign in to reply");
     return;
@@ -2126,7 +2135,7 @@ function openComposer(options) {
   if (mode === "reply") {
     status.hidden = false;
     status.textContent = "Checking availability on Hacker News…";
-    window.HarmonicHN.openReplyForm(parentId, { storyId }).then((opened) => {
+    window.HarmoNovaHN.openReplyForm(parentId, { storyId }).then((opened) => {
       if (state.composer !== composer) return;
       if (opened.status === "ok") {
         composer.handle = opened.handle;
@@ -2191,9 +2200,9 @@ function openComposer(options) {
       try {
         let outcome;
         if (mode === "edit") {
-          outcome = await window.HarmonicHN.saveEdit(handle, text);
+          outcome = await window.HarmoNovaHN.saveEdit(handle, text);
         } else {
-          outcome = await window.HarmonicHN.postComment(composer.handle, text);
+          outcome = await window.HarmoNovaHN.postComment(composer.handle, text);
         }
         handleComposerOutcome(composer, outcome, text);
       } catch {
@@ -2239,7 +2248,7 @@ function applyLocalComment(composer, outcome, text) {
   if (!posted || !Number.isSafeInteger(posted.id)) return;
   const entry = {
     id: posted.id,
-    author: window.HarmonicHN.session()?.username || null,
+    author: window.HarmoNovaHN.session()?.username || null,
     created_at_i: Math.floor(Date.now() / 1000),
     text: posted.html,
     children: [],
@@ -2339,20 +2348,20 @@ function openFeedMenu(anchor) {
 
   function openOriginalHackerNews(path) {
     const url = "https://news.ycombinator.com" + path;
-    chrome.runtime.sendMessage({ type: "HARMONIC_OPEN_ORIGINAL", url }, (response) => {
+    chrome.runtime.sendMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url }, (response) => {
       if (response?.ok) return;
       window.open(url + ORIGINAL_HASH, "_blank", "noopener");
     });
   }
 
-  async function disableHarmonic() {
+  async function disableHarmoNova() {
     pageStorageSet(ENABLED_BACKUP_KEY, false);
-    await chromeSyncSet({ harmonicEnabled: false });
+    await chromeSyncSet({ harmonovaEnabled: false });
     location.reload();
   }
 
   function openMoreMenu(anchor) {
-    const session = window.HarmonicHN?.session?.();
+    const session = window.HarmoNovaHN?.session?.();
     const karma = session?.karma == null ? "" : " · " + compact(session.karma) + " karma";
     openPopup(anchor, [
       { label: session ? session.username + karma : "Log in", icon: "user", action: () => openAccountMenu(anchor) },
@@ -2360,7 +2369,7 @@ function openFeedMenu(anchor) {
       { label: "Add bookmarks to HN favorites", icon: "heart", action: () => addBookmarksToFavorites() },
       { label: "Settings", icon: "settings", action: openSettings },
       { label: "Open original Hacker News", icon: "external", action: () => openOriginalHackerNews(FEEDS[state.feed].path) },
-      { label: "Disable Harmonic", icon: "power", action: disableHarmonic },
+      { label: "Disable HarmoNova", icon: "power", action: disableHarmoNova },
     ]);
   }
 
@@ -2556,8 +2565,8 @@ function openFeedMenu(anchor) {
       else storyList.replaceChildren(createLoading("Searching Hacker News…"));
     }
 
-    const result = window.HarmonicSearch
-      ? await window.HarmonicSearch.runSearch(options, { signal: controller.signal })
+    const result = window.HarmoNovaSearch
+      ? await window.HarmoNovaSearch.runSearch(options, { signal: controller.signal })
       : { hits: [], page: 0, nbPages: 1, error: "The search client is unavailable" };
     if (result.aborted || controller.signal.aborted || seq !== state.search.seq) return;
     state.search.controller = null;
@@ -2582,14 +2591,14 @@ function openFeedMenu(anchor) {
   function renderHighlight(target, value) {
     // SEC-40: highlights arrive pre-tokenized as plain-text segments; hostile
     // markup can only ever render as text.
-    for (const segment of window.HarmonicSearch.buildHighlightSegments(value)) {
+    for (const segment of window.HarmoNovaSearch.buildHighlightSegments(value)) {
       target.appendChild(el("span", segment.highlighted ? "search-hit-em" : "", segment.text));
     }
   }
 
   function renderSearchError(message) {
     storyList.classList.add("search-results");
-    const fail = el("div", "harmonic-error");
+    const fail = el("div", "harmonova-error");
     fail.append(el("strong", "", "Search failed"), el("span", "", message));
     const retry = el("button", "hn-search-retry", "Retry");
     retry.type = "button";
@@ -2750,7 +2759,7 @@ function openFeedMenu(anchor) {
     if (!FEEDS[key]) return;
     state.feed = key;
     feedTitle.textContent = FEEDS[key].label;
-    history.pushState({ harmonicFeed: key }, "", FEEDS[key].path);
+    history.pushState({ harmonovaFeed: key }, "", FEEDS[key].path);
     await refreshFeed();
   }
 
@@ -2841,7 +2850,7 @@ function openFeedMenu(anchor) {
         ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(nitterize(articleHref(story)), "_blank", "noopener") }] : []),
         ...(archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(story) }] : []),
         { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
-        ...(window.HarmonicHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => hideFromFeed(e, story.id) }] : []),
+        ...(window.HarmoNovaHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => hideFromFeed(e, story.id) }] : []),
         ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => hideDomain(story) }] : []),
         { label: state.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => toggleBookmark(story.id) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
@@ -2943,14 +2952,14 @@ function openFeedMenu(anchor) {
   // the feed document (or an on-demand item fetch when the story isn't on it).
   async function voteFromFeed(event, storyId) {
     if (!requireTrustedEvent(event)) return;
-    const session = window.HarmonicHN?.session?.();
+    const session = window.HarmoNovaHN?.session?.();
     if (!session) {
       showToast("Sign in to vote");
       return;
     }
     if (!Number.isInteger(storyId) || storyId <= 0) return;
     const direction = state.feedVotes.get(storyId) ? "un" : "up";
-    const outcome = await window.HarmonicHN.vote(storyId, direction);
+    const outcome = await window.HarmoNovaHN.vote(storyId, direction);
     if (outcome.status === "success") {
       if (direction === "up") state.feedVotes.set(storyId, outcome.state?.votedDirection === "down" ? "down" : "up");
       else state.feedVotes.delete(storyId);
@@ -2963,8 +2972,8 @@ function openFeedMenu(anchor) {
   }
 
   function createLoading(label) {
-    const wrap = el("div", "harmonic-loading");
-    wrap.append(el("div", "harmonic-spinner"), el("span", "", label));
+    const wrap = el("div", "harmonova-loading");
+    wrap.append(el("div", "harmonova-spinner"), el("span", "", label));
     return wrap;
   }
 
@@ -3016,18 +3025,18 @@ function validFrontDate(value) {
 // Parity-list feeds have no Firebase id list; pull ids from public HN list
 // pages through the queue. Two pages are enough for a comfortable feed.
 async function fetchListFeedIds(listPath) {
-  const first = await window.HarmonicHN.fetchListPage(listPath);
+  const first = await window.HarmoNovaHN.fetchListPage(listPath);
   if (first.status !== "ok") {
     const error = new Error(first.message || "Hacker News did not return the list");
     error.status = first.status;
     throw error;
   }
   const ids = [...first.ids];
-  if (window.HarmonicHN.session() && first.votes) {
+  if (window.HarmoNovaHN.session() && first.votes) {
     for (const [id, direction] of Object.entries(first.votes)) state.feedVotes.set(Number(id), direction);
   }
   if (first.morePath && first.ids.length < FEED_BATCH_SIZE) {
-    const second = await window.HarmonicHN.fetchListPage(first.morePath);
+    const second = await window.HarmoNovaHN.fetchListPage(first.morePath);
     if (second.status === "ok") for (const id of second.ids) if (!ids.includes(id)) ids.push(id);
   }
   return ids;
@@ -3137,8 +3146,8 @@ async function refreshFeed() {
         ? await fetchJson(HN_API + "/" + feed.endpoint + ".json")
         : await fetchListFeedIds(listPath);
       // /news is the canonical HN list for the Top feed.
-      if (feed.endpoint === "topstories" && window.HarmonicHN?.session?.()) {
-        const hnList = await window.HarmonicHN.fetchListPage("/news");
+      if (feed.endpoint === "topstories" && window.HarmoNovaHN?.session?.()) {
+        const hnList = await window.HarmoNovaHN.fetchListPage("/news");
         if (hnList.status === "ok") {
           const shown = new Set(ids.slice(0, FEED_BATCH_SIZE));
           for (const [id, direction] of Object.entries(hnList.votes || {})) {
@@ -3174,7 +3183,7 @@ async function refreshFeed() {
         selectStory(stories[0], false, false);
       }
     } catch (error) {
-      const fail = el("div", "harmonic-error");
+      const fail = el("div", "harmonova-error");
       fail.append(el("strong", "", "Couldn’t load Hacker News"), el("span", "", error.message));
       storyList.replaceChildren(fail);
     }
@@ -3305,7 +3314,7 @@ async function refreshFeed() {
 
     // Phase 2: per-comment action row — vote, downvote (when HN offers it),
     // reply hand-off, and a "More" menu (share/copy/parent/top-level/user).
-    const session = window.HarmonicHN?.session?.() || null;
+    const session = window.HarmoNovaHN?.session?.() || null;
     const actionsRow = el("div", "comment-actions");
     const voteButton = el("button", "comment-action");
     voteButton.type = "button";
@@ -3354,7 +3363,7 @@ async function refreshFeed() {
     editButton.hidden = !canEditOwn;
     // Editing and deleting are intentionally handled by stock HN until their
     // authenticated action protocol is verified on real accounts. A user must
-    // confirm the handoff; Harmonic never fetches or POSTs either mutation.
+    // confirm the handoff; HarmoNova never fetches or POSTs either mutation.
     const handoffCommentAction = (action, event) => {
       if (!event.isTrusted || !canEditOwn) return;
       const deleting = action === "delete";
@@ -3364,11 +3373,11 @@ async function refreshFeed() {
         ? "/delete-confirm?id=" + comment.id + "&goto=" + encodeURIComponent("item?id=" + storyId)
         : "/edit?id=" + comment.id;
       openConfirmDialog({
-        title: deleting ? "Deleting comments isn't supported in Harmonic yet"
-          : "Editing comments isn't supported in Harmonic yet",
+        title: deleting ? "Deleting comments isn't supported in HarmoNova yet"
+          : "Editing comments isn't supported in HarmoNova yet",
         message: deleting
-          ? "Continue on the original Hacker News page to review and confirm deletion. Nothing will be deleted in Harmonic."
-          : "Continue on the original Hacker News page to edit this comment. Nothing will be changed in Harmonic.",
+          ? "Continue on the original Hacker News page to review and confirm deletion. Nothing will be deleted in HarmoNova."
+          : "Continue on the original Hacker News page to edit this comment. Nothing will be changed in HarmoNova.",
         confirmLabel: "Continue on Hacker News",
         onConfirm: () => openOriginalHackerNews(path),
       });
@@ -3414,7 +3423,7 @@ async function refreshFeed() {
           icon: "star", action: () => toggleBookmark(comment.id) },
         ...(session ? [{ label: "Favorite", icon: "heart",
           action: async () => {
-            const result = await window.HarmonicHN.setFavorite(comment.id, true);
+            const result = await window.HarmoNovaHN.setFavorite(comment.id, true);
             showToast(result.status === "success" ? "Favorited" : result.message || "Favorite unavailable");
           } }] : []),
         ...(canEditOwn ? [
@@ -3777,7 +3786,7 @@ async function refreshFeed() {
       }
       return;
     }
-    const keyStatus = await runtimeMessage({ type: "HARMONIC_AI_STATUS" });
+    const keyStatus = await runtimeMessage({ type: "HARMONOVA_AI_STATUS" });
     if (generation !== state.summaryGeneration || Number(item.id) !== state.selectedId) return;
     if (!keyStatus?.hasKey) {
       if (!automatic) {
@@ -3796,7 +3805,7 @@ async function refreshFeed() {
     const storyId = Number(item.id);
     state.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
     updateSummarySurface(storyId);
-    const port = chrome.runtime.connect({ name: "harmonic-ai" });
+    const port = chrome.runtime.connect({ name: "harmonova-ai" });
     state.activeSummary = { storyId, port, source };
 
     port.onMessage.addListener((message) => {
@@ -3867,7 +3876,7 @@ async function refreshFeed() {
     markRead(id);
     document.querySelectorAll(".story-card.selected").forEach((node) => node.classList.remove("selected"));
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("selected");
-    if (push) history.pushState({ harmonicItem: id }, "", "/item?id=" + id);
+    if (push) history.pushState({ harmonovaItem: id }, "", "/item?id=" + id);
     document.body.classList.add("thread-active");
     if (scrollTop) threadPane.scrollTop = 0;
     await loadThread(id);
@@ -3894,7 +3903,7 @@ async function refreshFeed() {
       state.thread = item;
       renderThread(item);
     } catch (error) {
-      const fail = el("div", "harmonic-error");
+      const fail = el("div", "harmonova-error");
       fail.append(el("strong", "", "Couldn’t load discussion"), el("span", "", error.message));
       threadPane.replaceChildren(fail);
     }
@@ -3902,7 +3911,7 @@ async function refreshFeed() {
 
   async function renderThread(item) {
     threadPane.replaceChildren();
-    document.title = (item.title || "Discussion") + " — Harmonic";
+    document.title = (item.title || "Discussion") + " — HarmoNova";
     const header = el("header", "thread-header");
     const hero = el("a", "thread-hero");
     hero.href = articleHref(item);
@@ -3950,7 +3959,7 @@ async function refreshFeed() {
       authorLink
     );
 
-    const session = window.HarmonicHN?.session?.() || null;
+    const session = window.HarmoNovaHN?.session?.() || null;
     const replyAction = threadAction("replyPlus", "Add reply", () => session
       ? openComposer({ parentId: item.id, storyId: item.id })
       : showToast("Sign in to reply"));
@@ -4030,7 +4039,7 @@ async function refreshFeed() {
               icon: "flag",
               action: (popupEvent) => {
                 if (storyState.flagged) {
-                  window.HarmonicHN.setFlagged(item.id, false).then((outcome) =>
+                  window.HarmoNovaHN.setFlagged(item.id, false).then((outcome) =>
                     showToast(outcome.status === "success" ? "Flag removed" : outcome.message || "The flag could not be removed")
                   );
                 } else {
@@ -4040,7 +4049,7 @@ async function refreshFeed() {
             }]
           : []),
         { label: "Settings", icon: "settings", action: openSettings },
-        { label: "Disable Harmonic", icon: "power", action: disableHarmonic },
+        { label: "Disable HarmoNova", icon: "power", action: disableHarmoNova },
       ]);
     });
     actions.appendChild(more);
@@ -4313,11 +4322,11 @@ async function refreshFeed() {
     const manage = el("button", "setting-button", "Configure");
     manage.type = "button";
     manage.addEventListener("click", async () => {
-      const result = await runtimeMessage({ type: "HARMONIC_OPEN_AI_SETTINGS" });
+      const result = await runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
       if (!result?.ok) showToast("Couldn’t open secure API key settings");
     });
     row.append(text, manage);
-    runtimeMessage({ type: "HARMONIC_AI_STATUS" }).then((status) => {
+    runtimeMessage({ type: "HARMONOVA_AI_STATUS" }).then((status) => {
       summary.textContent = status?.hasKey
         ? status.preview + (status.storage === "session" ? " · session only" : " · saved locally")
         : "Not set · stored separately from synced settings";
@@ -4405,8 +4414,8 @@ async function refreshFeed() {
     appearanceSection.append(
       el("h3", "", "Appearance"),
       settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
-      settingSelect("Font", "uiFont", [["harmonic", "Harmonic"], ["system", "System UI"], ["serif", "Serif"]]),
-      el("p", "settings-note", "Themes restyle Harmonic's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
+      settingSelect("Font", "uiFont", [["system", "System UI"], ["serif", "Serif"]]),
+      el("p", "settings-note", "Themes restyle HarmoNova's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
     );
 
     const linksSection = el("div", "settings-section");
@@ -4420,11 +4429,11 @@ async function refreshFeed() {
           if (state.settings.nitterInstance && !nitterInstanceHost()) showToast("That doesn't look like a hostname — Nitter links keep the default");
         },
       }),
-      el("p", "settings-note", "Rich previews talk only to api.github.com, wikipedia.org, and export.arxiv.org; responses are validated field-by-field and rendered as plain text. Nitter replaces the host and keeps the path; nothing is sent to Harmonic.")
+      el("p", "settings-note", "Rich previews talk only to api.github.com, wikipedia.org, and export.arxiv.org; responses are validated field-by-field and rendered as plain text. Nitter replaces the host and keeps the path; nothing is sent to HarmoNova.")
     );
 
     const aiSection = el("div", "settings-section ai-settings-section");
-    const resetPrompt = el("button", "setting-button", "Reset to Harmonic default");
+    const resetPrompt = el("button", "setting-button", "Reset to HarmoNova default");
     resetPrompt.type = "button";
     resetPrompt.addEventListener("click", async () => {
       state.settings.aiSystemPrompt = DEFAULT_SETTINGS.aiSystemPrompt;
@@ -4436,7 +4445,7 @@ async function refreshFeed() {
       settingToggle("Use AI summarization", "aiEnabled", "One click on Story tools summarizes the linked article"),
       aiKeySettingRow(),
       settingText("OpenRouter model", "aiModel", "Use openrouter/free for the free-model router or enter any OpenRouter model ID"),
-      settingText("System prompt", "aiSystemPrompt", "Harmonic’s concise article-summary instruction", { multiline: true }),
+      settingText("System prompt", "aiSystemPrompt", "HarmoNova’s concise article-summary instruction", { multiline: true }),
       resetPrompt,
       settingToggle("Stream responses", "aiStreamResponses", "Show the summary as OpenRouter generates it"),
       settingToggle("Automatically summarize articles", "aiAutoSummarize", "Start summarizing when a discussion with a linked article opens"),
@@ -4451,17 +4460,17 @@ async function refreshFeed() {
       el("p", "settings-note", "The large comment button always opens the discussion. With card-click comments enabled, open the article from the title inside the discussion. Bookmarks and read state stay local to this Chrome profile.")
     );
 
-    // Phase 1: Account explainer. Harmonic has no password field (SEC-01);
+    // Phase 1: Account explainer. HarmoNova has no password field (SEC-01);
     // sign-in happens on Hacker News's own page and the session lives in
     // Hacker News's cookie.
-    const session = window.HarmonicHN?.session?.() || null;
+    const session = window.HarmoNovaHN?.session?.() || null;
     const accountSection = el("div", "settings-section");
     accountSection.append(
       el("h3", "", "Account"),
       el("p", "settings-note", session?.username
         ? "Signed in to Hacker News as " + session.username + (session.karma !== null && session.karma !== undefined ? " (" + compact(session.karma) + " karma)" : "") + ". Use the account chip in the toolbar to open your profile or log out."
         : "Not signed in to Hacker News. Use the Log in chip in the toolbar — sign-in happens on Hacker News's own page in this tab."),
-      el("p", "settings-note", "Harmonic never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, Harmonic sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach Harmonic's storage or sync.")
+      el("p", "settings-note", "HarmoNova never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, HarmoNova sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach HarmoNova's storage or sync.")
     );
 
     // A category index keeps the settings compact without changing any
@@ -4537,7 +4546,7 @@ async function refreshFeed() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "harmonic-user-data.json";
+    link.download = "harmonova-user-data.json";
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -4601,8 +4610,8 @@ async function refreshFeed() {
     for (const id of readStoryIds) state.readIds.add(id);
     if (userTags) for (const [author, tag] of Object.entries(userTags)) state.userTags.set(author, tag);
     if (blockedUsers) for (const author of blockedUsers) state.blockedUsers.add(author);
-    await runtimeMessage({ type: "HARMONIC_BOOKMARKS_SET", ids: [...state.bookmarks].slice(0, 2000) });
-    await runtimeMessage({ type: "HARMONIC_READ_IDS_SET", ids: [...state.readIds].slice(-1500) });
+    await runtimeMessage({ type: "HARMONOVA_BOOKMARKS_SET", ids: [...state.bookmarks].slice(0, 2000) });
+    await runtimeMessage({ type: "HARMONOVA_READ_IDS_SET", ids: [...state.readIds].slice(-1500) });
     persistUserTags();
     persistBlockedUsers();
     document.querySelectorAll(".story-card").forEach((card) => {
@@ -4623,7 +4632,7 @@ async function refreshFeed() {
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== "HARMONIC_OPEN_SETTINGS") return;
+    if (message?.type !== "HARMONOVA_OPEN_SETTINGS") return;
     if (!app) {
       sendResponse({ ok: false });
       return;
@@ -4633,9 +4642,9 @@ async function refreshFeed() {
   });
 
   function mount() {
-    document.body.className = "harmonic-body";
+    document.body.className = "harmonova-body";
     document.body.replaceChildren();
-    app = el("div", "harmonic-app");
+    app = el("div", "harmonova-app");
     feedPane = el("section", "feed-pane");
     const feedInner = el("div", "feed-inner");
     storyList = el("div", "story-list");
@@ -4655,7 +4664,7 @@ async function refreshFeed() {
     threadPane.appendChild(createThreadPlaceholder());
     app.append(feedPane, threadPane);
     document.body.appendChild(app);
-    // Phase 6: author links open the in-Harmonic user panel (Firebase-backed)
+    // Phase 6: author links open the in-HarmoNova user panel (Firebase-backed)
     // instead of leaving for Hacker News.
     app.addEventListener("click", (event) => {
       // HN's hn.js must not process clicks inside the extension UI.
@@ -4667,12 +4676,12 @@ async function refreshFeed() {
       event.preventDefault();
       openUserPanel(decodeURIComponent(match[1]));
     });
-    document.documentElement.classList.add("harmonic-ready");
+    document.documentElement.classList.add("harmonova-ready");
     // Search shortcut is inert while editing text or when an overlay is open.
     document.addEventListener("keydown", (event) => {
       if (!event.isTrusted || event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.target.closest("input, textarea, select, [contenteditable]")) return;
-      if (document.querySelector(".harmonic-confirm-overlay, .settings-overlay, .harmonic-submit-overlay")) return;
+      if (document.querySelector(".harmonova-confirm-overlay, .settings-overlay, .harmonova-submit-overlay")) return;
       event.preventDefault();
       if (!searchWrap.classList.contains("open")) toggleSearch();
       searchInput.focus();
@@ -4712,14 +4721,14 @@ async function refreshFeed() {
   (async () => {
     if (await isOriginalTab()) return;
     if (!(await loadEnabledPreference())) return;
-    document.documentElement.classList.add("harmonic-hn");
-    await Promise.all([loadPersistentState(), loadHarmonicFont()]);
+    document.documentElement.classList.add("harmonova-hn");
+    await loadPersistentState();
     const start = () => {
       // Phase 0.4: harvest the original HN DOM (session state) before mount
       // replaces the body, then mount at DOMContentLoaded.
-      try { window.HarmonicHN?.harvest(document); } catch {}
+      try { window.HarmoNovaHN?.harvest(document); } catch {}
       seedFeedVotes();
-      window.HarmonicHN?.onSessionChange?.((session) => {
+      window.HarmoNovaHN?.onSessionChange?.((session) => {
         // Account switched mid-session: vote affordances reset (they belong to
         // the previous account); the chip and any open thread UI refresh.
         state.feedVotes.clear();

@@ -1,4 +1,4 @@
-// Harmonic site-wide search client (isolated content-script world).
+// HarmoNova site-wide search client (isolated content-script world).
 //
 // Wraps the public Algolia Hacker News API (https://hn.algolia.com/api/v1):
 //   /search          — relevance-sorted results
@@ -236,7 +236,7 @@
     return segments;
   }
 
-  globalThis.HarmonicSearch = {
+  globalThis.HarmoNovaSearch = {
     ALGOLIA_BASE,
     buildSearchUrl,
     validateHit,

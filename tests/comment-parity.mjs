@@ -1,4 +1,4 @@
-// Harmonic Phase 7 part 2 (0.12.1) UI suite: comment parity — OP highlight,
+// HarmoNova Phase 7 part 2 (0.12.1) UI suite: comment parity — OP highlight,
 // generated avatars, new-comment markers since last visit, [delayed] hiding,
 // in-thread comment filtering with match counts, top-level prev/next + up
 // navigation, user tags, blocked users, and bookmark/user-data export+import
@@ -15,7 +15,7 @@ const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), 
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
 const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 const OP_USER = "submitter_0";
 const OTHER = "seabass";
 const FRESH = "commenter_a";
@@ -34,7 +34,7 @@ function createHnMock() {
     const pathname = parsed.pathname;
     requests.push({ method: route.request().method(), path: pathname + parsed.search });
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
     switch (pathname) {
       case "/news":
@@ -145,7 +145,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
-  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -178,21 +178,21 @@ async function test(name, fn) {
 
 const gotoFeed = async (page, seedSeen) => {
   // The persistent context shares localStorage across tests: wipe the
-  // harmonic keys once at document start so every test starts clean, while
+  // harmonova keys once at document start so every test starts clean, while
   // in-test reloads keep whatever the extension persisted.
   await page.addInitScript(() => {
-    if (sessionStorage.getItem("harmonicWipeDone")) return;
-    sessionStorage.setItem("harmonicWipeDone", "1");
-    for (const key of Object.keys(localStorage)) if (key.startsWith("harmonic")) localStorage.removeItem(key);
+    if (sessionStorage.getItem("harmonovaWipeDone")) return;
+    sessionStorage.setItem("harmonovaWipeDone", "1");
+    for (const key of Object.keys(localStorage)) if (key.startsWith("harmonova")) localStorage.removeItem(key);
   });
   if (seedSeen !== undefined)
     // One-shot: sessionStorage survives reloads in the same tab, so the seed
     // applies on the first load only and the app's own seen-times win after.
     await page.addInitScript(
       (seed) => {
-        if (sessionStorage.getItem("harmonicSeedDone")) return;
-        sessionStorage.setItem("harmonicSeedDone", "1");
-        localStorage.setItem("harmonicSeenComments", seed);
+        if (sessionStorage.getItem("harmonovaSeedDone")) return;
+        sessionStorage.setItem("harmonovaSeedDone", "1");
+        localStorage.setItem("harmonovaSeenComments", seed);
       },
       seedSeen
     );
@@ -213,7 +213,7 @@ const rowFor = (page, author) =>
 
 const openSettings = async (page, category = "Comments") => {
   await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Settings" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Settings" }).click();
   const panel = page.locator(".settings-panel");
   await panel.waitFor({ state: "visible", timeout: 5000 });
   await panel.locator(".settings-category", { hasText: category }).click();
@@ -225,7 +225,7 @@ const openCommentMenu = async (page, author, itemText) => {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await rowFor(page, author).locator(":scope > .comment-card").click({ button: "right" });
     try {
-      const item = page.locator(".harmonic-popup .popup-item", { hasText: itemText });
+      const item = page.locator(".harmonova-popup .popup-item", { hasText: itemText });
       await item.waitFor({ state: "visible", timeout: 4000 });
       await item.click();
       return;
@@ -305,7 +305,7 @@ await test("in-thread filter keeps matching branches with a match count", async 
   await gotoFeed(page);
   await openThreadFully(page);
   await page.locator(".thread-actions .thread-action[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Search in comments" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Search in comments" }).click();
   const searchBox = page.locator(".comment-search");
   await searchBox.fill("seabass");
   await page.waitForFunction(
@@ -391,7 +391,7 @@ await test("user data export produces a valid JSON file", async ({ page }) => {
   const downloadPromise = page.waitForEvent("download", { timeout: 15000 });
   await panel.locator(".setting-button", { hasText: "Export user data" }).click();
   const download = await downloadPromise;
-  const tempPath = path.join(os.tmpdir(), "harmonic-export-" + Date.now() + ".json");
+  const tempPath = path.join(os.tmpdir(), "harmonova-export-" + Date.now() + ".json");
   await download.saveAs(tempPath);
   const data = JSON.parse(fs.readFileSync(tempPath, "utf8"));
   fs.rmSync(tempPath, { force: true });
@@ -406,7 +406,7 @@ await test("user data import merges valid files and refuses bad schemas", async 
   await gotoFeed(page);
   await openThreadFully(page);
   const panel = await openSettings(page, "Data");
-  const goodFile = path.join(os.tmpdir(), "harmonic-good-" + Date.now() + ".json");
+  const goodFile = path.join(os.tmpdir(), "harmonova-good-" + Date.now() + ".json");
   fs.writeFileSync(goodFile, JSON.stringify({
     version: 1,
     bookmarks: [777001, 777002],
@@ -426,17 +426,17 @@ await test("user data import merges valid files and refuses bad schemas", async 
   assert.ok(await readCard.evaluate((node) => node.classList.contains("is-read")), "imported read id applied to the feed card");
   const stored = await browser.serviceWorkers()
     .find((worker) => worker.url().startsWith("chrome-extension://"))
-    .evaluate(() => chrome.storage.local.get("harmonicBookmarks"));
-  assert.deepEqual(stored.harmonicBookmarks, [777001, 777002], "imported bookmarks persisted through the worker");
+    .evaluate(() => chrome.storage.local.get("harmonovaBookmarks"));
+  assert.deepEqual(stored.harmonovaBookmarks, [777001, 777002], "imported bookmarks persisted through the worker");
 
   // Bad schema: non-integer bookmark id must be refused wholesale.
-  const badFile = path.join(os.tmpdir(), "harmonic-bad-" + Date.now() + ".json");
+  const badFile = path.join(os.tmpdir(), "harmonova-bad-" + Date.now() + ".json");
   fs.writeFileSync(badFile, JSON.stringify({ version: 1, bookmarks: ["not-an-id"], readStoryIds: [], userTags: {}, blockedUsers: [] }));
   await panel.locator(".setting-import-input").setInputFiles(badFile);
   fs.rmSync(badFile, { force: true });
   const toast = await page.waitForFunction(
     () => {
-      const text = document.querySelector(".harmonic-toast.show")?.textContent || "";
+      const text = document.querySelector(".harmonova-toast.show")?.textContent || "";
       return text.startsWith("Import refused") ? text : null;
     },
     null,
@@ -445,8 +445,8 @@ await test("user data import merges valid files and refuses bad schemas", async 
   assert.ok(toast.includes("refused"), "bad schema refused with a message: " + toast);
   const stored2 = await browser.serviceWorkers()
     .find((worker) => worker.url().startsWith("chrome-extension://"))
-    .evaluate(() => chrome.storage.local.get("harmonicBookmarks"));
-  assert.deepEqual(stored2.harmonicBookmarks, [777001, 777002], "refused import changed nothing");
+    .evaluate(() => chrome.storage.local.get("harmonovaBookmarks"));
+  assert.deepEqual(stored2.harmonovaBookmarks, [777001, 777002], "refused import changed nothing");
 });
 
 await browser.close();

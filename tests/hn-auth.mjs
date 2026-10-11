@@ -1,4 +1,4 @@
-// Harmonic mocked account e2e suite (Phase 0.5.2 harness; extended per phase).
+// HarmoNova mocked account e2e suite (Phase 0.5.2 harness; extended per phase).
 // Fully mocks Hacker News documents and actions with fixtures so account flows
 // can be exercised without credentials. Every HN request is recorded and can be
 // asserted for exact method, path, and parameters.
@@ -15,7 +15,7 @@ const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
 const PLACEHOLDER_TOKENS = [TOKEN_A, TOKEN_B];
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 
 const fixture = (...parts) => fs.readFileSync(path.join(fixtureDir, ...parts), "utf8");
 
@@ -166,7 +166,7 @@ function createHnMock() {
     // Serve assets as (harmless) HTML so the fixture page loads fully offline;
     // real HN assets are never fetched in these tests.
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
 
     const error = consumeError(pathname);
@@ -298,17 +298,17 @@ async function attachIsolatedWorld(page) {
   cdp.on("Runtime.executionContextCreated", (event) => contexts.set(event.context.id, event.context));
   await cdp.send("Runtime.enable");
   // Replay events for contexts that already exist (sent at enable time).
-  let harmonicContextId = null;
-  const findHarmonicContext = async () => {
+  let harmonovaContextId = null;
+  const findHarmoNovaContext = async () => {
     for (const [id] of contexts) {
       try {
         const probe = await cdp.send("Runtime.evaluate", {
-          expression: "typeof window.HarmonicHN !== 'undefined'",
+          expression: "typeof window.HarmoNovaHN !== 'undefined'",
           contextId: id,
           returnByValue: true,
         });
         if (probe.result?.value === true) {
-          harmonicContextId = id;
+          harmonovaContextId = id;
           return id;
         }
       } catch {}
@@ -316,10 +316,10 @@ async function attachIsolatedWorld(page) {
     return null;
   };
   const evaluate = async (expression) => {
-    if (!harmonicContextId) {
-      if (!(await findHarmonicContext())) throw new Error("HarmonicHN isolated world not found");
+    if (!harmonovaContextId) {
+      if (!(await findHarmoNovaContext())) throw new Error("HarmoNovaHN isolated world not found");
     }
-    const result = await cdp.send("Runtime.evaluate", { expression, contextId: harmonicContextId, returnByValue: true, awaitPromise: true });
+    const result = await cdp.send("Runtime.evaluate", { expression, contextId: harmonovaContextId, returnByValue: true, awaitPromise: true });
     if (result.exceptionDetails) throw new Error("Isolated-world evaluation failed: " + JSON.stringify(result.exceptionDetails.exception?.description || result.exceptionDetails.text));
     return result.result?.value;
   };
@@ -333,11 +333,11 @@ async function attachIsolatedWorld(page) {
 async function assertNoTokenLeakage(page, consoleMessages) {
   const uiHtml = await page.evaluate(() => {
     const parts = [];
-    document.querySelectorAll(".harmonic-app, .harmonic-toast, .harmonic-popup, .harmonic-account-chip").forEach((node) => parts.push(node.outerHTML));
+    document.querySelectorAll(".harmonova-app, .harmonova-toast, .harmonova-popup, .harmonova-account-chip").forEach((node) => parts.push(node.outerHTML));
     return parts.join("\n");
   });
   for (const token of PLACEHOLDER_TOKENS) {
-    assert.ok(!uiHtml.includes(token), "token must not appear in the rendered Harmonic UI");
+    assert.ok(!uiHtml.includes(token), "token must not appear in the rendered HarmoNova UI");
   }
   const pageStorage = await page.evaluate(() => JSON.stringify({ ls: { ...localStorage }, ss: { ...sessionStorage } }));
   for (const token of PLACEHOLDER_TOKENS) assert.ok(!pageStorage.includes(token), "token must not enter page storage");
@@ -412,8 +412,8 @@ await test("session harvests from a logged-in fixture document", async ({ page, 
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const session = await world.evaluate("window.HarmonicHN ? (HarmonicHN.session() || null) : null");
-  assert.deepEqual(session, { username: "harmonic_test", karma: 512 });
+  const session = await world.evaluate("window.HarmoNovaHN ? (HarmoNovaHN.session() || null) : null");
+  assert.deepEqual(session, { username: "harmonova_test", karma: 512 });
   await assertNoTokenLeakage(page, consoleMessages);
 });
 
@@ -421,18 +421,18 @@ await test("logged-out documents produce no session and no tokens", async ({ pag
   hn.state.loggedIn = false;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  assert.equal(await world.evaluate("HarmonicHN.session()"), null);
-  assert.equal(await world.evaluate("HarmonicHN._internal.cachedTokenCount()"), 0);
+  assert.equal(await world.evaluate("HarmoNovaHN.session()"), null);
+  assert.equal(await world.evaluate("HarmoNovaHN._internal.cachedTokenCount()"), 0);
 });
 
 await test("ensureItemState parses story and comment vote state via the mock", async ({ page, hn }) => {
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const state = await world.evaluate("HarmonicHN.ensureItemState(" + STORY_ID + ")");
+  const state = await world.evaluate("HarmoNovaHN.ensureItemState(" + STORY_ID + ")");
   assert.equal(state.status, "ok");
   assert.equal(state.itemId, STORY_ID);
-  assert.equal(state.session.username, "harmonic_test");
+  assert.equal(state.session.username, "harmonova_test");
   assert.equal(state.story.voted, true, "synthetic story is voted");
   assert.equal(state.story.votedDirection, "up");
   assert.equal(state.story.canUp, false, "no second up arrow once voted");
@@ -443,14 +443,14 @@ await test("ensureItemState parses story and comment vote state via the mock", a
   assert.equal(comment.voted, false);
   assert.equal(state.comments[FIRST_COMMENT].voted, true);
   assert.equal(state.commentFormAvailable, true, "comment form available on item page");
-  assert.ok((await world.evaluate("HarmonicHN._internal.cachedTokenCount()")) > 0, "tokens cached after state load");
+  assert.ok((await world.evaluate("HarmoNovaHN._internal.cachedTokenCount()")) > 0, "tokens cached after state load");
 });
 
 await test("vote sends the exact request shape and succeeds", async ({ page, hn }) => {
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const outcome = await world.evaluate("HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')");
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')");
   assert.equal(outcome.status, "success", JSON.stringify(outcome));
   const voteRequests = hn.requests.filter((request) => request.path.startsWith("/vote"));
   assert.equal(voteRequests.length, 1, "exactly one vote request");
@@ -468,7 +468,7 @@ await test("expired token triggers exactly one refetch and retry", async ({ page
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.errorScript.push({ pathPattern: "/vote", classification: "expiredLink" });
-  const outcome = await world.evaluate("HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')");
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')");
   assert.equal(outcome.status, "success", JSON.stringify(outcome));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/vote")).length, 2, "one expired + one retry (SEC-33)");
   assert.ok(hn.requests.some((request) => request.path.startsWith("/item")), "item refetch happened before retry");
@@ -480,7 +480,7 @@ await test("second expired token fails without endless retries", async ({ page, 
   const world = await attachIsolatedWorld(page);
   hn.state.errorScript.push({ pathPattern: "/vote", classification: "expiredLink" });
   hn.state.errorScript.push({ pathPattern: "/vote", classification: "expiredLink" });
-  const outcome = await world.evaluate("HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')");
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')");
   assert.equal(outcome.status, "failure", JSON.stringify(outcome));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/vote")).length, 2, "SEC-33: initial + one retry, nothing more");
 });
@@ -490,7 +490,7 @@ await test("rate limited votes report rateLimited and back off", async ({ page, 
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   for (let i = 0; i < 4; i++) hn.state.errorScript.push({ pathPattern: "/vote", classification: "rateLimited" });
-  const outcome = await world.evaluate("HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')");
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')");
   assert.equal(outcome.status, "rateLimited", JSON.stringify(outcome));
   const voteRequests = hn.requests.filter((request) => request.path.startsWith("/vote"));
   assert.ok(voteRequests.length >= 1 && voteRequests.length <= 4, "queue retried with backoff, then stopped");
@@ -500,8 +500,8 @@ await test("logged-out vote never sends a request", async ({ page, hn }) => {
   hn.state.loggedIn = false;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  assert.equal(await world.evaluate("HarmonicHN.session()"), null);
-  const outcome = await world.evaluate("HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')");
+  assert.equal(await world.evaluate("HarmoNovaHN.session()"), null);
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')");
   assert.equal(outcome.status, "loginRequired", JSON.stringify(outcome));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/vote")).length, 0, "no vote request while logged out");
 });
@@ -510,17 +510,17 @@ await test("stale token after account switch aborts with zero vote requests", as
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  await world.evaluate("HarmonicHN.ensureItemState(" + STORY_ID + ")");
-  assert.ok((await world.evaluate("HarmonicHN._internal.cachedTokenCount()")) > 0);
+  await world.evaluate("HarmoNovaHN.ensureItemState(" + STORY_ID + ")");
+  assert.ok((await world.evaluate("HarmoNovaHN._internal.cachedTokenCount()")) > 0);
   // Another tab signs in as a different user; force the cached tokens to look
   // stale so the next mutation must re-verify against a fresh page (SEC-35).
   hn.state.loginUsername = "other_test";
-  await world.evaluate("HarmonicHN._internal.expireCachedTokens()");
-  const outcome = await world.evaluate("HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')");
+  await world.evaluate("HarmoNovaHN._internal.expireCachedTokens()");
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')");
   assert.equal(outcome.status, "accountChanged", JSON.stringify(outcome));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/vote")).length, 0, "SEC-35: no mutation after account change");
   // A fresh page fetch happened and the session now reflects the other user.
-  const session = await world.evaluate("HarmonicHN.session()");
+  const session = await world.evaluate("HarmoNovaHN.session()");
   assert.equal(session.username, "other_test");
 });
 
@@ -528,7 +528,7 @@ await test("unvoting uses the un link token", async ({ page, hn }) => {
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const outcome = await world.evaluate("HarmonicHN.vote(" + STORY_ID + ", 'un')");
+  const outcome = await world.evaluate("HarmoNovaHN.vote(" + STORY_ID + ", 'un')");
   assert.equal(outcome.status, "success", JSON.stringify(outcome));
   const vote = hn.requests.find((request) => request.path.startsWith("/vote"));
   assert.equal(vote.params.how, "un");
@@ -540,13 +540,13 @@ await test("favorite/hide use the exact fave/hide request shape", async ({ page,
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const fave = await world.evaluate("HarmonicHN.setFavorite(" + STORY_ID + ", true)");
+  const fave = await world.evaluate("HarmoNovaHN.setFavorite(" + STORY_ID + ", true)");
   assert.equal(fave.status, "success", JSON.stringify(fave));
   const faveRequests = hn.requests.filter((request) => request.path.startsWith("/fave"));
   assert.equal(faveRequests.length, 1);
   assert.equal(faveRequests[0].params.id, String(STORY_ID));
   assert.equal(faveRequests[0].params.auth, TOKEN_A);
-  const hide = await world.evaluate("HarmonicHN.setHidden(" + STORY_ID + ", true)");
+  const hide = await world.evaluate("HarmoNovaHN.setHidden(" + STORY_ID + ", true)");
   assert.equal(hide.status, "success", JSON.stringify(hide));
   const hideRequests = hn.requests.filter((request) => request.path.startsWith("/hide"));
   assert.equal(hideRequests.length, 1);
@@ -561,7 +561,7 @@ await test("concurrent duplicate mutations are refused (SEC-32)", async ({ page,
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   const results = await world.evaluate(
-    "Promise.all([HarmonicHN.vote(" + SECOND_COMMENT + ", 'up'), HarmonicHN.vote(" + SECOND_COMMENT + ", 'up')])"
+    "Promise.all([HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up'), HarmoNovaHN.vote(" + SECOND_COMMENT + ", 'up')])"
   );
   const statuses = results.map((outcome) => outcome.status);
   assert.ok(statuses.includes("success"), JSON.stringify(results));
@@ -575,12 +575,12 @@ await test("logout fetches instead of navigating (SEC-04)", async ({ page, hn })
   const world = await attachIsolatedWorld(page);
   // Simulate HN invalidating the session: the redirect target is logged out.
   hn.state.loggedIn = false;
-  const outcome = await world.evaluate("HarmonicHN.logout()");
+  const outcome = await world.evaluate("HarmoNovaHN.logout()");
   assert.equal(outcome.status, "success", JSON.stringify(outcome));
   const logoutRequests = hn.requests.filter((request) => request.path.startsWith("/logout"));
   assert.equal(logoutRequests.length, 1);
   assert.equal(logoutRequests[0].params.auth, TOKEN_B);
-  assert.equal(await world.evaluate("HarmonicHN.session()"), null, "session cleared");
+  assert.equal(await world.evaluate("HarmoNovaHN.session()"), null, "session cleared");
   const href = await page.evaluate(() => location.href);
   assert.ok(!href.includes("logout"), "token URL must not enter the address bar");
 });
@@ -589,10 +589,10 @@ await test("reply form opens through the queue and posts once (SEC-34)", async (
   hn.state.loggedIn = true;
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const opened = await world.evaluate("HarmonicHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
   assert.ok(hn.requests.some((request) => request.path.startsWith("/reply")), "reply form fetched");
-  const posted = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'Test reply from the mocked suite')");
+  const posted = await world.evaluate("HarmoNovaHN.postComment(" + JSON.stringify(opened.handle) + ", 'Test reply from the mocked suite')");
   // The follow-up read-only item fetch can now confirm a post even when a
   // mocked redirect is not followed by Playwright.
   assert.equal(posted.status, "success", JSON.stringify(posted));
@@ -613,14 +613,14 @@ await test("partial HN navigation bars do not sign out a confirmed account", asy
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.bareNews = true;
-  const list = await world.evaluate("HarmonicHN.fetchListPage('/newest')");
+  const list = await world.evaluate("HarmoNovaHN.fetchListPage('/newest')");
   assert.equal(list.status, "ok", JSON.stringify(list));
-  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.equal((await world.evaluate("HarmoNovaHN.session()"))?.username, USER);
   hn.state.bareNews = false;
   hn.state.bareSubmit = true;
-  const submit = await world.evaluate("HarmonicHN.openSubmitForm()");
+  const submit = await world.evaluate("HarmoNovaHN.openSubmitForm()");
   assert.equal(submit.status, "ok", JSON.stringify(submit));
-  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.equal((await world.evaluate("HarmoNovaHN.session()"))?.username, USER);
   assert.ok(hn.requests.filter((request) => request.path === "/news").length >= 2, "submission re-verifies the account");
   assert.equal(hn.requests.filter((request) => request.method === "POST").length, 0, "opening a submit form never posts");
 });
@@ -629,10 +629,10 @@ await test("HN login gate on submit does not clear an otherwise active account",
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.submitLoginPage = true;
-  const submit = await world.evaluate("HarmonicHN.openSubmitForm()");
+  const submit = await world.evaluate("HarmoNovaHN.openSubmitForm()");
   assert.equal(submit.status, "failure", JSON.stringify(submit));
   assert.match(submit.message, /active session/);
-  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.equal((await world.evaluate("HarmoNovaHN.session()"))?.username, USER);
   assert.equal(hn.requests.filter((request) => request.method === "POST").length, 0);
 });
 
@@ -640,9 +640,9 @@ await test("favorite response without account links preserves the session", asyn
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.bareFavoriteResponse = true;
-  const result = await world.evaluate("HarmonicHN.setFavorite(" + STORY_ID + ", true)");
+  const result = await world.evaluate("HarmoNovaHN.setFavorite(" + STORY_ID + ", true)");
   assert.equal(result.status, "success", JSON.stringify(result));
-  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.equal((await world.evaluate("HarmoNovaHN.session()"))?.username, USER);
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/logout")).length, 0);
 });
 
@@ -660,10 +660,10 @@ await test("thread toolbar opens reply, groups summaries and bookmarks via More"
   await page.locator('.composer-input').waitFor({ state: 'visible' });
   await page.locator('.composer-cancel').click();
   await page.locator('.thread-actions button[aria-label="More"]').click();
-  await page.locator('.harmonic-popup .popup-item', { hasText: 'Bookmark story' }).click();
-  assert.ok((await page.locator('.harmonic-toast').textContent()).includes('Bookmarked'));
+  await page.locator('.harmonova-popup .popup-item', { hasText: 'Bookmark story' }).click();
+  assert.ok((await page.locator('.harmonova-toast').textContent()).includes('Bookmarked'));
   await page.locator('.thread-actions button[aria-label="More"]').click();
-  assert.ok((await page.locator('.harmonic-popup').textContent()).includes('Remove bookmark'));
+  assert.ok((await page.locator('.harmonova-popup').textContent()).includes('Remove bookmark'));
 });
 
 await test("Chromium bounds long right-click menus and hides job cards", async ({ page }) => {
@@ -673,16 +673,16 @@ await test("Chromium bounds long right-click menus and hides job cards", async (
   await comment.waitFor({ state: 'visible', timeout: 15000 });
   await comment.locator('.comment-body').evaluate((node) => { node.textContent = 'very long excerpt '.repeat(100); });
   await comment.click({ button: 'right' });
-  const popup = await page.locator('.harmonic-popup').evaluate((node) => {
+  const popup = await page.locator('.harmonova-popup').evaluate((node) => {
     const rect = node.getBoundingClientRect();
     return { width: rect.width, height: rect.height, left: rect.left, top: rect.top,
       viewportWidth: innerWidth, viewportHeight: innerHeight,
-      color: getComputedStyle(node.querySelector('[data-icon="star"] .harmonic-icon')).color };
+      color: getComputedStyle(node.querySelector('[data-icon="star"] .harmonova-icon')).color };
   });
   assert.ok(popup.width <= 310 && popup.height <= 540, JSON.stringify(popup));
   assert.ok(popup.left >= 0 && popup.top >= 0 && popup.left + popup.width <= popup.viewportWidth
     && popup.top + popup.height <= popup.viewportHeight, JSON.stringify(popup));
-  assert.notEqual(popup.color, 'rgb(200, 198, 207)', 'bookmark icon uses Harmonic accent');
+  assert.notEqual(popup.color, 'rgb(200, 198, 207)', 'bookmark icon uses HarmoNova accent');
   await page.mouse.click(3, 3);
   await page.evaluate(() => {
     const job = document.querySelector('.story-list .story-card').cloneNode(true);
@@ -703,11 +703,11 @@ await test("Chromium bounds long right-click menus and hides job cards", async (
 await test("comment confirms via read-only item fetch after a stale POST response", async ({ page, hn }) => {
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const opened = await world.evaluate("HarmonicHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
   hn.state.directCommentResponse = true;
   hn.state.commentReadLag = 1;
-  const result = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'fresh comment confirmation')");
+  const result = await world.evaluate("HarmoNovaHN.postComment(" + JSON.stringify(opened.handle) + ", 'fresh comment confirmation')");
   assert.equal(result.status, "success", JSON.stringify(result));
   assert.equal(result.newComment.id, 910099);
   assert.equal(hn.requests.filter((r) => r.path === "/comment" && r.method === "POST").length, 1);
@@ -718,9 +718,9 @@ await test("submission confirms from new author-list ID and does not confuse old
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.directSubmitResponse = true;
-  const opened = await world.evaluate("HarmonicHN.openSubmitForm()");
+  const opened = await world.evaluate("HarmoNovaHN.openSubmitForm()");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
-  const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'New post' })");
+  const result = await world.evaluate("HarmoNovaHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'New post' })");
   assert.equal(result.status, "success", JSON.stringify(result));
   assert.equal(result.newStoryId, 910101);
   const submissions = hn.requests.filter((r) => r.path === "/r" && r.method === "POST");
@@ -732,11 +732,11 @@ await test("submission confirms from new author-list ID and does not confuse old
 await test("unverifiable comment stays indeterminate without retrying POST", async ({ page, hn }) => {
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
-  const opened = await world.evaluate("HarmonicHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "ok");
   hn.state.directCommentResponse = true;
   hn.state.commentReadLag = 100;
-  const result = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'unverified test comment')");
+  const result = await world.evaluate("HarmoNovaHN.postComment(" + JSON.stringify(opened.handle) + ", 'unverified test comment')");
   assert.equal(result.status, "indeterminate", JSON.stringify(result));
   assert.equal(hn.requests.filter((r) => r.path === "/comment" && r.method === "POST").length, 1);
 });
@@ -746,9 +746,9 @@ await test("matching older title cannot confirm a new unindexed submission", asy
   const world = await attachIsolatedWorld(page);
   hn.state.directSubmitResponse = true;
   hn.state.suppressSubmittedIndex = true;
-  const opened = await world.evaluate("HarmonicHN.openSubmitForm()");
+  const opened = await world.evaluate("HarmoNovaHN.openSubmitForm()");
   assert.equal(opened.status, "ok");
-  const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'Unindexed' })");
+  const result = await world.evaluate("HarmoNovaHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'Unindexed' })");
   assert.equal(result.status, "indeterminate", JSON.stringify(result));
   assert.equal(hn.requests.filter((r) => r.path === "/r" && r.method === "POST").length, 1);
 });
@@ -757,9 +757,9 @@ await test("HN edit form accepts server-bound fnid/fnop without a hidden id", as
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.editFnidForm = true;
-  const opened = await world.evaluate("HarmonicHN.openEditForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openEditForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
-  const result = await world.evaluate("HarmonicHN.saveEdit(" + JSON.stringify(opened.handle) + ", 'Updated comment through fnid')");
+  const result = await world.evaluate("HarmoNovaHN.saveEdit(" + JSON.stringify(opened.handle) + ", 'Updated comment through fnid')");
   assert.equal(result.status, "success", JSON.stringify(result));
   const posts = hn.requests.filter((request) => request.path === "/r" && request.method === "POST");
   assert.equal(posts.length, 1);
@@ -774,7 +774,7 @@ await test("HN edit form rejects explicit wrong comment ID", async ({ page, hn }
   const world = await attachIsolatedWorld(page);
   hn.state.editFnidForm = true;
   hn.state.editWrongId = true;
-  const opened = await world.evaluate("HarmonicHN.openEditForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openEditForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "failure", JSON.stringify(opened));
   assert.equal(hn.requests.filter((request) => request.method === "POST").length, 0);
 });
@@ -783,11 +783,11 @@ await test("HN submit form is fetched last before using the one-time token", asy
   await gotoFeed(page);
   const world = await attachIsolatedWorld(page);
   hn.state.directSubmitResponse = true;
-  const opened = await world.evaluate("HarmonicHN.openSubmitForm()");
+  const opened = await world.evaluate("HarmoNovaHN.openSubmitForm()");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
   const before = hn.requests.filter((request) => request.method === "GET");
   assert.equal(before.at(-1).path, "/submit", "form token must be fetched after session and submitted checks");
-  const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'Fresh token story', text: 'A meaningful description' })");
+  const result = await world.evaluate("HarmoNovaHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'Fresh token story', text: 'A meaningful description' })");
   assert.equal(result.status, "success", JSON.stringify(result));
   const postIndex = hn.requests.findIndex((request) => request.path === "/r" && request.method === "POST");
   assert.equal(hn.requests[postIndex - 1].path, "/submit", "do not make GET requests between fnid and POST");
@@ -799,9 +799,9 @@ await test("HN delete form accepts a server-bound fnid without hidden ID and con
   const world = await attachIsolatedWorld(page);
   hn.state.deleteFnidForm = true;
   hn.state.deleteReadLag = 1;
-  const opened = await world.evaluate("HarmonicHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
-  const result = await world.evaluate("HarmonicHN.deleteComment(" + JSON.stringify(opened.handle) + ")");
+  const result = await world.evaluate("HarmoNovaHN.deleteComment(" + JSON.stringify(opened.handle) + ")");
   assert.equal(result.status, "success", JSON.stringify(result));
   const posts = hn.requests.filter((r) => r.method === 'POST' && r.path === '/r');
   assert.equal(posts.length, 1, "send deletion exactly once");
@@ -816,7 +816,7 @@ await test("HN delete confirmation with an explicit wrong ID never mutates", asy
   const world = await attachIsolatedWorld(page);
   hn.state.deleteFnidForm = true;
   hn.state.deleteWrongId = true;
-  const result = await world.evaluate("HarmonicHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const result = await world.evaluate("HarmoNovaHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(result.status, "failure", JSON.stringify(result));
   assert.equal(hn.requests.filter((r) => r.method === 'POST').length, 0);
 });
@@ -826,9 +826,9 @@ await test("HN delete cannot be reported successful when readbacks lack a delete
   const world = await attachIsolatedWorld(page);
   hn.state.deleteFnidForm = true;
   hn.state.deleteReadLag = 100;
-  const opened = await world.evaluate("HarmonicHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  const opened = await world.evaluate("HarmoNovaHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
   assert.equal(opened.status, "ok", JSON.stringify(opened));
-  const result = await world.evaluate("HarmonicHN.deleteComment(" + JSON.stringify(opened.handle) + ")");
+  const result = await world.evaluate("HarmoNovaHN.deleteComment(" + JSON.stringify(opened.handle) + ")");
   assert.equal(result.status, "indeterminate", JSON.stringify(result));
   assert.equal(hn.requests.filter((r) => r.method === 'POST').length, 1);
 });

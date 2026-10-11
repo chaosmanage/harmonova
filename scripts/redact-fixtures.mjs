@@ -14,7 +14,7 @@ const outDir = path.join(repoRoot, "tests", "fixtures", "hn");
 // Placeholder tokens used across all committed fixtures (40 chars each).
 export const PLACEHOLDER_TOKEN_A = "0".repeat(40);
 export const PLACEHOLDER_TOKEN_B = "1".repeat(40);
-export const PLACEHOLDER_USERNAME = "harmonic_test";
+export const PLACEHOLDER_USERNAME = "harmonova_test";
 
 // Real usernames can be supplied via env (comma separated); they are never written out.
 const privateUsernames = (process.env.HN_REDACT_USERNAMES || "")

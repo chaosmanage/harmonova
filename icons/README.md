@@ -1,18 +1,11 @@
-# Harmonic icon assets
+# HarmoNova branding
 
-These PNGs are resized copies of the Harmonic Android launcher icon.
+HarmoNova has its own simple, flat monogram and wordmark. These files were created for this independent browser extension rather than copied from Harmonic Android.
 
-Upstream repository: `SimonHalvdansson/Harmonic-HN`
-Pinned source commit: `42aae5fa3c587b4554f1e53ce6d45c267e1aec2a`
-Pinned source path: `app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`
-Upstream source size: 192×192 RGBA PNG
-Upstream license: Apache-2.0
+- `harmonova-icon.svg`: editable icon master
+- `harmonova-logo.svg`: horizontal wordmark used in the README
+- `harmonova-icon.png`: high-resolution raster icon
+- `icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`: Chrome extension icons
+- `../docs/assets/harmonova-social-preview.png`: artwork for GitHub's optional social preview
 
-Generated browser sizes:
-
-- `icon16.png`
-- `icon32.png`
-- `icon48.png`
-- `icon128.png`
-
-The checked-in `harmonic-source.png` is the pinned 192×192 upstream file used to create the browser sizes. Release packages include only the four browser-sized PNGs.
+**Inspiration credit:** [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson (Apache 2.0). This independently branded extension is not affiliated with or endorsed by the original developer.

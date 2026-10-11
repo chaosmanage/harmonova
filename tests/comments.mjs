@@ -1,4 +1,4 @@
-// Harmonic Phase 3 UI suite: commenting, replies, edits, deletes, and drafts,
+// HarmoNova Phase 3 UI suite: commenting, replies, edits, deletes, and drafts,
 // driven through the real Chromium extension against fully mocked Hacker News
 // documents. Companion to tests/hn-auth.mjs (module flows) and tests/voting.mjs
 // (voting UI); this file asserts the composer loop end to end: draft autosave
@@ -17,7 +17,7 @@ const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 
 const STORY_ID = 50022292; // synthetic poll story used across the suites
 const PLAIN_COMMENT = 50029143; // someone else's comment (reply target)
@@ -147,7 +147,7 @@ function createHnMock() {
     requests.push(record);
 
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
 
     const error = consumeError(pathname);
@@ -284,7 +284,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
-  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -327,7 +327,7 @@ const openThreadFully = async (page) => {
 
 const toastText = async (page) =>
   page.waitForFunction(() => {
-    const toast = document.querySelector(".harmonic-toast");
+    const toast = document.querySelector(".harmonova-toast");
     return toast?.classList.contains("show") ? toast.textContent : null;
   }, { timeout: 15000 }).then((handle) => handle.jsonValue());
 
@@ -336,14 +336,14 @@ const swDrafts = async () => {
   const worker = browser.serviceWorkers().find((sw) => sw.url().includes("background"));
   if (!worker) throw new Error("background service worker not running");
   return worker.evaluate(
-    () => new Promise((resolve) => chrome.storage.session.get(["harmonicDrafts"], (data) => resolve(data.harmonicDrafts || {})))
+    () => new Promise((resolve) => chrome.storage.session.get(["harmonovaDrafts"], (data) => resolve(data.harmonovaDrafts || {})))
   );
 };
 
 const composer = (page) => page.locator(".composer");
 const openStoryReply = async (page) => {
   await page.locator('.thread-actions .thread-action[aria-label="More"]').click();
-  await page.locator('.harmonic-popup .popup-item', { hasText: "Reply to story" }).click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: "Reply to story" }).click();
   if (await page.locator(".composer").count()) {
     await page.waitForFunction(() => !document.querySelector(".composer-submit")?.disabled ||
       document.querySelector(".composer-status")?.classList.contains("error"), { timeout: 15000 });
@@ -351,7 +351,7 @@ const openStoryReply = async (page) => {
 };
 const openCommentAction = async (page, row, label) => {
   await row.locator(":scope > .comment-card").click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: label }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: label }).click();
 };
 const typeInto = async (page, text) => {
   const box = page.locator(".composer .composer-input");
@@ -374,10 +374,10 @@ await test("Reply to post opens the composer; Ctrl+Enter posts HN's exact payloa
     "Commenting on as " + USER,
     "composer names the acting account"
   );
-  await typeInto(page, "Reply from Harmonic");
+  await typeInto(page, "Reply from HarmoNova");
   assert.equal(
     (await page.locator(".composer .composer-chars").textContent()).trim(),
-    "19 characters",
+    "20 characters",
     "char counter tracks input"
   );
 
@@ -390,7 +390,7 @@ await test("Reply to post opens the composer; Ctrl+Enter posts HN's exact payloa
   assert.equal(posted.bodyParams.parent, String(STORY_ID), "parent comes from HN's item form");
   assert.equal(posted.bodyParams.goto, "item?id=" + STORY_ID, "goto comes from HN's item form");
   assert.equal(posted.bodyParams.hmac, TOKEN_B, "hmac comes from HN's item form");
-  assert.equal(posted.bodyParams.text, "Reply from Harmonic");
+  assert.equal(posted.bodyParams.text, "Reply from HarmoNova");
 
   await new Promise((resolve) => setTimeout(resolve, 1800)); // let the outcome land
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/comment")).length, 1, "SEC-34: the POST is never retried");
@@ -497,10 +497,10 @@ await test("drafts are cleared on logout", async ({ page, hn }) => {
 
   hn.state.loggedIn = false; // HN invalidates the session on logout
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator('.harmonic-popup .popup-item').first().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Log out" }).click();
+  await page.locator('.harmonova-popup .popup-item').first().click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Log out" }).click();
   await page.waitForFunction(
-    () => document.querySelector("#harmonic-account-chip")?.textContent.trim() === "Log in",
+    () => document.querySelector("#harmonova-account-chip")?.textContent.trim() === "Log in",
     { timeout: 20000 }
   );
   let cleared = false;
@@ -597,59 +597,59 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
   const ownRow = page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]');
   const otherRow = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
   await otherRow.locator(":scope > .comment-card").click({ button: "right" });
-  assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
-  assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
   await page.mouse.click(3, 3);
 
   // The compact UI exposes Edit in the comment's right-click More menu.
   await openCommentAction(page, ownRow, "Edit");
-  const prompt = page.locator('.harmonic-confirm-overlay');
+  const prompt = page.locator('.harmonova-confirm-overlay');
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
-  assert.match(await prompt.textContent(), /Editing comments isn't supported in Harmonic yet/);
-  assert.match(await prompt.textContent(), /Nothing will be changed in Harmonic/);
-  await prompt.locator('.harmonic-confirm-cancel').click();
+  assert.match(await prompt.textContent(), /Editing comments isn't supported in HarmoNova yet/);
+  assert.match(await prompt.textContent(), /Nothing will be changed in HarmoNova/);
+  await prompt.locator('.harmonova-confirm-cancel').click();
   assert.equal(await prompt.count(), 0, "Cancel closes the prompt");
   assert.equal(hn.requests.filter(r => /^\/(?:edit|xedit|r)(?:\?|$)/.test(r.path)).length, 0, "cancel sends no edit requests");
 
   await openCommentAction(page, ownRow, "Edit");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
   const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
-  await prompt.locator('.harmonic-confirm-confirm').click();
+  await prompt.locator('.harmonova-confirm-confirm').click();
   const native = await nativePagePromise;
   await native.waitForURL(url => url.pathname === '/edit' && url.searchParams.get('id') === String(OWN_COMMENT), { timeout: 15000, waitUntil: 'commit' });
-  assert.equal(await native.locator('#harmonic-app').count(), 0, "stock HN edit page is not replaced by Harmonic");
+  assert.equal(await native.locator('#harmonova-app').count(), 0, "stock HN edit page is not replaced by HarmoNova");
   assert.ok(await native.locator('form[action="xedit"] textarea[name="text"]').count(), "HN form owns the edit");
-  assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, "Harmonic sends no edit POST");
+  assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, "HarmoNova sends no edit POST");
   assert.equal(hn.state.editedText, null, "comment is unchanged locally");
   await native.close();
 });
 
-await test("Delete prompts for a native HN confirmation; cancel and handoff never delete in Harmonic", async ({ page, hn }) => {
+await test("Delete prompts for a native HN confirmation; cancel and handoff never delete in HarmoNova", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
   const ownRow = page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]');
   await openCommentAction(page, ownRow, "Delete");
-  const prompt = page.locator('.harmonic-confirm-overlay');
+  const prompt = page.locator('.harmonova-confirm-overlay');
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
-  assert.match(await prompt.textContent(), /Deleting comments isn't supported in Harmonic yet/);
-  assert.match(await prompt.textContent(), /Nothing will be deleted in Harmonic/);
-  await prompt.locator('.harmonic-confirm-cancel').click();
+  assert.match(await prompt.textContent(), /Deleting comments isn't supported in HarmoNova yet/);
+  assert.match(await prompt.textContent(), /Nothing will be deleted in HarmoNova/);
+  await prompt.locator('.harmonova-confirm-cancel').click();
   assert.equal(hn.requests.filter(r => /\/(?:delete-confirm|xdelete|r)(?:\?|$)/.test(r.path)).length, 0, "Cancel sends no delete requests");
 
   await openCommentAction(page, ownRow, "Delete");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
   const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
-  await prompt.locator('.harmonic-confirm-confirm').click();
+  await prompt.locator('.harmonova-confirm-confirm').click();
   const native = await nativePagePromise;
   await native.waitForURL(url => url.pathname === '/delete-confirm' &&
     url.searchParams.get('id') === String(OWN_COMMENT) &&
     url.searchParams.get('goto') === 'item?id=' + STORY_ID,
   { timeout: 15000, waitUntil: 'commit' });
-  assert.equal(await native.locator('#harmonic-app').count(), 0, 'stock HN delete page is not replaced by Harmonic');
+  assert.equal(await native.locator('#harmonova-app').count(), 0, 'stock HN delete page is not replaced by HarmoNova');
   assert.match(await native.locator('body').textContent(), /Do you want to delete this comment\?/);
-  assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, 'Harmonic sends no delete POST');
+  assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, 'HarmoNova sends no delete POST');
   assert.equal(hn.state.deleted, false, 'comment has not been deleted');
-  assert.equal(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]').count(), 1, 'comment remains on Harmonic');
+  assert.equal(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]').count(), 1, 'comment remains on HarmoNova');
   await native.close();
 });
 
@@ -667,7 +667,7 @@ await test("untrusted scripted clicks never open the composer or hit /reply (SEC
   }, [PLAIN_COMMENT, OWN_COMMENT]);
   await new Promise((resolve) => setTimeout(resolve, 2500));
   assert.equal(await composer(page).count(), 0, "no composer opens from scripted clicks");
-  assert.equal(await page.locator(".harmonic-confirm-overlay").count(), 0, "no delete dialog from scripted clicks");
+  assert.equal(await page.locator(".harmonova-confirm-overlay").count(), 0, "no delete dialog from scripted clicks");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/reply")).length, 0, "no /reply traffic");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/edit")).length, 0, "no /edit traffic");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/delete-confirm")).length, 0, "no /delete-confirm traffic");
@@ -678,7 +678,7 @@ await test("signed out, replying asks for sign-in and opens no HN forms", async 
   await gotoFeed(page);
   await page.goto("https://news.ycombinator.com/item?id=" + STORY_ID, { waitUntil: "domcontentloaded" });
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
-  assert.equal((await page.locator("#harmonic-account-chip").textContent()).trim(), "Log in");
+  assert.equal((await page.locator("#harmonova-account-chip").textContent()).trim(), "Log in");
   await openStoryReply(page);
   const toast = await toastText(page);
   assert.ok(toast.includes("Sign in to reply"), "sign-in toast: " + toast);

@@ -1,4 +1,4 @@
-// Harmonic HN session and account-action client (isolated content-script world).
+// HarmoNova HN session and account-action client (isolated content-script world).
 //
 // Implements the Hacker News protocol rules from docs/implementation-plan.md §7:
 //   SEC-04 logout via fetch, never navigation
@@ -15,7 +15,7 @@
 //          retry for votes/favorites/hides/flags, never auto-retrying posts)
 //   SEC-35 every action verifies the acting username before mutating
 //
-// The public surface is globalThis.HarmonicHN; it exposes actions and safe
+// The public surface is globalThis.HarmoNovaHN; it exposes actions and safe
 // state only — never tokens.
 (() => {
   "use strict";
@@ -90,7 +90,7 @@
   }
 
   // Removes user-contributed regions so page-level error strings cannot be
-  // spoofed by comment text (upstream Harmonic does the same).
+  // spoofed by comment text (upstream HarmoNova does the same).
   function pageSignalText(doc) {
     const clone = doc.body ? doc.body.cloneNode(true) : doc.createElement("body");
     clone.querySelectorAll(".commtext, .toptext, .c00, .comment, .titleline, .hnuser").forEach((node) => node.remove());
@@ -364,7 +364,7 @@
   async function fetchListPage(path) {
     const safePath = validateListPath(path);
     if (!safePath) {
-      return { status: "failure", message: "That Hacker News list is not available in Harmonic." };
+      return { status: "failure", message: "That Hacker News list is not available in HarmoNova." };
     }
     const page = await enqueue(safePath);
     if (page.classification === "loginPage") {
@@ -423,7 +423,7 @@
   }
 
   function harvest(doc) {
-    // Read the live HN page before Harmonic mounts. No tokens are retained
+    // Read the live HN page before HarmoNova mounts. No tokens are retained
     // from the initial document except the logout token, which stays here.
     const top = parseTopBar(doc);
     if (top.username) {
@@ -1142,7 +1142,7 @@
   // Public surface
   // ---------------------------------------------------------------------------
 
-  globalThis.HarmonicHN = {
+  globalThis.HarmoNovaHN = {
     harvest,
     session: () => (currentSession ? { ...currentSession } : null),
     onSessionChange: (listener) => {

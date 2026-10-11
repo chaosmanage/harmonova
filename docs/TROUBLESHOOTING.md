@@ -10,10 +10,10 @@ The one that contains `manifest.json` **directly inside it**.
 
 | You have… | Select… |
 | --- | --- |
-| A release ZIP | Extract it; select the **inner** `harmonic-hn-browser/` folder |
+| A release ZIP | Extract it; select the **inner** `harmonova/` folder |
 | GitHub's “Code → Download ZIP” | Extract it; select the top-level repository folder |
 | A `git clone` checkout | Select the clone's root folder |
-| A development package made with `npm run package` | Select `dist/harmonic-hn-browser/` |
+| A development package made with `npm run package` | Select `dist/harmonova/` |
 
 Chrome cannot load a compressed ZIP through **Load unpacked**. Extract it first. You should not need `npm install`, `npm run build`, or a Chrome Web Store account.
 
@@ -25,10 +25,10 @@ You're probably selecting the parent of the extension folder. Open the folder in
 
 ## It installed, but Hacker News still looks the same
 
-1. Confirm that **Harmonic for Hacker News** is enabled at `chrome://extensions`.
+1. Confirm that **HarmoNova for Hacker News** is enabled at `chrome://extensions`.
 2. Refresh your `news.ycombinator.com` tab (or open a new HN tab).
-3. Click the Harmonic extension icon and check whether **Enable Harmonic** is switched on.
-4. If you chose **Open original Hacker News**, that specific tab intentionally keeps the old interface. Use **Use Harmonic here** in the extension popup or open a fresh HN tab.
+3. Click the HarmoNova extension icon and check whether **Enable HarmoNova** is switched on.
+4. If you chose **Open original Hacker News**, that specific tab intentionally keeps the old interface. Use **Use HarmoNova here** in the extension popup or open a fresh HN tab.
 5. If none of this works, click **Reload** under the extension card, then refresh HN.
 
 The extension's interface is injected only on `https://news.ycombinator.com/*`, not on arbitrary websites or external articles.
@@ -41,7 +41,7 @@ Loading a second unpacked copy from a different directory can create a second ex
 
 ## Posts, replies, votes, or account controls aren't working
 
-You must first sign in on Hacker News. Harmonic uses the HN session and its own action forms; it never asks for a password inside the extension. HN can also require validation or apply rate limits. When a post can't be confirmed, Harmonic attempts to keep your draft and offers a way back to HN's original form.
+You must first sign in on Hacker News. HarmoNova uses the HN session and its own action forms; it never asks for a password inside the extension. HN can also require validation or apply rate limits. When a post can't be confirmed, HarmoNova attempts to keep your draft and offers a way back to HN's original form.
 
 Editing and deleting comments are a special case: they currently **open HN's original edit/delete pages**, after an explanation and your confirmation. They are not implemented as in-extension actions.
 
@@ -57,6 +57,6 @@ Browsers that support loading unpacked Chromium extensions may work, but Chrome/
 
 ## Reporting a problem
 
-[Open an issue](https://github.com/chaosmanage/harmonic-hn-browser/issues) with your browser version, extension version (shown at `chrome://extensions`), which HN page you were on, what you clicked, and what happened. A screenshot is useful when reporting a visual problem.
+[Open an issue](https://github.com/chaosmanage/harmonova/issues) with your browser version, extension version (shown at `chrome://extensions`), which HN page you were on, what you clicked, and what happened. A screenshot is useful when reporting a visual problem.
 
 **Do not include API keys, login credentials, browser cookies, authorization tokens, or private drafts** in issue descriptions, screenshots, or logs.

@@ -1,4 +1,4 @@
-// Harmonic Phase 4+5 UI suite: favorites, hide-with-undo, flag, bookmark bulk
+// HarmoNova Phase 4+5 UI suite: favorites, hide-with-undo, flag, bookmark bulk
 // favorite (SEC-37), and the story-submission modal — driven through the real
 // Chromium extension against fully mocked Hacker News documents. Companion to
 // tests/comments.mjs (composer) and tests/voting.mjs (voting); this file
@@ -17,7 +17,7 @@ const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 const FNID = "AbCdEf123456Zz";
 
 const STORY_ID = 50022292;
@@ -166,7 +166,7 @@ function createHnMock() {
     requests.push(record);
 
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
 
     const error = consumeError(pathname);
@@ -334,7 +334,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
-  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -373,15 +373,15 @@ const openThreadFully = async (page) => {
 
 const storyMenuAction = async (page, label) => {
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  await page.locator('.harmonic-popup .popup-item', { hasText: label }).click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: label }).click();
 };
 const newPost = async (page) => {
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator('.harmonic-popup .popup-item', { hasText: "New post" }).click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: "New post" }).click();
 };
 const toastText = async (page) =>
   page.waitForFunction(() => {
-    const toast = document.querySelector(".harmonic-toast");
+    const toast = document.querySelector(".harmonova-toast");
     return toast?.classList.contains("show") ? toast.textContent : null;
   }, { timeout: 15000 }).then((handle) => handle.jsonValue());
 
@@ -402,17 +402,17 @@ await test("favorite toggles through HN's token with a confirmation re-fetch", a
   const itemFetches = hn.requests.filter((request) => request.path.startsWith("/item")).length;
   assert.ok(itemFetches >= 2, "confirmRefetch re-reads the item document after the favorite");
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  assert.ok(await page.locator('.harmonic-popup .popup-item', { hasText: "Unfavorite" }).count(), "menu reflects favorite state");
+  assert.ok(await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).count(), "menu reflects favorite state");
   const toast = await toastText(page);
   assert.ok(toast.includes("Favorited"), "favorite toast: " + toast);
 
-  await page.locator('.harmonic-popup .popup-item', { hasText: "Unfavorite" }).click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 2, 20000, 150, "unfavorite");
   const unfave = hn.requests.filter((request) => request.path.startsWith("/fave"))[1];
   assert.equal(unfave.params.un, "t", "unfavorite sends un=t");
   await new Promise((resolve) => setTimeout(resolve, 1500));
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  assert.ok(await page.locator('.harmonic-popup .popup-item', { hasText: "Favorite" }).count(), "menu reverts to favorite");
+  assert.ok(await page.locator('.harmonova-popup .popup-item', { hasText: "Favorite" }).count(), "menu reverts to favorite");
   const toast2 = await toastText(page);
   assert.ok(toast2.includes("Removed from favorites"), "unfavorite toast: " + toast2);
 });
@@ -439,7 +439,7 @@ await test("hide from the thread offers undo; undo unhides with un=t", async ({ 
   await new Promise((resolve) => setTimeout(resolve, 1500));
   const toast = await toastText(page);
   assert.ok(toast.includes("Story hidden"), "hide toast: " + toast);
-  const undoButton = page.locator(".harmonic-toast .harmonic-toast-action", { hasText: "Undo" });
+  const undoButton = page.locator(".harmonova-toast .harmonova-toast-action", { hasText: "Undo" });
   await undoButton.waitFor({ state: "visible", timeout: 5000 });
   await undoButton.click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/hide")).length >= 2, 20000, 150, "unhide");
@@ -464,7 +464,7 @@ await test("card menu hide removes the card and undo restores it", async ({ page
   await gotoFeed(page);
   const card = page.locator('.story-card[data-story-id="' + STORY_2 + '"]');
   await card.click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Hide story" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Hide story" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/hide")), 25000, 200, "card hide request");
   const hide = hn.requests.find((request) => request.path.startsWith("/hide"));
   assert.equal(hide.params.id, String(STORY_2));
@@ -473,7 +473,7 @@ await test("card menu hide removes the card and undo restores it", async ({ page
     STORY_2,
     { timeout: 10000 }
   );
-  const undoButton = page.locator(".harmonic-toast .harmonic-toast-action", { hasText: "Undo" });
+  const undoButton = page.locator(".harmonova-toast .harmonova-toast-action", { hasText: "Undo" });
   await undoButton.waitFor({ state: "visible", timeout: 5000 });
   await undoButton.click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/hide")).length >= 2, 25000, 200, "unhide");
@@ -488,20 +488,20 @@ await test("flag story requires confirmation: cancel sends nothing, confirm flag
   await gotoFeed(page);
   await openThreadFully(page);
   await page.locator(".thread-actions button.thread-action[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Flag story" }).click();
-  await page.locator(".harmonic-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Flag story" }).click();
+  await page.locator(".harmonova-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
   assert.ok(
-    (await page.locator(".harmonic-confirm h3").textContent()).includes("Flag this story?"),
+    (await page.locator(".harmonova-confirm h3").textContent()).includes("Flag this story?"),
     "dialog names the action"
   );
-  await page.locator(".harmonic-confirm-cancel").click();
+  await page.locator(".harmonova-confirm-cancel").click();
   await new Promise((resolve) => setTimeout(resolve, 1200));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/flag")).length, 0, "SEC-36: cancel sends nothing");
 
   await page.locator(".thread-actions button.thread-action[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Flag story" }).click();
-  await page.locator(".harmonic-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
-  await page.locator(".harmonic-confirm-confirm").click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Flag story" }).click();
+  await page.locator(".harmonova-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-confirm-confirm").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/flag")), 20000, 150, "GET /flag");
   const flag = hn.requests.find((request) => request.path.startsWith("/flag"));
   assert.equal(flag.params.id, String(STORY_ID));
@@ -517,7 +517,7 @@ await test("comment flag appears only when HN offers the link and cancels safely
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
   await row.locator(":scope > .comment-card").click({ button: "right" });
   assert.equal(
-    await page.locator(".harmonic-popup .popup-item", { hasText: "Flag comment" }).count(),
+    await page.locator(".harmonova-popup .popup-item", { hasText: "Flag comment" }).count(),
     0,
     "no flag entry when the document offers no flag link"
   );
@@ -531,9 +531,9 @@ await test("comment flag appears only when HN offers the link and cancels safely
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const row2 = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
   await row2.locator(":scope > .comment-card").click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Flag comment" }).click();
-  await page.locator(".harmonic-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
-  await page.locator(".harmonic-confirm-cancel").click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Flag comment" }).click();
+  await page.locator(".harmonova-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-confirm-cancel").click();
   await new Promise((resolve) => setTimeout(resolve, 1000));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/flag")).length, 0, "SEC-36: comment flag cancel sends nothing");
 });
@@ -548,18 +548,18 @@ await test("bookmarks bulk-favorite runs serially with progress and is cancellab
   for (const id of [STORY_ID, STORY_2, STORY_3]) {
     const card = page.locator('.story-card[data-story-id="' + id + '"]');
     await card.click({ button: "right" });
-    await page.locator(".harmonic-popup .popup-item", { hasText: "Bookmark" }).click();
+    await page.locator(".harmonova-popup .popup-item", { hasText: "Bookmark" }).click();
   }
   await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Add bookmarks to HN favorites" }).click();
-  await page.locator(".harmonic-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
-  const dialogMessage = await page.locator(".harmonic-confirm-message").textContent();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Add bookmarks to HN favorites" }).click();
+  await page.locator(".harmonova-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
+  const dialogMessage = await page.locator(".harmonova-confirm-message").textContent();
   assert.ok(dialogMessage.includes("3 bookmarked stories"), "dialog counts the bookmarks: " + dialogMessage);
-  await page.locator(".harmonic-confirm-confirm").click();
+  await page.locator(".harmonova-confirm-confirm").click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 1, 30000, 200, "first bulk favorite");
 
   // Cancel during the second item's in-flight window.
-  const cancelButton = page.locator(".harmonic-toast .harmonic-toast-action", { hasText: "Cancel" });
+  const cancelButton = page.locator(".harmonova-toast .harmonova-toast-action", { hasText: "Cancel" });
   await cancelButton.waitFor({ state: "visible", timeout: 5000 });
   await cancelButton.click();
   const toast = await toastText(page);
@@ -580,11 +580,11 @@ await test("bookmarks bulk-favorite runs serially with progress and is cancellab
 await test("New post sends the exact /r payload once and preserves data if redirect is unconfirmed", async ({ page, hn }) => {
   await gotoFeed(page);
   await newPost(page);
-  const modal = page.locator(".harmonic-submit");
+  const modal = page.locator(".harmonova-submit");
   await modal.waitFor({ state: "visible", timeout: 5000 });
   assert.ok((await page.locator(".submit-as").textContent()).includes(USER), "modal names the acting account");
-  await page.locator(".submit-title").fill("Harmonic submits a story");
-  await page.locator(".submit-url").fill("https://example.com/harmonic");
+  await page.locator(".submit-title").fill("HarmoNova submits a story");
+  await page.locator(".submit-url").fill("https://example.com/harmonova");
   assert.equal((await page.locator(".submit-count").textContent()).trim(), "24/80", "title counter tracks input");
   await page.locator(".submit-go").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/submit") && request.method === "GET"), 20000, 150, "GET /submit");
@@ -592,8 +592,8 @@ await test("New post sends the exact /r payload once and preserves data if redir
   const posted = hn.requests.find((request) => request.path.startsWith("/r"));
   assert.equal(posted.bodyParams.fnid, FNID, "fnid comes from HN's own submit form");
   assert.equal(posted.bodyParams.fnop, "submit-page");
-  assert.equal(posted.bodyParams.title, "Harmonic submits a story");
-  assert.equal(posted.bodyParams.url, "https://example.com/harmonic");
+  assert.equal(posted.bodyParams.title, "HarmoNova submits a story");
+  assert.equal(posted.bodyParams.url, "https://example.com/harmonova");
   // Verification makes bounded GET reads against the author's submitted list,
   // so wait until the final outcome rather than observing the in-flight status.
   await page.waitForFunction(() => /has not confirmed|has not shown|did not confirm/i.test(
@@ -604,14 +604,14 @@ await test("New post sends the exact /r payload once and preserves data if redir
   assert.equal(await modal.count(), 1, "unconfirmed response keeps submission form");
   const status = await page.locator(".submit-status").textContent();
   assert.match(status, /has not confirmed|has not shown|did not confirm/i, "ambiguous response is not reported as success: " + status);
-  assert.equal(await page.locator(".submit-title").inputValue(), "Harmonic submits a story", "title kept");
+  assert.equal(await page.locator(".submit-title").inputValue(), "HarmoNova submits a story", "title kept");
   assert.equal(await page.locator(".submit-hn-open").count(), 2, "unconfirmed post offers native submit and submissions links");
 });
 
 await test("submit validation refuses empty posts and unsafe URLs locally", async ({ page, hn }) => {
   await gotoFeed(page);
   await newPost(page);
-  await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("Only a title");
   await page.locator(".submit-go").click();
   assert.ok((await page.locator(".submit-status").textContent()).includes("Add a URL or some text"), "URL/text validation");
@@ -629,14 +629,14 @@ await test("already-submitted redirect opens the existing discussion", async ({ 
   hn.state.submitMode = "already";
   await gotoFeed(page);
   await newPost(page);
-  await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("A duplicate story");
   await page.locator(".submit-url").fill("https://example.com/dup");
   await page.locator(".submit-go").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/r")), 20000, 150, "POST /r");
   const toast = await toastText(page);
   assert.ok(toast.toLowerCase().includes("already"), "already-submitted toast: " + toast);
-  // The existing discussion (770001) opens in Harmonic: its on-demand item
+  // The existing discussion (770001) opens in HarmoNova: its on-demand item
   // state fetch fires and the thread header re-renders.
   await waitFor(
     () => hn.requests.some((request) => request.path === "/item?id=" + EXISTING_ITEM_ID),
@@ -645,14 +645,14 @@ await test("already-submitted redirect opens the existing discussion", async ({ 
     "GET /item?id=770001 for the existing discussion"
   );
   await new Promise((resolve) => setTimeout(resolve, 1200));
-  assert.equal(await page.locator("[data-thread-vote]").count(), 1, "existing discussion opens in Harmonic");
+  assert.equal(await page.locator("[data-thread-vote]").count(), 1, "existing discussion opens in HarmoNova");
 });
 
 await test("validationRequired on POST keeps the values and hands off to HN's stock form", async ({ page, hn }) => {
   hn.state.errorScript.push({ pathPattern: "/r", classification: "validationRequired" });
   await gotoFeed(page);
   await newPost(page);
-  await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("Verification wall story");
   await page.locator(".submit-url").fill("https://example.com/verify");
   await page.locator(".submit-go").click();
@@ -674,7 +674,7 @@ await test("too-fast submit keeps the modal and never retries", async ({ page, h
   hn.state.errorScript.push({ pathPattern: "/r", classification: "tooFast" });
   await gotoFeed(page);
   await newPost(page);
-  await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
+  await page.locator(".harmonova-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("Too fast story");
   await page.locator(".submit-url").fill("https://example.com/fast");
   await page.locator(".submit-go").click();
@@ -686,7 +686,7 @@ await test("too-fast submit keeps the modal and never retries", async ({ page, h
     "too-fast message surfaced in the modal"
   );
   assert.equal((await page.locator(".submit-title").inputValue()), "Too fast story", "values kept");
-  assert.equal(await page.locator(".harmonic-submit").count(), 1, "modal stays open");
+  assert.equal(await page.locator(".harmonova-submit").count(), 1, "modal stays open");
 });
 
 await test("untrusted scripted clicks never favorite, hide, flag, or open submit", async ({ page, hn }) => {
@@ -701,7 +701,7 @@ await test("untrusted scripted clicks never favorite, hide, flag, or open submit
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/fave")).length, 0, "no /fave traffic");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/hide")).length, 0, "no /hide traffic");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/submit")).length, 0, "no /submit traffic");
-  assert.equal(await page.locator(".harmonic-submit").count(), 0, "no submit modal from scripted clicks");
+  assert.equal(await page.locator(".harmonova-submit").count(), 0, "no submit modal from scripted clicks");
 });
 
 await browser.close();

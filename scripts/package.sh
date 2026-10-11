@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 version="$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")"
-folder="harmonic-hn-browser"
+folder="harmonova"
 out="dist/$folder"
 tmp="dist/.${folder}-build"
 zip_path="dist/${folder}-${version}.zip"
@@ -14,7 +14,7 @@ rm -rf "$tmp"
 mkdir -p "$tmp/icons" "$tmp/docs/assets"
 
 cp manifest.json content.js styles.css background.js url-policy.js hn-session.js hn-search.js popup.html popup.css popup.js ai-settings.html ai-settings.css ai-settings.js README.md CHANGELOG.md LICENSE "$tmp/"
-cp icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png icons/README.md "$tmp/icons/"
+cp icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png icons/harmonova-icon.svg icons/harmonova-logo.svg icons/README.md "$tmp/icons/"
 cp docs/*.md "$tmp/docs/"
 cp docs/assets/*.png "$tmp/docs/assets/"
 

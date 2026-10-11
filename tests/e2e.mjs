@@ -86,11 +86,7 @@ try {
   await left.evaluate((e) => { e.scrollTop = 0; });
   await right.evaluate((e) => { e.scrollTop = 0; });
 
-  const fontLoaded = await page.evaluate(async () => {
-    await document.fonts.load('400 16px "Google Sans Flex Rounded"');
-    return Array.from(document.fonts).some((face) => face.family.replace(/["']/g, "") === "Google Sans Flex Rounded" && face.status === "loaded");
-  });
-  assert.ok(fontLoaded, "Google Sans Flex Rounded should load for the Harmonic UI");
+  assert.equal(await page.locator("html").getAttribute("data-font"), "system", "system font is the default");
 
   const thirdCard = page.locator(".story-card").nth(2);
   const thirdHref = await thirdCard.locator(".story-card-title").getAttribute("href");
@@ -101,7 +97,7 @@ try {
   await thirdCard.click({ position: { x: Math.max(45, Math.min(70, cardBox.width * 0.15)), y: Math.max(10, cardBox.height - 12) } });
   const cardTab = await cardTabPromise;
   await cardTab.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
-  assert.equal(cardTab.url(), thirdHref, "story card body should open its article in a new tab like Harmonic");
+  assert.equal(cardTab.url(), thirdHref, "story card body should open its article in a new tab like HarmoNova");
   await cardTab.close();
 
   const secondCard = page.locator(".story-card").nth(1);
@@ -123,23 +119,23 @@ try {
   // The thread More menu (comment rows also have per-comment "More" buttons).
   const threadMore = page.locator(".thread-actions button.thread-action[aria-label='More']");
   await threadMore.click();
-  assert.ok((await page.locator('.harmonic-popup').textContent()).includes('Bookmark story'), 'bookmarks move to More');
+  assert.ok((await page.locator('.harmonova-popup').textContent()).includes('Bookmark story'), 'bookmarks move to More');
   await page.getByRole("button", { name: /Sort comments/ }).click();
-  const sortLabels = await page.locator(".harmonic-popup .popup-item").allTextContents();
+  const sortLabels = await page.locator(".harmonova-popup .popup-item").allTextContents();
   for (const mode of ["Default", "Newest first", "Oldest first", "Reply count"]) {
     assert.ok(sortLabels.some((label) => label.includes(mode)), "sort menu should contain " + mode);
   }
   await page.getByRole("button", { name: /Newest first/ }).click();
   await page.waitForTimeout(300);
   await threadMore.click();
-  assert.ok((await page.locator(".harmonic-popup").textContent()).includes("Sort comments · Newest first"), "selected sort mode should persist in the thread menu");
-  await page.locator(".harmonic-popup").evaluate((e) => e.remove());
+  assert.ok((await page.locator(".harmonova-popup").textContent()).includes("Sort comments · Newest first"), "selected sort mode should persist in the thread menu");
+  await page.locator(".harmonova-popup").evaluate((e) => e.remove());
 
   await page.locator(".feed-toolbar-actions .icon-button").last().click();
   await page.getByRole("button", { name: "Settings" }).click();
   await page.locator(".settings-overlay").waitFor({ state: "visible" });
   const settingRows = await page.locator(".setting-row").count();
-  assert.ok(settingRows >= 16, "expected expanded Harmonic-style settings controls");
+  assert.ok(settingRows >= 16, "expected expanded HarmoNova-style settings controls");
   const settingsText = await page.locator(".settings-panel").textContent();
   for (const label of ["Content zoom", "Comment text size", "Card click opens comments", "Comment sorting", "Thread colors", "AI summarization", "OpenRouter model", "Use AI summarization"]) {
     assert.ok(settingsText.includes(label), "settings should contain " + label);
@@ -153,17 +149,17 @@ try {
   await openSettingsCategory("Stories");
   const zoomRow = page.locator(".setting-row").filter({ hasText: "Content zoom" });
   const zoomSlider = zoomRow.locator('input[type="range"]');
-  assert.equal(await zoomSlider.inputValue(), "100", "default desktop content zoom should match Harmonic at 100%");
+  assert.equal(await zoomSlider.inputValue(), "100", "default desktop content zoom should match HarmoNova at 100%");
   await zoomSlider.fill("80");
   await page.waitForTimeout(150);
   assert.ok((await zoomRow.textContent()).includes("80%"), "content zoom setting should update live");
   const syncedZoom = await extensionWorker.evaluate(async () => {
-    const stored = await chrome.storage.sync.get(["harmonicSettings"]);
-    return stored.harmonicSettings?.contentScale;
+    const stored = await chrome.storage.sync.get(["harmonovaSettings"]);
+    return stored.harmonovaSettings?.contentScale;
   });
   assert.equal(syncedZoom, 80, "settings should persist to chrome.storage.sync");
   const backedUpZoom = await page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem("harmonic:settings:v1") || "{}");
+    const stored = JSON.parse(localStorage.getItem("harmonova:settings:v1") || "{}");
     return stored.contentScale;
   });
   assert.equal(backedUpZoom, 80, "settings should keep the unpacked-update backup on the Hacker News origin");
@@ -179,7 +175,7 @@ try {
   const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
   assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
 
-  const testApiKey = "sk-or-v1-harmonic-e2e-secret";
+  const testApiKey = "sk-or-v1-harmonova-e2e-secret";
   const optionsPagePromise = context.waitForEvent("page", { timeout: 10000 });
   await page.locator(".ai-key-row .setting-button").click();
   const aiOptionsPage = await optionsPagePromise;
@@ -188,7 +184,7 @@ try {
   await aiOptionsPage.locator('input[name="storage"][value="persistent"]').check();
   await aiOptionsPage.locator("#save").click();
   await aiOptionsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"));
-  const privateKey = await extensionWorker.evaluate(async () => (await chrome.storage.local.get(["harmonicAiApiKey"])).harmonicAiApiKey);
+  const privateKey = await extensionWorker.evaluate(async () => (await chrome.storage.local.get(["harmonovaAiApiKey"])).harmonovaAiApiKey);
   assert.equal(privateKey, testApiKey, "OpenRouter key should be stored in private extension-local storage");
   const syncContainsSecret = await extensionWorker.evaluate(async (secret) => JSON.stringify(await chrome.storage.sync.get(null)).includes(secret), testApiKey);
   assert.equal(syncContainsSecret, false, "OpenRouter key must never enter chrome.storage.sync");
@@ -201,10 +197,10 @@ try {
   const promptEditor = page.locator(".ai-settings-section textarea");
   await promptEditor.fill("Custom prompt");
   await promptEditor.blur();
-  await page.getByRole("button", { name: "Reset to Harmonic default" }).click();
-  assert.ok((await promptEditor.inputValue()).includes("summarizing articles"), "system prompt reset should restore Harmonic's default");
+  await page.getByRole("button", { name: "Reset to HarmoNova default" }).click();
+  assert.ok((await promptEditor.inputValue()).includes("summarizing articles"), "system prompt reset should restore HarmoNova's default");
 
-  // Restore Harmonic defaults before the visual regression screenshot.
+  // Restore HarmoNova defaults before the visual regression screenshot.
   await openSettingsCategory("Stories");
   await zoomSlider.fill("100");
   await openSettingsCategory("Comments");
@@ -283,9 +279,9 @@ try {
   assert.equal(openRouterAuth, "Bearer " + testApiKey, "background request should attach the private OpenRouter key");
   assert.equal(openRouterPayload?.model, "openrouter/free", "summary request should use the configured OpenRouter model");
   assert.equal(openRouterPayload?.stream, true, "summary request should stream by default");
-  assert.ok(openRouterPayload?.messages?.[0]?.content?.includes("summarizing articles"), "summary request should use Harmonic's system prompt");
+  assert.ok(openRouterPayload?.messages?.[0]?.content?.includes("summarizing articles"), "summary request should use HarmoNova's system prompt");
   assert.ok(openRouterPayload?.messages?.[1]?.content?.includes("Alpha finding about browser extensions"), "summary request should send extracted article text");
-  assert.ok((openRouterPayload?.messages?.[1]?.content || "").length <= 15000, "article input should respect Harmonic's 15k character budget");
+  assert.ok((openRouterPayload?.messages?.[1]?.content || "").length <= 15000, "article input should respect HarmoNova's 15k character budget");
   const regeneratedLabel = await page.locator('[data-summary-action-id="' + summaryStoryId + '"][data-summary-source="article"]').getAttribute("aria-label");
   assert.equal(regeneratedLabel, "Regenerate article summary", "Article action should allow regeneration after success");
   assert.equal(await page.evaluate((secret) => document.documentElement.outerHTML.includes(secret), testApiKey), false, "key must not appear in the HN DOM");
@@ -354,7 +350,7 @@ try {
   assert.equal(await page.locator(".ai-settings-section textarea").inputValue(), openRouterPayload.messages[0].content, "AI settings should survive reload");
   await page.locator(".setting-row").filter({ hasText: "Automatically summarize articles" }).locator('input[type="checkbox"]').check();
   await extensionWorker.evaluate(async () => {
-    while (!(await chrome.storage.sync.get("harmonicSettings")).harmonicSettings.aiAutoSummarize) await new Promise((resolve) => setTimeout(resolve, 20));
+    while (!(await chrome.storage.sync.get("harmonovaSettings")).harmonovaSettings.aiAutoSummarize) await new Promise((resolve) => setTimeout(resolve, 20));
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "success");
@@ -372,7 +368,7 @@ try {
   assert.ok((await page.locator(".ai-key-status").textContent()).includes("Not set"), "missing key should direct users to setup");
   await page.locator(".settings-header .icon-button").click();
   await extensionWorker.evaluate((key) => saveAiKey(key, "session"), testApiKey);
-  assert.equal(await extensionWorker.evaluate(async () => (await chrome.storage.local.get("harmonicAiApiKey")).harmonicAiApiKey), undefined, "session keys must not remain on disk");
+  assert.equal(await extensionWorker.evaluate(async () => (await chrome.storage.local.get("harmonovaAiApiKey")).harmonovaAiApiKey), undefined, "session keys must not remain on disk");
 
   await context.unroute(summaryArticleUrl);
   await context.unroute("https://openrouter.ai/api/v1/chat/completions");
@@ -383,7 +379,7 @@ try {
   await titleCard.locator(".story-card-title").click();
   await page.waitForURL(new RegExp("item\\?id=" + titleCardId), { timeout: 10000 });
   await page.waitForTimeout(250);
-  assert.equal(context.pages().length, pageCountBeforeTitleClick, "title click should stay in Harmonic when card-click comments is enabled");
+  assert.equal(context.pages().length, pageCountBeforeTitleClick, "title click should stay in HarmoNova when card-click comments is enabled");
 
   await page.waitForFunction(() => document.querySelectorAll(".story-card.has-preview").length > 0, null, { timeout: 10000 }).catch(() => {});
   const previewCard = page.locator(".story-card.has-preview").first();
@@ -393,7 +389,7 @@ try {
     await previewCard.locator(".story-preview").click();
     await page.waitForURL(new RegExp("item\\?id=" + previewCardId), { timeout: 10000 });
     await page.waitForTimeout(250);
-    assert.equal(context.pages().length, pageCountBeforePreviewClick, "preview image click should stay in Harmonic when card-click comments is enabled");
+    assert.equal(context.pages().length, pageCountBeforePreviewClick, "preview image click should stay in HarmoNova when card-click comments is enabled");
   }
 
   await page.locator(".feed-toolbar-actions .icon-button").last().click();
@@ -413,17 +409,17 @@ try {
   await page.waitForTimeout(150);
   assert.ok(await firstComment.evaluate((e) => e.classList.contains("collapsed")), "comment click should collapse thread");
 
-  const quoteCount = await page.locator(".harmonic-quote").count();
+  const quoteCount = await page.locator(".harmonova-quote").count();
   const unnormalizedQuoteParagraphs = await page.locator(".comment-body p").evaluateAll((nodes) =>
     nodes.filter((node) => (node.textContent || "").trimStart().startsWith(">")).length
   );
   assert.equal(unnormalizedQuoteParagraphs, 0, "literal > quote paragraphs should be normalized");
   if (quoteCount > 0) {
-    const quoteStyle = await page.locator(".harmonic-quote").first().evaluate((e) => {
+    const quoteStyle = await page.locator(".harmonova-quote").first().evaluate((e) => {
       const s = getComputedStyle(e);
       return { background: s.backgroundColor, borderLeft: s.borderLeftWidth, paddingLeft: s.paddingLeft };
     });
-    const firstQuoteText = (await page.locator(".harmonic-quote").first().textContent()) || "";
+    const firstQuoteText = (await page.locator(".harmonova-quote").first().textContent()) || "";
     assert.ok(!firstQuoteText.trimStart().startsWith(">"), "normalized quote should not keep a leading > marker");
     assert.notEqual(quoteStyle.background, "rgba(0, 0, 0, 0)", "quotes should have a visible background");
     assert.ok(parseFloat(quoteStyle.borderLeft) >= 2, "quotes should have a visible left rule");
@@ -439,7 +435,7 @@ try {
   assert.notEqual(new URL(articlePage.url()).hostname, "news.ycombinator.com", "article should open in another tab");
   assert.equal(new URL(page.url()).hostname, "news.ycombinator.com", "reader tab should remain on Hacker News");
 
-  await page.screenshot({ path: path.join(outDir, "harmonic-1919x872.png"), fullPage: false });
+  await page.screenshot({ path: path.join(outDir, "harmonova-1919x872.png"), fullPage: false });
 
   const originalPagePromise = context.waitForEvent("page", { timeout: 10000 });
   await page.locator(".feed-toolbar-actions .icon-button").last().click();
@@ -447,18 +443,18 @@ try {
   const originalPage = await originalPagePromise;
   await originalPage.waitForLoadState("domcontentloaded", { timeout: 15000 });
   await originalPage.locator("#hnmain").waitFor({ state: "visible", timeout: 15000 });
-  assert.equal(await originalPage.locator(".harmonic-app").count(), 0, "Open original Hacker News should bypass the Harmonic renderer");
+  assert.equal(await originalPage.locator(".harmonova-app").count(), 0, "Open original Hacker News should bypass the HarmoNova renderer");
   await originalPage.goto("https://news.ycombinator.com/newest", { waitUntil: "domcontentloaded" });
   await originalPage.locator("#hnmain").waitFor({ state: "visible", timeout: 15000 });
-  assert.equal(await originalPage.locator(".harmonic-app").count(), 0, "original-HN mode should persist while navigating in the same tab");
+  assert.equal(await originalPage.locator(".harmonova-app").count(), 0, "original-HN mode should persist while navigating in the same tab");
   await originalPage.close();
 
   const disableNavigation = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
   await page.locator(".feed-toolbar-actions .icon-button").last().click();
-  await page.getByRole("button", { name: "Disable Harmonic" }).click();
+  await page.getByRole("button", { name: "Disable HarmoNova" }).click();
   await disableNavigation;
   await page.locator("#hnmain").waitFor({ state: "visible", timeout: 15000 });
-  assert.equal(await page.locator(".harmonic-app").count(), 0, "Disable Harmonic should reload stock Hacker News without disabling the Chrome extension");
+  assert.equal(await page.locator(".harmonova-app").count(), 0, "Disable HarmoNova should reload stock Hacker News without disabling the Chrome extension");
 
   const popupPage = await context.newPage();
   await popupPage.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
@@ -467,22 +463,22 @@ try {
   assert.equal(await popupToggle.isChecked(), false, "extension popup should reflect the disabled state");
   await popupToggle.check();
   await popupPage.waitForFunction(() => document.querySelector("#status")?.textContent?.includes("Enabled"));
-  const enabledAfterPopup = await extensionWorker.evaluate(async () => (await chrome.storage.sync.get(["harmonicEnabled"])).harmonicEnabled);
-  assert.equal(enabledAfterPopup, true, "extension popup should re-enable Harmonic in storage");
+  const enabledAfterPopup = await extensionWorker.evaluate(async () => (await chrome.storage.sync.get(["harmonovaEnabled"])).harmonovaEnabled);
+  assert.equal(enabledAfterPopup, true, "extension popup should re-enable HarmoNova in storage");
   await popupPage.close();
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
-  assert.equal(await page.locator(".harmonic-app").count(), 1, "reloading after popup re-enable should restore Harmonic");
+  assert.equal(await page.locator(".harmonova-app").count(), 1, "reloading after popup re-enable should restore HarmoNova");
 
   // Regression: long comment headings must not expand the popup to screen size.
   await page.locator(".comment-card").first().waitFor({ state: "visible", timeout: 15000 });
   await page.locator(".comment-card").first().click({ button: "right" });
-  const popupMetrics = await page.locator(".harmonic-popup").evaluate((node) => {
+  const popupMetrics = await page.locator(".harmonova-popup").evaluate((node) => {
     const box = node.getBoundingClientRect();
     return { width: box.width, height: box.height, left: box.left, top: box.top,
       viewportWidth: innerWidth, viewportHeight: innerHeight,
-      accent: getComputedStyle(node.querySelector('[data-icon="star"] .harmonic-icon')).color };
+      accent: getComputedStyle(node.querySelector('[data-icon="star"] .harmonova-icon')).color };
   });
   assert.ok(popupMetrics.width <= 310 && popupMetrics.height <= 540, "context menu should be compact and scrollable");
   assert.ok(popupMetrics.left >= 0 && popupMetrics.top >= 0 && popupMetrics.left + popupMetrics.width <= popupMetrics.viewportWidth, "menu stays on screen");
@@ -509,7 +505,7 @@ try {
 
   console.log(JSON.stringify({
     storyCards: count,
-    fontLoaded,
+    interfaceFont: "system",
     titleTop: layout.titleTop,
     storyGutter: layout.firstCardLeft,
     refreshSize: [layout.refreshWidth, layout.refreshHeight],
@@ -529,7 +525,7 @@ try {
     originalTabBypass: true,
     popupReenable: true,
     extensionId,
-    screenshot: path.join(outDir, "harmonic-1919x872.png")
+    screenshot: path.join(outDir, "harmonova-1919x872.png")
   }, null, 2));
 } finally {
   await context.close();

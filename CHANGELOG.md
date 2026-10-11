@@ -1,3 +1,13 @@
+## v0.13.8 — HarmoNova rebrand
+
+- Renamed the independent browser extension to **HarmoNova for Hacker News**.
+- Replaced the upstream launcher icon with an original minimal flat icon and README wordmark.
+- Removed the runtime download of the upstream rounded font and defaulted to system UI typography.
+- Renamed the GitHub project, release folder, package, documentation and public-facing UI strings.
+- Preserved attribution to Simon Halvdansson and the original [Harmonic Android project](https://github.com/SimonHalvdansson/Harmonic-HN).
+
+> Earlier changelog entries describe past releases and may refer to the original project branding.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -11,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.13.7] - 2026-10-11
 
 ### Documentation
-- Replaced the long README with a simpler first-person introduction: why I enjoy Harmonic Android, why ordinary desktop HN felt less intuitive to me, the Android emulator experiment, and why I chose a Chrome extension.
+- Replaced the long README with a simpler first-person introduction: why I enjoy HarmoNova Android, why ordinary desktop HN felt less intuitive to me, the Android emulator experiment, and why I chose a Chrome extension.
 - Added clear no-build installation instructions and a screenshot showing Chrome's Developer mode and Load unpacked controls.
 - Added authentic screenshots of feed options, site-wide search, appearance, story settings, and AI settings, plus a clearly labeled mocked AI summary preview.
 - Organized feature, troubleshooting, privacy, architecture, and contributor documentation, kept prominent credit to Simon Halvdansson, and removed obsolete plans.
@@ -23,7 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.13.6] - 2026-10-11
 
 ### Changed
-- **Comment Edit/Delete temporarily handed off to Hacker News.** Both actions on an eligible own comment now explain that Harmonic editing/deletion is unavailable. After explicitly choosing Continue on Hacker News, open the corresponding stock `/edit?id=` or `/delete-confirm?id=` page in an original-HN tab. Cancel never navigates and Harmonic sends no edit/delete POSTs.
+- **Comment Edit/Delete temporarily handed off to Hacker News.** Both actions on an eligible own comment now explain that HarmoNova editing/deletion is unavailable. After explicitly choosing Continue on Hacker News, open the corresponding stock `/edit?id=` or `/delete-confirm?id=` page in an original-HN tab. Cancel never navigates and HarmoNova sends no edit/delete POSTs.
 
 ### Tested
 - Chromium verifies both menu handoffs, cancellation, correct native form URLs, original-HN tab bypass, and that no edit/delete mutation requests occur.
@@ -71,7 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.13.1] - 2026-10-11
 
 ### Fixed
-- **Context menus:** Keep comment and story right-click actions compact, viewport-bounded, scrollable, and readable even for very long comment excerpts; tint icons subtly to match the Harmonic themes.
+- **Context menus:** Keep comment and story right-click actions compact, viewport-bounded, scrollable, and readable even for very long comment excerpts; tint icons subtly to match the HarmoNova themes.
 - **HN account actions:** Do not mistake partial HN navigation bars or submit-only login gates for an actual sign-out. Verify the active account before issuing submission forms, preserve draft contents, and offer an original-HN handoff when submission requires verification.
 - **Hide jobs:** Honor the setting in every feed, correctly hide grid-layout cards, and detect YC hiring announcements that the HN API classifies as regular stories.
 - **AI summaries:** Explain empty or filtered model responses using provider finish reasons, increase the output budget, and retry a reasoning-only empty stream once without streaming.
@@ -85,7 +95,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **HN vote protocol:** Accept successful empty `js=t` responses, parse `unv_ID` and `undown` correctly, keep per-item vote tokens for 30 minutes, confirm ambiguous votes via a read-only item fetch, and preserve already-voted feed/thread states.
 - **Comment integrity:** Preload real HN reply forms; post once; find the submitted comment in the redirected item document before clearing the draft; insert confirmed replies immediately; keep edits and deletes locally while Algolia catches up. Ambiguous results retain drafts and never claim success.
 - **Search:** Classify Algolia results by `_tags`, decode highlights in an inert document, use a local filter until Enter triggers a site-wide search, support keyboard navigation, prevent duplicate preview storms, and restore feed scroll position.
-- **Harmonic reading interface:** Restore compact toolbar and seven thread actions, contextual story/comment menus, avatars and hotness colors off by default, categorized settings, floating comment navigation, account side sheet, and safe SVG click propagation.
+- **HarmoNova reading interface:** Restore compact toolbar and seven thread actions, contextual story/comment menus, avatars and hotness colors off by default, categorized settings, floating comment navigation, account side sheet, and safe SVG click propagation.
 
 ### Added
 - Sanitized headed-browser HN capture workflow (`scripts/capture-hn-fixtures.mjs`); credentials are never entered by this script or written into fixtures.
@@ -97,7 +107,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.12.2] - 2026-10-10
 
-The links-and-appearance release, part three of Phase 7: Harmonic now makes offsite links smarter and the reading surface yours. GitHub repositories, Wikipedia articles, and arXiv papers get rich inline previews fetched directly from their public APIs; every external story link can redirect to a Nitter instance for a lighter Twitter/X experience; every story offers a one-click "View on archive" shortcut through the Wayback Machine; and the whole UI follows three new themes (AMOLED black, charcoal, deep navy) plus a choice of font stack.
+The links-and-appearance release, part three of Phase 7: HarmoNova now makes offsite links smarter and the reading surface yours. GitHub repositories, Wikipedia articles, and arXiv papers get rich inline previews fetched directly from their public APIs; every external story link can redirect to a Nitter instance for a lighter Twitter/X experience; every story offers a one-click "View on archive" shortcut through the Wayback Machine; and the whole UI follows three new themes (AMOLED black, charcoal, deep navy) plus a choice of font stack.
 
 ### Added
 
@@ -109,7 +119,7 @@ The links-and-appearance release, part three of Phase 7: Harmonic now makes offs
 - **View on archive.** The card menu and the thread's More menu gain a "View on archive" entry that opens `web.archive.org/web/2/<url>` — the Wayback Machine's "closest capture to now" form — in a new tab, for stories whose pages have vanished or paywalled.
 - **Nitter redirect (opt-in).** A Links-section toggle rewrites Twitter/X and t.co links (story links, in-text anchors) to a configurable Nitter instance; the default is `nitter.net`, and any custom instance is validated (hostname form, 3–80 chars) with a toast if invalid — falling back to the default rather than breaking links.
 - **Themes.** The Appearance section adds three themes alongside the default AMOLED black: **Charcoal** (soft dark gray surfaces) and **Deep navy** (blue-tinted dark), applied via `data-theme` with palettes for every surface token.
-- **Font choice.** Appearance also adds a font selector — Harmonic's custom stack, System UI, or Serif — wired through a `--harmonic-font-stack` variable used by the reader surface.
+- **Font choice.** Appearance also adds a font selector — HarmoNova's custom stack, System UI, or Serif — wired through a `--harmonic-font-stack` variable used by the reader surface.
 
 ### Changed
 
@@ -122,7 +132,7 @@ The links-and-appearance release, part three of Phase 7: Harmonic now makes offs
 
 ## [0.12.1] - 2026-10-10
 
-The comment-parity release, part two: Harmonic now understands who you're reading — the thread author gets an OP badge, every commenter gets a deterministic local avatar, comments posted since your last visit are highlighted, HN's `[delayed]` placeholders can be hidden, long discussions gain an in-thread filter and top-level navigation, and you can tag or block any commenter. Your tags, blocks, bookmarks, and read history can be exported and re-imported as a portable JSON file.
+The comment-parity release, part two: HarmoNova now understands who you're reading — the thread author gets an OP badge, every commenter gets a deterministic local avatar, comments posted since your last visit are highlighted, HN's `[delayed]` placeholders can be hidden, long discussions gain an in-thread filter and top-level navigation, and you can tag or block any commenter. Your tags, blocks, bookmarks, and read history can be exported and re-imported as a portable JSON file.
 
 ### Added
 
@@ -170,11 +180,11 @@ The reading-parity release, part one: every public Hacker News list becomes a fe
 
 ## [0.11.0] - 2026-10-10
 
-The profiles-and-lists release: your Hacker News account data lives inside Harmonic — a Firebase-backed user panel for anyone, your own Threads/Upvoted/Favorites/Submissions/Hidden lists from the account chip, and public lists for other users — with the profile page itself strictly off-limits (SEC-05).
+The profiles-and-lists release: your Hacker News account data lives inside HarmoNova — a Firebase-backed user panel for anyone, your own Threads/Upvoted/Favorites/Submissions/Hidden lists from the account chip, and public lists for other users — with the profile page itself strictly off-limits (SEC-05).
 
 ### Added
 
-- **User profile panel.** Clicking any author — in a feed card's thread header, a comment row, or the account chip's Profile entry — opens an in-Harmonic overlay with the user's karma, a "member since" date (derived from the Firebase `created` field), their sanitized `about` text, up to eight recent items (clickable, open the discussion), and an "Open profile on Hacker News" link. A missing profile says "This profile is not available" instead of rendering a broken panel.
+- **User profile panel.** Clicking any author — in a feed card's thread header, a comment row, or the account chip's Profile entry — opens an in-HarmoNova overlay with the user's karma, a "member since" date (derived from the Firebase `created` field), their sanitized `about` text, up to eight recent items (clickable, open the discussion), and an "Open profile on Hacker News" link. A missing profile says "This profile is not available" instead of rendering a broken panel.
 - **Own lists from the account chip (Phase 6).** The chip menu gains Threads (your reply inbox), Upvoted, Favorites, Submissions, and Hidden. A list view replaces the feed pane with a back button; stories render as feed cards, Threads rows carry the comment text plus the story they belong to (via Algolia's `items` API) and clicking a row opens that discussion. "Load more" pages through HN's morelinks with per-view dedupe, hiding itself when HN offers no next page; empty lists show "Nothing here yet."
 - **Public lists for other users.** Another user's panel offers Submissions, Comments, and Favorites, opening that user's public list in the same list view (titled "alice's submissions" and so on). Lists that are private on Hacker News (another user's threads/upvoted/hidden) are refused with a plain-language toast.
 - **`fetchListPage` in `hn-session.js`.** List pages are fetched through the rate-limited queue and parsed for `tr.athing` ids plus the morelink; outcomes are `ok` / `loginRequired` (which clears the session) / `rateLimited` / `indeterminate` / `failure`. SEC-05 is enforced structurally: the first path segment must be on a fixed allowlist that does not include `user`, so no code path — not even a bug — can fetch the profile HTML page. Relative morelinks (`?p=2`, `x?fnid=…`) are resolved against the requested list path with query merging, never against the host page's URL.
@@ -197,7 +207,7 @@ The profiles-and-lists release: your Hacker News account data lives inside Harmo
 
 ## [0.10.0] - 2026-10-10
 
-The favorites-and-submission release: Harmonic covers the rest of Hacker News's account actions — favorites, hide (with undo), flag (behind a confirmation), bulk-favoriting your bookmarks, and full story submission from a modal.
+The favorites-and-submission release: HarmoNova covers the rest of Hacker News's account actions — favorites, hide (with undo), flag (behind a confirmation), bulk-favoriting your bookmarks, and full story submission from a modal.
 
 ### Added
 
@@ -205,8 +215,8 @@ The favorites-and-submission release: Harmonic covers the rest of Hacker News's 
 - **Hide with undo.** Hide is available from the thread header and from every feed card's overflow menu. The mutation goes through HN's `hide` token (`un=t` to unhide); the feed card disappears from the list and a 6-second toast offers **Undo**, which unhides (restoring the card) without reloading the feed. The control hides itself when the item document offers no hide link.
 - **Flag, only when HN offers it, only behind confirmation (SEC-36).** The thread's More menu gains "Flag story" and comment rows' More menus gain "Flag comment" — both rendered only when the fetched Hacker News document actually contains a flag link for that item. Flagging opens a dialog that explains what flagging does and who sees it; Cancel sends nothing, Confirm sends exactly one `flag?…` request. When an item is already flagged, the menu offers "Unflag story".
 - **Bookmarks → favorites, in bulk (SEC-37).** The feed More menu gains "Add bookmarks to HN favorites": after a dialog stating exactly how many bookmarks will be touched and roughly how long it takes, it favorites each bookmarked story **serially** through the rate-limited queue (the queue's own spacing enforces the serial pacing), shows live progress ("Adding to favorites… 3 of 12") with a **Cancel** button that stops the run at the next item boundary, reports "N of M added to favorites · K failed", and stops cleanly if the Hacker News session ends mid-run.
-- **Story submission (Phase 5).** The feed toolbar gains a **New post** button (logged in only): a modal with Title (80-character limit with a live counter), URL, and Text fields, a "Posting as <username>" line, and a link to Hacker News's guidelines. Harmonic validates locally (a title is required, a URL *or* text is required, URLs pass `safeHref` — `javascript:` and friends are refused before any request), then fetches HN's own `/submit` form, reads its `fnid`, and POSTs `/r` with `fnop=submit-page` exactly once (SEC-34).
-- **Submit outcomes.** Success closes the modal, toasts, and refreshes the feed. An "already submitted" redirect (302 to an existing item) opens that discussion in Harmonic with a "Hacker News already has this story" toast. A validation-required response keeps the entered values in the modal and offers a button that opens HN's own stock `/submit` form in an original-mode tab — Harmonic never auto-fills a form on Hacker News itself. Too-fast, rate-limited, login-ended, and indeterminate outcomes keep the values and show a plain-language message; the modal stays open so the user decides what happens next.
+- **Story submission (Phase 5).** The feed toolbar gains a **New post** button (logged in only): a modal with Title (80-character limit with a live counter), URL, and Text fields, a "Posting as <username>" line, and a link to Hacker News's guidelines. HarmoNova validates locally (a title is required, a URL *or* text is required, URLs pass `safeHref` — `javascript:` and friends are refused before any request), then fetches HN's own `/submit` form, reads its `fnid`, and POSTs `/r` with `fnop=submit-page` exactly once (SEC-34).
+- **Submit outcomes.** Success closes the modal, toasts, and refreshes the feed. An "already submitted" redirect (302 to an existing item) opens that discussion in HarmoNova with a "Hacker News already has this story" toast. A validation-required response keeps the entered values in the modal and offers a button that opens HN's own stock `/submit` form in an original-mode tab — HarmoNova never auto-fills a form on Hacker News itself. Too-fast, rate-limited, login-ended, and indeterminate outcomes keep the values and show a plain-language message; the modal stays open so the user decides what happens next.
 - **Toast actions.** Toasts can now carry one button (Undo/Cancel) — the toast itself becomes clickable while shown.
 - **Card menu bookmark toggle.** The feed card overflow menu gains Bookmark/Remove bookmark (the same local bookmark store the thread header uses).
 - **`tests/actions.mjs` — the Phase 4+5 UI suite (14 tests).** Favorite toggling with the exact token request and confirmation re-fetch; favorite/hide controls hidden when the item document offers no link; thread hide with the undo toast asserting `un=t` on the undo request; card-menu hide removing the card and undo restoring it; flag story — cancel sends nothing, confirm sends one request; comment flag absent without a document link, present (and cancel-safe) with one; bookmarks bulk favorite — the dialog counts the bookmarks, requests are serially spaced (measured ≥600 ms apart), and mid-run cancellation stops the run early; exact POST `/r` payload from HN's `fnid` form posted once with feed refresh; local validation of empty posts and unsafe URLs with zero HN traffic; already-submitted opening the existing discussion; validationRequired keeping values and opening the stock form in a new original-mode tab; too-fast keeping the modal; and scripted-click refusal across favorite/hide/new-post (SEC-30).
@@ -220,12 +230,12 @@ The favorites-and-submission release: Harmonic covers the rest of Hacker News's 
 
 ## [0.9.0] - 2026-10-10
 
-The commenting release: Harmonic's composer closes the last big write-action gap — replies, edits, and deletes all happen inside Harmonic, backed by per-account, session-scoped drafts and the module's exact-form, no-retry POST discipline.
+The commenting release: HarmoNova's composer closes the last big write-action gap — replies, edits, and deletes all happen inside HarmoNova, backed by per-account, session-scoped drafts and the module's exact-form, no-retry POST discipline.
 
 ### Added
 
-- **In-Harmonic reply composer.** The thread header's "Reply to post" button and every comment row's Reply button now open an inline composer instead of handing off to Hacker News: it names the acting account ("Commenting on… / Replying to… as <user>"), shows a live character counter (HN's own 8000-character limit), auto-grows, offers a Preview/Write toggle (the same safe inline renderer used for summaries), and explains its shortcuts (Ctrl+Enter posts, Esc keeps the draft).
-- **Exact-form posting.** Submitting opens HN's own reply form through the queued fetch, reads the hidden `parent`/`goto`/`hmac` fields, and POSTs `/comment` exactly once with precisely the values HN's form dictated — Harmonic never invents or reuses form parameters (SEC-14/34). Success clears the draft, closes the composer, toasts "Reply posted", and reloads the discussion; the thread re-render also fires when the composer isn't the source (delete success).
+- **In-HarmoNova reply composer.** The thread header's "Reply to post" button and every comment row's Reply button now open an inline composer instead of handing off to Hacker News: it names the acting account ("Commenting on… / Replying to… as <user>"), shows a live character counter (HN's own 8000-character limit), auto-grows, offers a Preview/Write toggle (the same safe inline renderer used for summaries), and explains its shortcuts (Ctrl+Enter posts, Esc keeps the draft).
+- **Exact-form posting.** Submitting opens HN's own reply form through the queued fetch, reads the hidden `parent`/`goto`/`hmac` fields, and POSTs `/comment` exactly once with precisely the values HN's form dictated — HarmoNova never invents or reuses form parameters (SEC-14/34). Success clears the draft, closes the composer, toasts "Reply posted", and reloads the discussion; the thread re-render also fires when the composer isn't the source (delete success).
 - **Inline edit for your own comments.** Comment rows authored by the signed-in user gain Edit and Delete buttons (hidden for everyone else's). Edit fetches HN's `/edit` form, prefills the composer with HN's current text, and POSTs `/xedit` once with the form's own `id`/`hmac` fields plus the new text.
 - **Delete with explicit confirmation (SEC-36).** Delete opens a real confirmation dialog (title, message, Cancel/Delete buttons, red accent). Cancel sends nothing — no `/delete-confirm` fetch, no `/xdelete` POST. Confirm fetches HN's delete-confirmation form and POSTs `/xdelete` exactly once, then toasts "Comment deleted" and reloads the thread.
 - **Drafts that survive everything except success.** Typed text autosaves (500 ms debounce) to a new background draft store in `chrome.storage.session`, keyed by acting username + parent item, capped at 20 KB per draft and 50 entries with oldest-first eviction. Closing the composer (X button, Esc, thread switch) keeps the draft and toasts "Draft saved"; reopening the composer restores it with a "Draft restored." note. Every non-success outcome (too fast, rate limit, validation required, login ended, network error) keeps the draft too, and a Discard draft button wipes it on demand with a toast.
@@ -241,17 +251,17 @@ The commenting release: Harmonic's composer closes the last big write-action gap
 
 ## [0.8.0] - 2026-10-10
 
-The first account-actions release: Harmonic can now act on Hacker News on your behalf — the toolbar gains an account chip (login hand-off, profile destinations, fetch-based logout) and stories, comments, and poll options can be voted from inside Harmonic using Hacker News's own one-time tokens.
+The first account-actions release: HarmoNova can now act on Hacker News on your behalf — the toolbar gains an account chip (login hand-off, profile destinations, fetch-based logout) and stories, comments, and poll options can be voted from inside HarmoNova using Hacker News's own one-time tokens.
 
 ### Added
 
-- **Account chip in the toolbar.** Signed out, the chip reads **Log in** and offers *Log in* and *Create account*; signing in happens on Hacker News's own `/login` page in the same tab (SEC-01 — Harmonic renders no password field anywhere), with an allowlisted `goto` value (`news`, or `item?id=<id>` on a discussion) so user-supplied query input is never reflected (SEC-02). Signed in, the chip shows your username and karma and opens a menu with Profile, Threads, Upvoted, Favorites, Submissions, and Log out.
+- **Account chip in the toolbar.** Signed out, the chip reads **Log in** and offers *Log in* and *Create account*; signing in happens on Hacker News's own `/login` page in the same tab (SEC-01 — HarmoNova renders no password field anywhere), with an allowlisted `goto` value (`news`, or `item?id=<id>` on a discussion) so user-supplied query input is never reflected (SEC-02). Signed in, the chip shows your username and karma and opens a menu with Profile, Threads, Upvoted, Favorites, Submissions, and Log out.
 - **Fetch-based logout from the chip** (SEC-04). Logging out sends the signed-out fetch through `HarmonicHN.logout()` — the `logout?auth=…` URL never enters the address bar — then reloads the feed so the page reflects the signed-out state, clears vote affordances, and toasts "Signed out".
 - **Session-change reactions** (SEC-35). When a fetched page reveals a different account, the chip re-renders, vote state resets, the open thread's vote UI refreshes, and a "Signed in as <name>" toast confirms the switch. The startup harvest never toasts.
-- **Settings → Account section.** Explains that Harmonic never sees or stores your password, that the session lives in Hacker News's own cookie, and that actions are sent through the same signed-in browser session with tokens held in memory for the tab only.
+- **Settings → Account section.** Explains that HarmoNova never sees or stores your password, that the session lives in Hacker News's own cookie, and that actions are sent through the same signed-in browser session with tokens held in memory for the tab only.
 - **Story voting in the thread header.** The Upvote button is now functional: it reflects the story's vote state from the fetched HN item document (active/filled when voted, "Unvote" title), votes or unvotes on click with optimistic point updates (+1/−1) that roll back on failure, and locks while a vote is in flight (SEC-32 at the UI layer).
 - **Comment voting.** Every comment row gains a hover/focus action row: Upvote/Unvote (active state synced from item state), Downvote — shown only when Hacker News actually offers a `down_` link for that comment, and staying visible as the filled undown affordance while a downvote is active — plus a Reply hand-off to HN's reply form, and a **More** menu with Share link (copies the `item?id=` link), Copy text, Open parent / Open top level (when applicable), and View user.
-- **On-demand item state.** Once a discussion has been open for ~600 ms, Harmonic fetches its Hacker News item page through the rate-limited queue (`HarmonicHN.ensureItemState`) and applies the story's and every comment's vote state to the UI. Vote affordances light up without any user action; missing tokens are fetched on demand when you act.
+- **On-demand item state.** Once a discussion has been open for ~600 ms, HarmoNova fetches its Hacker News item page through the rate-limited queue (`HarmonicHN.ensureItemState`) and applies the story's and every comment's vote state to the UI. Vote affordances light up without any user action; missing tokens are fetched on demand when you act.
 - **Feed-level voting.** Stories already voted on the harvested feed document show a small ▲ badge on their card. Every card's meta line gains a **Story actions** menu with Open discussion, Open article, Upvote/Unvote (using the token harvested from the feed document, or an on-demand fetch for stories outside it), and Open on Hacker News.
 - **Poll voting.** Poll stories load their options from the Firebase `parts` list and render a Poll section above the comments; each option can be voted through its own item-document token, with active-state sync after success.
 - **SEC-30 trusted-event enforcement in the UI.** Every vote (and popup-driven action) requires `event.isTrusted`; scripted `element.click()` from page code is refused with a toast and never sends a request. `openPopup` now forwards the click event to menu actions so they can enforce this.
@@ -261,7 +271,7 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 
 ### Changed
 
-- Thread "Reply to post" now hands off to Hacker News's reply form for signed-in users instead of showing a placeholder toast (in-Harmonic composers arrive in Phase 3).
+- Thread "Reply to post" now hands off to Hacker News's reply form for signed-in users instead of showing a placeholder toast (in-HarmoNova composers arrive in Phase 3).
 - Comment rows build their action row at render time from any already-known item state, so re-renders (sorting, collapse toggles) never flash stale vote state; poll buttons re-render idempotently so an in-flight vote is never stomped by a background refresh.
 - The e2e suite targets the thread's More menu explicitly now that comment rows carry their own More buttons; `npm run test:voting` runs the new suite.
 
@@ -276,7 +286,7 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 
 - **Site-wide search (All of Hacker News).** The toolbar search box now offers two modes: **Loaded stories** (the original filter) and **All of Hacker News**, which searches the entire corpus through the public Algolia HN API (`/search` for relevance, `/search_by_date` for newest).
 - **Search filters.** Content-type chips (Stories, Comments, Ask, Show, Polls, Front page), a date-range picker (24 hours/week/month/year), a minimum-points field, an author filter, and relevance/newest sorting. Filters translate into validated `tags` and integer-only `numericFilters` (`created_at_i`, `points`); an invalid author name is skipped with an on-page hint rather than sent.
-- **Safe result rendering.** Story hits render as regular Harmonic story cards; comment hits render as compact cards with the story title and a highlighted excerpt. Highlight fragments are tokenized on literal `<em>`/`</em>` only (SEC-40) — hostile markup such as `<img onerror=…>` or `<script>` in a highlight renders as inert text and is never parsed as HTML.
+- **Safe result rendering.** Story hits render as regular HarmoNova story cards; comment hits render as compact cards with the story title and a highlighted excerpt. Highlight fragments are tokenized on literal `<em>`/`</em>` only (SEC-40) — hostile markup such as `<img onerror=…>` or `<script>` in a highlight renders as inert text and is never parsed as HTML.
 - **Comment deep links.** Opening a comment hit loads the discussion and scrolls that comment into view with a brief flash highlight.
 - **Paging and request hygiene.** Results page through "Load more" up to Algolia's `nbPages` limit with `hitsPerPage` capped at 50; queries are trimmed and capped at 200 characters; typing cancels stale in-flight requests with `AbortController` (300 ms debounce, minimum two characters, Enter for immediate search).
 - **Recent searches, memory only.** The last eight searches are offered as one-click suggestions and a clear button. They are never persisted to any storage — including in normal windows — so nothing search-related can leak through sync or disk (SEC-51).
@@ -284,7 +294,7 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 - **`hn-session.js` — the Hacker News session and account-action client.** A new content-script module that runs in the isolated world and implements the plan's Hacker News protocol rules: top-bar session parsing (username, karma, logout), vote-link parsing (`up_`/`down_`/`un_` anchors with direction from the arrow title), favorite/hide/flag link parsing with active-state detection, comment/reply/edit/delete/submit form harvesting, and list parsing with more-link resolution. All actions return structured outcomes (`success`, `failure`, `indeterminate`, `accountChanged`, `rateLimited`, `loginRequired`, `validationRequired`) instead of throwing.
 - **A serial, rate-limit-aware HN fetch queue** (SEC-25). Every `news.ycombinator.com` HTML fetch runs through one queue with at least 750 ms spacing and exponential back-off (2 s/4 s/8 s) when HN rate-limits or returns 503; GETs retry up to four times, while POSTs are never retried (SEC-34).
 - **A username-tagged token cache** (SEC-12). Vote, favorite, hide, flag, and logout tokens are cached only under the username that was signed in when the page was served; the cache and all form handles are dropped whenever the signed-in account changes or the page unloads (SEC-10/11). Tokens never leave the module closure.
-- **Hacker News error-page classification.** Pages are classified as expired-link, bad-login, too-fast, rate-limited, validation-required, login, blank, or OK — using only page-chrome regions, with user-contributed comment and story text stripped first so comment contents cannot spoof an error (the same trick upstream Harmonic uses).
+- **Hacker News error-page classification.** Pages are classified as expired-link, bad-login, too-fast, rate-limited, validation-required, login, blank, or OK — using only page-chrome regions, with user-contributed comment and story text stripped first so comment contents cannot spoof an error (the same trick upstream HarmoNova uses).
 - **Token-based mutations with exactly one fresh-token retry** (SEC-33) and **one in-flight mutation per item** (SEC-32). Stale cached tokens (older than 60 s) are re-verified against a fresh page fetch before use, so an account switch in another tab can never mutate under the old identity (SEC-35). Blank or unreadable responses are `indeterminate` and can never clear the session or count as success.
 - **Fetch-based logout** (SEC-04): `HarmonicHN.logout()` POSTs nothing and never navigates; the `logout?auth=…` URL never enters the address bar or history.
 - **Reply, edit, delete, and submit form handles.** Forms are fetched through the queue, validated (40-hex `hmac`, `fnid` shape), tagged with the acting username, and POSTed exactly once with `URLSearchParams`-built bodies (SEC-14/20).
@@ -306,7 +316,7 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 
 ### Security
 
-- **Background requests no longer send cookies** (SEC-22). Every fetch in the background service worker — preview metadata, image tinting, article extraction, the Harmonic font, and OpenRouter — now uses `credentials: "omit"`.
+- **Background requests no longer send cookies** (SEC-22). Every fetch in the background service worker — preview metadata, image tinting, article extraction, the HarmoNova font, and OpenRouter — now uses `credentials: "omit"`.
 - **Hacker News pages are refused for previews and summaries** (SEC-23). The background worker no longer fetches `news.ycombinator.com` or `ycombinator.com` for metadata, image tinting, or article extraction.
 - **A shared URL policy guards every remote background fetch** (SEC-24). New `url-policy.js` allows only public `http:`/`https:` URLs on default ports and blocks localhost, `*.localhost`, `*.local`, `*.internal`, `*.lan`, `*.home.arpa`, IPv4 loopback/private/link-local/CGNAT/benchmark/multicast ranges, IPv6 loopback/ULA/link-local/Teredo/6to4, and decimal/hex/octal literal-IP spellings such as `2130706433`, `0x7f000001`, and `0177.0.0.1`. Redirects are followed hop by hop with a five-hop cap and every hop target is re-validated before use.
 - **All external links pass through `safeHref`** (SEC-41). Story and discussion article links, preview links, and `window.open` calls fall back to the Hacker News item page for `javascript:`, `data:`, and other unsafe URLs.
@@ -333,7 +343,7 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 
 ### Added
 
-- Cancel an in-progress summary with the same Story tools button, and reset the system prompt to Harmonic's default in Settings.
+- Cancel an in-progress summary with the same Story tools button, and reset the system prompt to HarmoNova's default in Settings.
 - Added worker and browser coverage for cancellation, story switching, provider errors, automatic summaries, missing keys, credential storage modes, malformed article responses, and fragmented SSE data.
 - Added an optional live OpenRouter browser check using a session-only test credential.
 
@@ -349,8 +359,8 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 ### Added
 
 - Added one-click OpenRouter article summarization to the existing **Story tools** action, with no intermediate tools menu.
-- Added streamed Harmonic-style summary cards in the discussion header and one-click regeneration after a successful summary.
-- Added OpenRouter AI settings for enable/disable, model selection, the upstream Harmonic system prompt, streaming, and optional automatic summaries. The default model is `openrouter/free`.
+- Added streamed HarmoNova-style summary cards in the discussion header and one-click regeneration after a successful summary.
+- Added OpenRouter AI settings for enable/disable, model selection, the upstream HarmoNova system prompt, streaming, and optional automatic summaries. The default model is `openrouter/free`.
 - Added an extension-owned API-key settings page with persistent profile-local and session-only storage modes.
 - Added regression coverage for OpenRouter request payloads, SSE streaming, the 15,000-character article budget, private credential storage, and summary rendering.
 
@@ -368,10 +378,10 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 
 ### Added
 
-- Added a Chrome browser-action popup with an **Enable Harmonic** switch so the Harmonic UI can be disabled and re-enabled without disabling the extension in `chrome://extensions`.
-- Added popup shortcuts for opening Harmonic settings and opening an untouched Hacker News tab.
-- Added a per-tab original-Hacker-News mode managed by the background worker. Tabs opened through **Open original Hacker News** remain unmodified while navigating within Hacker News until the tab is closed or explicitly switched back to Harmonic.
-- Added **Disable Harmonic** to the feed and discussion overflow menus.
+- Added a Chrome browser-action popup with an **Enable HarmoNova** switch so the HarmoNova UI can be disabled and re-enabled without disabling the extension in `chrome://extensions`.
+- Added popup shortcuts for opening HarmoNova settings and opening an untouched Hacker News tab.
+- Added a per-tab original-Hacker-News mode managed by the background worker. Tabs opened through **Open original Hacker News** remain unmodified while navigating within Hacker News until the tab is closed or explicitly switched back to HarmoNova.
+- Added **Disable HarmoNova** to the feed and discussion overflow menus.
 - Added the Harmonic launcher artwork as the extension/browser-action icon at 16, 32, 48, and 128 pixel sizes.
 - Added settings migration from the pre-0.6.0 `chrome.storage.local` format into `chrome.storage.sync`.
 - Added a Hacker News origin backup for the settings object and enabled/disabled preference so local unpacked builds can recover preferences if a development update is loaded under a different extension ID.
@@ -380,8 +390,8 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 ### Changed
 
 - Settings now use `chrome.storage.sync` as their primary extension store instead of `chrome.storage.local`.
-- The release package now uses a stable unpacked folder name, `dist/harmonic-hn-browser/`, while keeping the zip filename versioned. This reduces accidental extension-ID churn during local updates.
-- The content stylesheet is scoped to `html.harmonic-hn` so installing or disabling Harmonic does not leak its dark color-scheme styling into untouched Hacker News.
+- The release package now uses a stable unpacked folder name, `dist/harmonova/`, while keeping the zip filename versioned. This reduces accidental extension-ID churn during local updates.
+- The content stylesheet is scoped to `html.harmonic-hn` so installing or disabling HarmoNova does not leak its dark color-scheme styling into untouched Hacker News.
 - **Open on Hacker News** in the discussion menu now uses the same original-tab mechanism as the feed overflow menu.
 - Updated release packaging to include the popup, icon assets, changelog, README, and license.
 - Expanded the README with detailed installation, update, persistence, permissions, popup, original-tab, packaging, testing, and data-handling documentation.
@@ -389,23 +399,23 @@ The first account-actions release: Harmonic can now act on Hacker News on your b
 ### Fixed
 
 - Replaced the malformed refresh SVG path that rendered as a broken/partial shape in the feed toolbar.
-- Fixed **Open original Hacker News** opening another Harmonic-rendered page instead of stock Hacker News.
+- Fixed **Open original Hacker News** opening another HarmoNova-rendered page instead of stock Hacker News.
 - Fixed settings appearing to reset after extension reload/update workflows that changed the unpacked extension storage namespace.
 
 ## [0.5.0] - 2026-06-08
 
 ### Added
 
-- Harmonic-style desktop feed and two-pane discussion reader.
+- HarmoNova-style desktop feed and two-pane discussion reader.
 - Top, New, Best, Ask, Show, and Jobs feed support.
 - Story preview metadata, favicons, image-derived card tinting, and lazy feed loading.
 - Nested comments with colored depth rails, collapse/expand behavior, sorting, and quote normalization.
-- Harmonic-inspired settings for feed, comments, typography, zoom, and behavior.
+- HarmoNova-inspired settings for feed, comments, typography, zoom, and behavior.
 - Chromium end-to-end regression tests and release packaging.
 
 ### Changed
 
-- Refined laptop-scale spacing, typography, story-card behavior, and discussion layout for closer Harmonic fidelity.
+- Refined laptop-scale spacing, typography, story-card behavior, and discussion layout for closer HarmoNova fidelity.
 
 ### Fixed
 

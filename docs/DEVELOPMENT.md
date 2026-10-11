@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md) · [Architecture](ARCHITECTURE.md) · [Changelog](../CHANGELOG.md)
 
-You don't need to compile anything to run Harmonic. Chrome can load the repository root directly. Development tooling exists for **testing**, **capturing sanitized fixtures**, and **packing a release**, not for transforming the application into runnable code.
+You don't need to compile anything to run HarmoNova. Chrome can load the repository root directly. Development tooling exists for **testing**, **capturing sanitized fixtures**, and **packing a release**, not for transforming the application into runnable code.
 
 ## Requirements
 
@@ -11,8 +11,8 @@ You don't need to compile anything to run Harmonic. Chrome can load the reposito
 - Git for source changes. GitHub CLI (`gh`) is optional and used by maintainers to publish releases.
 
 ```bash
-git clone https://github.com/chaosmanage/harmonic-hn-browser.git
-cd harmonic-hn-browser
+git clone https://github.com/chaosmanage/harmonova.git
+cd harmonova
 npm ci
 ```
 
@@ -21,7 +21,7 @@ Load the repository root in `chrome://extensions` → **Developer mode** → **L
 ## Project layout
 
 ```text
-harmonic-hn-browser/
+harmonova/
 ├── manifest.json            Chrome Manifest V3 entry point
 ├── content.js               feed, reader and interactive UI
 ├── styles.css               browser-reader visuals
@@ -41,7 +41,7 @@ harmonic-hn-browser/
 
 Generated material such as `dist/`, `node_modules/`, and `test-results/` is ignored by Git. Captured raw HN fixture data, traces, and any credentials must remain untracked. Documentation screenshots in `docs/assets/` are an intentional exception.
 
-To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot uses a deterministic **mock response**, not a real OpenRouter key or a summary of a real article. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured separately from the live reader.
+To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot uses a deterministic **mock response**, not a real OpenRouter key or a summary of a real article. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured from the same live session.
 
 ## Test commands
 
@@ -67,7 +67,7 @@ When testing an actual release archive, first create it, then point the Chromium
 
 ```bash
 npm run package
-EXTENSION_PATH="$PWD/dist/harmonic-hn-browser" \
+EXTENSION_PATH="$PWD/dist/harmonova" \
   TEST_OUTPUT_DIR="$PWD/test-results-packaged" \
   npm run test:e2e
 npm run test:security:browser
@@ -85,8 +85,8 @@ The script reads the version from `manifest.json` and creates:
 
 ```text
 dist/
-├── harmonic-hn-browser/                 ready for Load unpacked
-└── harmonic-hn-browser-0.13.7.zip      ZIP containing that folder
+├── harmonova/                 ready for Load unpacked
+└── harmonova-0.13.8.zip      ZIP containing that folder
 ```
 
 The folder name inside the ZIP is deliberately **stable**, even though the ZIP filename contains the version. When updating an unpacked installation, keeping the extracted path stable reduces the chance of Chrome treating it as a different extension.
@@ -95,7 +95,7 @@ The archive includes runtime files, icons, license, README, changelog, and user 
 
 ## Making changes
 
-1. Keep UI design aligned with the original [Harmonic Android project](https://github.com/SimonHalvdansson/Harmonic-HN), while respecting the constraints of a desktop browser.
+1. Take inspiration from the original [Harmonic Android project](https://github.com/SimonHalvdansson/Harmonic-HN), while respecting the constraints of a desktop browser.
 2. Update the test that covers the behavior you changed. Don't assume a fake HN form behaves exactly like the real one.
 3. Preserve strict HN request handling, safe URLs, sanitized HTML, and protected credential storage. See [Privacy & security](PRIVACY.md).
 4. Update the relevant guide when behavior, permissions, installation, or architecture changes. Add a user-facing entry to `CHANGELOG.md`.
@@ -107,16 +107,16 @@ Please don't add screenshot dumps, raw response captures, API credentials, or te
 ## Publishing a GitHub release (maintainers)
 
 1. Ensure the `version` values in `manifest.json` and `package.json` match, and write an entry in `CHANGELOG.md`.
-2. Run the applicable tests, package, and verify the ZIP contains one `harmonic-hn-browser/` directory with `manifest.json` immediately inside it.
+2. Run the applicable tests, package, and verify the ZIP contains one `harmonova/` directory with `manifest.json` immediately inside it.
 3. Commit and push the release-ready files. Tag the commit as `v<version>`.
-4. Attach `dist/harmonic-hn-browser-<version>.zip` to a GitHub Release. The release description should repeat the simple **extract → Load unpacked** installation path and clearly note important limitations.
+4. Attach `dist/harmonova-<version>.zip` to a GitHub Release. The release description should repeat the simple **extract → Load unpacked** installation path and clearly note important limitations.
 5. Test the downloaded archive in Chrome: extract it, select the inner folder, open HN, and confirm the interface loads. A GitHub source archive also remains installable without a build.
 
 Example maintainer command, **after** preparing and pushing the intended commit:
 
 ```bash
-gh release create v0.13.7 dist/harmonic-hn-browser-0.13.7.zip \
-  --title "Harmonic for Hacker News v0.13.7" \
+gh release create v0.13.8 dist/harmonova-0.13.8.zip \
+  --title "HarmoNova for Hacker News v0.13.8" \
   --notes-file docs/RELEASE_NOTES.md
 ```
 

@@ -1,6 +1,6 @@
 {
-  "name": "harmonic-hn-browser",
-  "version": "0.13.7",
+  "name": "harmonova",
+  "version": "0.13.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "test:ai": "node --test tests/ai-worker.mjs",
     "test:e2e": "node tests/e2e.mjs",
     "test:security": "node --test tests/security.mjs",
-    "test:security:browser": "SECURITY_BROWSER_TESTS=1 EXTENSION_PATH=\"$PWD/dist/harmonic-hn-browser\" node tests/security.mjs",
+    "test:security:browser": "SECURITY_BROWSER_TESTS=1 EXTENSION_PATH=\"$PWD/dist/harmonova\" node tests/security.mjs",
     "test:hn-parser": "node tests/hn-parser.mjs",
     "test:hn-auth": "node tests/hn-auth.mjs",
     "test:search": "node tests/search.mjs",

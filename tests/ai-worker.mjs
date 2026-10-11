@@ -72,14 +72,14 @@ test('article extraction handles plain text, malformed HTML, input limits and un
 
 test('credentials move between persistent and session stores and reject content-script mutation', async () => {
   await worker.saveAiKey('test-private-key', 'persistent');
-  assert.equal(stores.local.harmonicAiApiKey, 'test-private-key');
+  assert.equal(stores.local.harmonovaAiApiKey, 'test-private-key');
   await worker.saveAiKey('test-session-key', 'session');
-  assert.equal(stores.local.harmonicAiApiKey, undefined);
-  assert.equal(stores.session.harmonicAiApiKeySession, 'test-session-key');
+  assert.equal(stores.local.harmonovaAiApiKey, undefined);
+  assert.equal(stores.session.harmonovaAiApiKeySession, 'test-session-key');
   assert.ok(!JSON.stringify(stores.sync).includes('test-session-key'));
-  listeners.message({ type: 'HARMONIC_AI_CLEAR_KEY' }, { tab: { id: 1 }, url: 'https://news.ycombinator.com' }, (value) => messages.push(value));
+  listeners.message({ type: 'HARMONOVA_AI_CLEAR_KEY' }, { tab: { id: 1 }, url: 'https://news.ycombinator.com' }, (value) => messages.push(value));
   assert.equal(messages.at(-1).ok, false);
-  assert.equal(stores.session.harmonicAiApiKeySession, 'test-session-key');
+  assert.equal(stores.session.harmonovaAiApiKeySession, 'test-session-key');
   await worker.clearAiKey();
   assert.equal((await worker.aiKeyStatus()).hasKey, false);
 });
@@ -131,7 +131,7 @@ test('HTTP 403 gives a clear access restriction instead of a generic fetch error
   worker.fetch = async () => new Response('Forbidden', { status: 403, headers: { 'content-type': 'text/html' } });
   await assert.rejects(worker.fetchArticleText('https://example.com/blocked'), (error) => {
     assert.equal(error.code, 'ARTICLE_ACCESS_DENIED');
-    assert.match(error.message, /website does not allow Harmonic to read/i);
+    assert.match(error.message, /website does not allow HarmoNova to read/i);
     assert.match(error.message, /discussion instead/i);
     return true;
   });

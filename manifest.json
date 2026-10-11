@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Harmonic for Hacker News",
-  "version": "0.13.7",
-  "description": "Hacker News with the Harmonic reading experience.",
+  "name": "HarmoNova for Hacker News",
+  "version": "0.13.8",
+  "description": "A modern Hacker News reading experience, inspired by Harmonic.",
   "permissions": [
     "storage",
     "activeTab"
@@ -19,7 +19,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Harmonic for Hacker News",
+    "default_title": "HarmoNova for Hacker News",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

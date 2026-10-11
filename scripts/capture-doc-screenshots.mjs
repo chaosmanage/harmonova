@@ -1,4 +1,4 @@
-// Capture genuine Harmonic UI for the docs. AI example uses a clearly labeled
+// Capture genuine HarmoNova UI for the docs. AI example uses a clearly labeled
 // mocked OpenRouter reply, with no real API key or paid request.
 import { chromium } from 'playwright-core';
 import path from 'node:path';
@@ -22,6 +22,7 @@ try {
   await page.locator('.story-card').first().waitFor({ state: 'visible', timeout: 20000 });
   await page.locator('.thread-title').waitFor({ state: 'visible', timeout: 20000 });
   await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(output, 'overview.png') });
 
   // Show the exact Chrome UI used to install an unpacked extension.
   const extensionsPage = await context.newPage();

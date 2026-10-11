@@ -1,4 +1,4 @@
-// Harmonic Phase 1+2 UI suite: account chip + voting, driven through the real
+// HarmoNova Phase 1+2 UI suite: account chip + voting, driven through the real
 // Chromium extension against fully mocked Hacker News documents. Companion to
 // tests/hn-auth.mjs (module-level flows); this file asserts what the user sees
 // and clicks: chips, menus, vote buttons, optimistic states, and toasts.
@@ -15,7 +15,7 @@ const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
 const PLACEHOLDER_TOKENS = [TOKEN_A, TOKEN_B];
-const USER = "harmonic_test";
+const USER = "harmonova_test";
 
 const STORY_ID = 50022292; // synthetic story: voted on the item document
 const VOTED_COMMENT = 50034061; // synthetic comment: already voted (un_ anchor)
@@ -118,7 +118,7 @@ function createHnMock() {
     requests.push(record);
 
     if (/\.(css|js|svg|ico|png)$/.test(pathname)) {
-      return route.fulfill(serveHtml("/* harmonic mocked asset */"));
+      return route.fulfill(serveHtml("/* harmonova mocked asset */"));
     }
 
     const error = consumeError(pathname);
@@ -257,7 +257,7 @@ const waitFor = async (fn, timeout = 30000, step = 200, label = "condition") => 
 };
 
 async function test(name, fn) {
-  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -288,7 +288,7 @@ const gotoFeed = async (page, search = "") => {
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
 };
 
-const chipText = (page) => page.locator("#harmonic-account-chip").textContent();
+const chipText = (page) => page.locator("#harmonova-account-chip").textContent();
 const openThread = async (page) => {
   await page.locator(".story-card").first().click();
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
@@ -300,7 +300,7 @@ const openThread = async (page) => {
 };
 const toastText = async (page) =>
   page.waitForFunction(() => {
-    const toast = document.querySelector(".harmonic-toast");
+    const toast = document.querySelector(".harmonova-toast");
     return toast?.classList.contains("show") ? toast.textContent : null;
   }, { timeout: 15000 }).then((handle) => handle.jsonValue());
 
@@ -312,7 +312,7 @@ await test("account chip shows the signed-in user and karma", async ({ page }) =
   await gotoFeed(page);
   const text = await chipText(page);
   assert.ok(text.includes(USER), "chip shows the username: " + text);
-  const title = await page.locator("#harmonic-account-chip").getAttribute("title");
+  const title = await page.locator("#harmonova-account-chip").getAttribute("title");
   assert.ok(title.includes("512 karma"), "chip title includes karma: " + title);
 });
 
@@ -321,9 +321,9 @@ await test("account chip offers Log in when signed out", async ({ page, hn }) =>
   await gotoFeed(page);
   assert.equal((await chipText(page)).trim(), "Log in");
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
-  await page.locator(".harmonic-popup").waitFor({ state: "visible" });
-  const labels = await page.locator(".harmonic-popup .popup-item span").allTextContents();
+  await page.locator(".harmonova-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup").waitFor({ state: "visible" });
+  const labels = await page.locator(".harmonova-popup .popup-item span").allTextContents();
   assert.deepEqual(labels.map((label) => label.trim()), ["Log in", "Create account"]);
 });
 
@@ -331,8 +331,8 @@ await test("login hand-off uses an allowlisted goto and never reflects query inp
   hn.state.loggedIn = false;
   await gotoFeed(page, "?q=EVIL_REFLECTION");
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Log in" }).first().click();
+  await page.locator(".harmonova-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Log in" }).first().click();
   await page.waitForURL(/\/login/, { timeout: 15000 });
   const url1 = page.url();
   assert.ok(url1.startsWith("https://news.ycombinator.com/login?goto=news"), "feed login goto: " + url1);
@@ -343,8 +343,8 @@ await test("login hand-off uses an allowlisted goto and never reflects query inp
   await page.goto("https://news.ycombinator.com/item?id=" + STORY_ID, { waitUntil: "domcontentloaded" });
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Log in" }).first().click();
+  await page.locator(".harmonova-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Log in" }).first().click();
   await page.waitForURL(/\/login/, { timeout: 15000 });
   assert.equal(page.url(), "https://news.ycombinator.com/login?goto=item%3Fid%3D" + STORY_ID);
 });
@@ -352,11 +352,11 @@ await test("login hand-off uses an allowlisted goto and never reflects query inp
 await test("signed-in account menu lists profile destinations and logout", async ({ page }) => {
   await gotoFeed(page);
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
-  await page.locator(".harmonic-popup").waitFor({ state: "visible" });
-  const heading = await page.locator(".harmonic-popup .popup-heading").textContent();
+  await page.locator(".harmonova-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup").waitFor({ state: "visible" });
+  const heading = await page.locator(".harmonova-popup .popup-heading").textContent();
   assert.ok(heading.includes(USER) && heading.includes("512"), "heading shows user + karma: " + heading);
-  const labels = await page.locator(".harmonic-popup .popup-item span").allTextContents();
+  const labels = await page.locator(".harmonova-popup .popup-item span").allTextContents();
   for (const expected of ["Profile", "Threads", "Upvoted", "Favorites", "Submissions", "Log out"]) {
     assert.ok(labels.includes(expected), "menu item present: " + expected);
   }
@@ -367,10 +367,10 @@ await test("logout through the chip fetches, never navigates to /logout, and rel
   // Simulate HN invalidating the session on logout.
   hn.state.loggedIn = false;
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
-  await page.locator(".harmonic-popup .popup-item").first().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Log out" }).click();
+  await page.locator(".harmonova-popup .popup-item").first().click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Log out" }).click();
   await page.waitForFunction(() => {
-    const chip = document.querySelector("#harmonic-account-chip");
+    const chip = document.querySelector("#harmonova-account-chip");
     return chip && chip.textContent.trim() === "Log in";
   }, { timeout: 20000 });
   const logoutRequests = hn.requests.filter((request) => request.path.startsWith("/logout"));
@@ -379,11 +379,11 @@ await test("logout through the chip fetches, never navigates to /logout, and rel
   assert.ok(!page.url().includes("logout"), "token URL must not enter the address bar (SEC-04)");
 });
 
-await test("no password fields exist anywhere in Harmonic UI (SEC-01)", async ({ page }) => {
+await test("no password fields exist anywhere in HarmoNova UI (SEC-01)", async ({ page }) => {
   await gotoFeed(page);
   await openThread(page);
-  const passwords = await page.evaluate(() => document.querySelectorAll(".harmonic-app input[type=password], .harmonic-toast input[type=password]").length);
-  assert.equal(passwords, 0, "Harmonic must never render a password field");
+  const passwords = await page.evaluate(() => document.querySelectorAll(".harmonova-app input[type=password], .harmonova-toast input[type=password]").length);
+  assert.equal(passwords, 0, "HarmoNova must never render a password field");
 });
 
 await test("account switch on a fetched page updates the chip and toasts (SEC-35)", async ({ page, hn }) => {
@@ -401,7 +401,7 @@ await test("account switch on a fetched page updates the chip and toasts (SEC-35
 await test("settings panel has an Account section and never asks for passwords", async ({ page }) => {
   await gotoFeed(page);
   await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click(); // More
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Settings" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Settings" }).click();
   await page.locator(".settings-panel").waitFor({ state: "visible" });
   const account = await page.locator(".settings-section", { has: page.locator("h3", { hasText: "Account" }) }).textContent();
   assert.ok(account.includes("never sees or stores your Hacker News password"), "password explainer present");
@@ -460,7 +460,7 @@ await test("comment overlay sends exact upvote and unvote requests", async ({ pa
   await openThread(page);
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
   await row.locator(":scope > .comment-card").click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Vote up" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Vote up" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/vote")), 20000, 150, "comment vote request");
   const vote = hn.requests.find((request) => request.path.startsWith("/vote"));
   assert.equal(vote.params.id, String(PLAIN_COMMENT));
@@ -468,7 +468,7 @@ await test("comment overlay sends exact upvote and unvote requests", async ({ pa
   assert.equal(vote.params.auth, TOKEN_A);
   await page.waitForFunction(id => document.querySelector('.comment-row[data-comment-id="' + id + '"] .comment-vote-mark')?.hidden === false, PLAIN_COMMENT);
   await row.locator(":scope > .comment-card").click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Unvote" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Unvote" }).click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/vote")).length === 2, 20000);
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/vote"))[1].params.how, "un");
   await page.waitForFunction(id => document.querySelector('.comment-row[data-comment-id="' + id + '"] .comment-vote-mark')?.hidden === true, PLAIN_COMMENT);
@@ -514,7 +514,7 @@ await test("rate-limited upvote backs off, rolls back, and keeps the Open on HN 
   assert.equal(await page.locator("[data-thread-points] span").last().textContent(), "54", "rollback after rate limit");
   // The thread More menu keeps the "Open on Hacker News" escape hatch.
   await page.locator(".thread-actions .thread-action").last().click();
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Open on Hacker News" }).waitFor({ state: "visible" });
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Open on Hacker News" }).waitFor({ state: "visible" });
 });
 
 await test("feed card menu upvote uses the harvested token and badges the card", async ({ page, hn }) => {
@@ -522,7 +522,7 @@ await test("feed card menu upvote uses the harvested token and badges the card",
   const card = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
   assert.ok(!(await card.evaluate((node) => node.classList.contains("voted"))), "card not badged before voting");
   await card.click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Upvote" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Upvote" }).click();
   await page.waitForFunction(
     (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.classList.contains("voted"),
     STORY_ID,
@@ -536,7 +536,7 @@ await test("feed card menu upvote uses the harvested token and badges the card",
   assert.ok(toast.includes("Upvoted"), "confirmation toast: " + toast);
   // Menu now offers Unvote; clicking it clears the badge.
   await card.click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Unvote" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Unvote" }).click();
   await page.waitForFunction(
     (id) => !document.querySelector('.story-card[data-story-id="' + id + '"]')?.classList.contains("voted"),
     STORY_ID,
@@ -570,7 +570,7 @@ await test("tokens never leak into the UI, storage, or console", async ({ page, 
   await new Promise((resolve) => setTimeout(resolve, 2500)); // let the UI settle
   const uiHtml = await page.evaluate(() => {
     const parts = [];
-    document.querySelectorAll(".harmonic-app, .harmonic-toast, .harmonic-popup").forEach((node) => parts.push(node.outerHTML));
+    document.querySelectorAll(".harmonova-app, .harmonova-toast, .harmonova-popup").forEach((node) => parts.push(node.outerHTML));
     return parts.join("\n");
   });
   for (const token of PLACEHOLDER_TOKENS) {
@@ -588,12 +588,12 @@ await test("comment overlay downvotes only with an offered HN token", async ({ p
   await openThread(page);
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
   await row.locator(":scope > .comment-card").click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Vote down" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Vote down" }).click();
   await waitFor(() => hn.requests.some(request => request.path.startsWith("/vote")), 20000);
   assert.equal(hn.requests.find(request => request.path.startsWith("/vote")).params.how, "down");
   await page.waitForFunction(id => document.querySelector('.comment-row[data-comment-id="' + id + '"] .comment-vote-mark')?.textContent === "↓", PLAIN_COMMENT, { timeout: 20000 });
   await row.locator(":scope > .comment-card").click({ button: "right" });
-  await page.locator(".harmonic-popup .popup-item", { hasText: "Undown" }).click();
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Undown" }).click();
   await waitFor(() => hn.requests.filter(request => request.path.startsWith("/vote")).length === 2, 20000);
   assert.equal(hn.requests.filter(request => request.path.startsWith("/vote"))[1].params.how, "un");
 });
@@ -603,7 +603,7 @@ await test("comment overlay excludes downvote without an offered token", async (
   await openThread(page);
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
   await row.locator(":scope > .comment-card").click({ button: "right" });
-  assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: "Vote down" }).count(), 0);
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: "Vote down" }).count(), 0);
 });
 
 await browser.close();
