@@ -11,7 +11,7 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 
 ![HarmoNova showing colorful stories on the left and a discussion on the right](docs/assets/overview.png)
 
-**Features
+**Features**
 
 - Side-by-side story cards and threaded discussions.
 - Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
