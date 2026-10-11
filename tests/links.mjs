@@ -435,11 +435,18 @@ await test("theme and font settings apply and persist through a reload", { story
   assert.equal(await page.locator("html").getAttribute("data-font"), "serif", "font persists through a reload");
 });
 
-await test("default theme and font are AMOLED black + HarmoNova", { storyUrl: "https://plain-example.com/x" }, async ({ page }) => {
+await test("default theme and font are AMOLED black + Google Sans Flex Rounded", { storyUrl: "https://plain-example.com/x" }, async ({ page }) => {
   await gotoFeed(page);
   const root = page.locator("html");
   assert.equal(await root.getAttribute("data-theme"), "amoled", "default theme is amoled");
-  assert.equal(await root.getAttribute("data-font"), "system", "default font is harmonova");
+  assert.equal(await root.getAttribute("data-font"), "rounded", "default font is Google Sans Flex Rounded");
+  const family = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+  assert.ok(family.includes('Google Sans Flex Rounded'), 'rounded family selected: ' + family);
+  const loaded = await page.evaluate(async () => {
+    const faces = await document.fonts.load('400 16px "Google Sans Flex Rounded"');
+    return faces.some((face) => face.family === 'Google Sans Flex Rounded' && face.status === 'loaded');
+  });
+  assert.ok(loaded, 'bundled rounded font is loadable in the browser');
   const bodyBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   assert.equal(bodyBg, "rgb(0, 0, 0)", "default body background is pure black");
 });

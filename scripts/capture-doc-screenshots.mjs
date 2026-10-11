@@ -1,5 +1,5 @@
-// Capture genuine HarmoNova UI for the docs. AI example uses a clearly labeled
-// mocked OpenRouter reply, with no real API key or paid request.
+// Capture genuine HarmoNova UI for the docs. The AI example uses a deterministic
+// response based on the linked article, without a real key or paid request.
 import { chromium } from 'playwright-core';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -56,23 +56,39 @@ try {
   await page.locator('.settings-header .icon-button').click();
   await page.locator('.settings-overlay').waitFor({ state: 'detached' });
 
-  // Screenshot the actual summary UI with a deterministic mocked response.
+  // Anchor the demonstration to a specific HN article, rather than whichever
+  // external story happens to be first in the live Top Stories feed.
+  await page.goto('https://news.ycombinator.com/item?id=50045984', {
+    waitUntil: 'domcontentloaded', timeout: 24000,
+  });
+  await page.locator('.thread-title').waitFor({ state: 'visible', timeout: 20000 });
+  await page.locator('.story-card').first().waitFor({ state: 'visible', timeout: 20000 });
+  const articleUrl = await page.locator('.thread-title').getAttribute('href');
+  if (new URL(articleUrl).hostname !== 'nanolathe.gg') {
+    throw Error(`AI demo story is not the Nanolathe article: ${articleUrl}`);
+  }
+
+  // Supply article facts and an illustrative summary locally so screenshot
+  // generation never requires an OpenRouter key or consumes API credits.
   const worker = context.serviceWorkers().find(w => w.url().startsWith('chrome-extension://'))
     || await context.waitForEvent('serviceworker', { timeout: 15000 });
   await worker.evaluate((key) => saveAiKey(key, 'session'), 'docs-demo-key-not-real');
-  const cards = page.locator('.story-card');
-  const idx = await cards.evaluateAll(nodes => nodes.findIndex(n => {
-    const url = n.querySelector('.story-card-title')?.href;
-    try { return url && new URL(url).hostname !== 'news.ycombinator.com'; } catch { return false; }
+  await context.route(articleUrl, route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: `<main><h1>Total Annihilation, rebuilt for modern computers</h1>
+      <p>Nanolathe is an independent, open-source, MIT-licensed engine that reimplements Total Annihilation through clean-room research.</p>
+      <p>Its modern GPU renderer adds zoom, lighting, glow and richer detail; a Classic renderer remains available.</p>
+      <p>Three original demo missions run in desktop browsers. The native Windows, Mac and Linux beta uses your own game files for full campaigns and skirmishes.</p></main>`,
   }));
-  if (idx < 0) throw Error('No external story link for summary screenshot');
-  await cards.nth(idx).locator('.story-comment-button').click();
-  await page.locator('.thread-title').waitFor({ state: 'visible' });
-  const articleUrl = await page.locator('.thread-title').getAttribute('href');
-  await context.route(articleUrl, route => route.fulfill({ status: 200, contentType: 'text/html', body: '<main><h1>Reading on the web</h1><p>This example demonstrates a simple extension for browsing, threaded comments, and summary tools.</p></main>' }));
+  const summary = [
+    '- **Rebuilt engine:** Clean-room, MIT-licensed reimplementation of Total Annihilation.',
+    '- **Modern visuals:** GPU lighting, zoom and effects, with a Classic mode.',
+    '- **Play it:** Three browser demo missions; bring your own files for the full beta.',
+  ].join('\n');
   await context.route('https://openrouter.ai/api/v1/chat/completions', route => route.fulfill({
     status: 200, headers: { 'content-type': 'text/event-stream' },
-    body: ['data: {"choices":[{"delta":{"content":"- **Demo only:** This is a test response, not a summary of the story above.\\n- **Article:** Summarizes a linked page when available.\\n- **Discussion:** Summarizes public Hacker News comments."}}]}', '', 'data: [DONE]', ''].join('\n'),
+    body: ['data: ' + JSON.stringify({ choices: [{ delta: { content: summary } }] }), '', 'data: [DONE]', ''].join('\n'),
   }));
   await page.getByRole('button', { name: 'Summarize article' }).click();
   await page.waitForFunction(() => document.querySelector('.story-summary')?.dataset.status === 'success', null, { timeout: 20000 });

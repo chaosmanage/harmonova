@@ -86,7 +86,7 @@ try {
   await left.evaluate((e) => { e.scrollTop = 0; });
   await right.evaluate((e) => { e.scrollTop = 0; });
 
-  assert.equal(await page.locator("html").getAttribute("data-font"), "system", "system font is the default");
+  assert.equal(await page.locator("html").getAttribute("data-font"), "rounded", "Google Sans Flex Rounded is the default");
 
   const thirdCard = page.locator(".story-card").nth(2);
   const thirdHref = await thirdCard.locator(".story-card-title").getAttribute("href");

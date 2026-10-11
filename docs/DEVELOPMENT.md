@@ -32,6 +32,7 @@ harmonova/
 ├── popup.*                  extension toolbar control
 ├── ai-settings.*            extension-owned credential settings
 ├── icons/                   browser icons and provenance
+├── fonts/                   locally bundled Google Sans Flex Rounded and OFL
 ├── docs/                    maintained guides and screenshots
 ├── scripts/                 packaging and fixture tools
 ├── tests/                   Node/Chromium suites and safe fixtures
@@ -41,7 +42,7 @@ harmonova/
 
 Generated material such as `dist/`, `node_modules/`, and `test-results/` is ignored by Git. Captured raw HN fixture data, traces, and any credentials must remain untracked. Documentation screenshots in `docs/assets/` are an intentional exception.
 
-To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot uses a deterministic **mock response**, not a real OpenRouter key or a summary of a real article. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured from the same live session.
+To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot shows a deterministic **prepared summary of the linked Nanolathe article**, rather than calling OpenRouter with a real API key. The article and response are stubbed locally for repeatability. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured from the same live session.
 
 ## Test commands
 
@@ -86,7 +87,7 @@ The script reads the version from `manifest.json` and creates:
 ```text
 dist/
 ├── harmonova/                 ready for Load unpacked
-└── harmonova-0.13.9.zip      ZIP containing that folder
+└── harmonova-0.13.10.zip      ZIP containing that folder
 ```
 
 The folder name inside the ZIP is deliberately **stable**, even though the ZIP filename contains the version. When updating an unpacked installation, keeping the extracted path stable reduces the chance of Chrome treating it as a different extension.
@@ -115,8 +116,8 @@ Please don't add screenshot dumps, raw response captures, API credentials, or te
 Example maintainer command, **after** preparing and pushing the intended commit:
 
 ```bash
-gh release create v0.13.9 dist/harmonova-0.13.9.zip \
-  --title "HarmoNova for Hacker News v0.13.9" \
+gh release create v0.13.10 dist/harmonova-0.13.10.zip \
+  --title "HarmoNova for Hacker News v0.13.10" \
   --notes-file docs/RELEASE_NOTES.md
 ```
 

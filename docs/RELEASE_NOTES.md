@@ -1,23 +1,19 @@
-# HarmoNova for Hacker News v0.13.9
+**HarmoNova for Hacker News** brings a modern, Harmonic-inspired reading experience to Hacker News in Chrome—right on the website.
 
-**New canonical branding.** HarmoNova now uses the supplied cream monogram app icon and matching horizontal banner everywhere the project displays its identity.
+### Features
 
-Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson. This project is not affiliated with or endorsed by the original developer, Hacker News, or Y Combinator.
+- Side-by-side story cards and threaded discussions.
+- Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
+- Customizable themes, typography, and story/comment layouts.
+- Vote, reply, submit, and save favorites with your Hacker News account.
+- Optional AI summaries of articles or discussions using your own OpenRouter API key.
 
-## What's changed
+### Install
 
-- Replaced hand-drawn logo SVGs with the supplied image assets and regenerated all four Chrome extension icon sizes from the exact source image.
-- Updated the README banner and social preview to the supplied design.
-- Moved the Chrome installation instructions before the project background story.
-- Recaptured the current build’s Chrome installation, search, feeds, settings, appearance, story, and AI preview screenshots.
+Download **harmonova-0.13.10.zip** below and extract it. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted `harmonova` folder. Then open or refresh [Hacker News](https://news.ycombinator.com/).
 
-## Install in Chrome
+Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson. Independently developed and not affiliated with Harmonic, Hacker News, or Y Combinator.
 
-1. Download **harmonova-0.13.9.zip** from the assets below and extract it.
-2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.
-3. Select the extracted `harmonova` folder (containing `manifest.json`).
-4. Open or refresh [Hacker News](https://news.ycombinator.com/).
+---
 
-You can also [clone the repository](https://github.com/chaosmanage/harmonova) and load its root folder directly. No build step is required for users.
-
-**Known limitation:** editing or deleting existing comments currently uses an explicit handoff to Hacker News's original page.
+*What changed in v0.13.10:* Google Sans Flex Rounded is now the locally bundled default font (existing font choices remain available); read stories are dimmed more clearly to 25% opacity; an invalid Chrome manifest entry was removed; and the README AI screenshot now shows a short summary of the actual linked article.

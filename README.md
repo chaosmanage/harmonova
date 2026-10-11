@@ -85,9 +85,9 @@ Sometimes I want the main points of an article before reading it. Other times th
 
 Both use [OpenRouter](https://openrouter.ai/) and are optional. Add your own API key in **Settings → AI** and select a model. Nothing is summarized unless you request it (unless you choose to enable automatic summaries in Settings). The text being summarized is sent to OpenRouter; not every article site allows automatic reading.
 
-![AI summary card in the discussion reader with demonstration-only output](docs/assets/ai-summary-demo.png)
+![AI summary of the Nanolathe Total Annihilation article in the discussion reader](docs/assets/ai-summary-demo.png)
 
-*AI interface demonstration. The example summary text is mocked, not a summary of the article shown.*
+*Example summary of the [Nanolathe article](https://nanolathe.gg/). The screenshot uses a prepared response for demonstration, not a live API request.*
 
 ## A couple of things to know
 
@@ -103,6 +103,6 @@ You can always open **original Hacker News** from the menu or turn off HarmoNova
 
 **Credit:** HarmoNova was inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN), created by Simon Halvdansson. Thanks to Simon for publishing the original Android project under Apache License 2.0 and for the design inspiration.
 
-HarmoNova's icon and wordmark are independently designed, and the extension now uses browser/system fonts rather than the original project's rounded font. See [branding details](icons/README.md).
+HarmoNova uses its supplied icon and banner artwork. The default font is locally bundled Google Sans Flex Rounded (SIL Open Font License 1.1); System UI and Serif remain available. See [branding details](icons/README.md).
 
 HarmoNova is an independent project and is **not affiliated with or endorsed by** the Harmonic developer, Hacker News, or Y Combinator. This extension is licensed under [Apache License 2.0](LICENSE).
