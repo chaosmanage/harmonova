@@ -1932,3 +1932,34 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
   .summary-action-group .summary-action{gap:0;padding:0 4px;font-size:11px}
   .summary-action-group .harmonova-icon{display:none}
 }
+
+/* A stale content script must prompt for a tab reload instead of throwing. */
+#harmonova-context-reload {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 18px;
+  border: 1px solid #64748b;
+  border-radius: 12px;
+  background: #182332;
+  color: #fff;
+  box-shadow: 0 8px 28px #0006;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+#harmonova-context-reload button {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #dbeafe;
+  color: #172554;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
