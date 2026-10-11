@@ -3,19 +3,19 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { webcrypto as crypto } from 'node:crypto';
 const repoRoot = path.resolve(new URL('../..', import.meta.url).pathname);
-export function loadBackground({ fetchImpl }) {
+export function loadBackground({ fetchImpl, failAccessLevel = false, failStorage = false, tabs = {} } = {}) {
   const stores = { local: {}, session: {}, sync: {} };
   const listeners = { message: null, connect: null };
   const area = (name) => ({
-    get(keys, cb) { const result = { ...keys, ...stores[name] }; cb?.(result); return Promise.resolve(result); },
-    set(value, cb) { Object.assign(stores[name], value); cb?.(); return Promise.resolve(); },
-    remove(keys, cb) { for (const key of [keys].flat()) delete stores[name][key]; cb?.(); return Promise.resolve(); },
-    setAccessLevel() { return Promise.resolve(); },
+    get(keys, cb) { if (failStorage) return Promise.reject(new Error("storage unavailable")); const result = { ...keys, ...stores[name] }; cb?.(result); return Promise.resolve(result); },
+    set(value, cb) { if (failStorage) return Promise.reject(new Error("storage unavailable")); Object.assign(stores[name], value); cb?.(); return Promise.resolve(); },
+    remove(keys, cb) { if (failStorage) return Promise.reject(new Error("storage unavailable")); for (const key of [keys].flat()) delete stores[name][key]; cb?.(); return Promise.resolve(); },
+    setAccessLevel() { return failAccessLevel ? Promise.reject(new Error("access denied")) : Promise.resolve(); },
   });
   const context = vm.createContext({
     chrome: {
       storage: Object.fromEntries(["local", "session", "sync"].map((name) => [name, area(name)])),
-      tabs: { onRemoved: { addListener() {} } },
+      tabs: { onRemoved: { addListener() {} }, ...tabs },
       runtime: {
         id: "test-extension-id",
         getURL: (p) => "chrome-extension://test-extension-id/" + p,

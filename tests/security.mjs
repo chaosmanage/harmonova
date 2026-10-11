@@ -244,7 +244,7 @@ test("SEC-52: state handlers only accept the extension's top-frame HN sender", a
     const ok = listeners.message(message, sender, resolve);
     assert.ok(ok, "handler should respond async");
   });
-  const trusted = { id: "test-extension-id", frameId: 0, tab: { id: 1, url: "https://news.ycombinator.com/item?id=9" } };
+  const trusted = { id: "test-extension-id", frameId: 0, url: "https://news.ycombinator.com/item?id=9", origin: "https://news.ycombinator.com", tab: { id: 1, url: "https://news.ycombinator.com/item?id=9" } };
   const read = await send({ type: "HARMONOVA_READ_IDS_SET", ids: [5, 6] }, trusted);
   assert.equal(read.ok, true);
   assert.deepEqual(stores.local.readStoryIds, [5, 6]);
@@ -272,7 +272,7 @@ test("SEC-52: local state reads require a trusted HN sender", async () => {
   const send = (message, sender) => new Promise((resolve) => listeners.message(message, sender, resolve));
   const evil = await send({ type: "HARMONOVA_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, tab: { url: "https://evil.test/" } });
   assert.equal(evil.ok, false);
-  const good = await send({ type: "HARMONOVA_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, tab: { url: "https://news.ycombinator.com/news" } });
+  const good = await send({ type: "HARMONOVA_LOCAL_STATE_GET" }, { id: "test-extension-id", frameId: 0, url: "https://news.ycombinator.com/news", tab: { id: 1, url: "https://news.ycombinator.com/news" } });
   assert.equal(good.ok, true);
 });
 

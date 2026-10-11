@@ -2367,7 +2367,7 @@ function openFeedMenu(anchor) {
     const url = "https://news.ycombinator.com" + path;
     chrome.runtime.sendMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url }, (response) => {
       if (response?.ok) return;
-      window.open(url + ORIGINAL_HASH, "_blank", "noopener");
+      showToast("Could not open this page on Hacker News.");
     });
   }
 

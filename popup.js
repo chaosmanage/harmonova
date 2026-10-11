@@ -96,8 +96,13 @@ originalButton.addEventListener("click", async () => {
     current.hash = "";
     url = current.href;
   }
-  await sendRuntimeMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url });
-  window.close();
+  if (!activeTab?.id || !isHackerNews(activeTab.url)) {
+    statusLabel.textContent = "Open a Hacker News tab to use original mode.";
+    return;
+  }
+  const outcome = await sendRuntimeMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url, tabId: activeTab.id });
+  if (outcome?.ok) window.close();
+  else statusLabel.textContent = "Could not open original Hacker News.";
 });
 
 (async () => {

@@ -1,4 +1,4 @@
-importScripts("url-policy.js");
+importScripts("url-policy.js", "message-boundary.js");
 
 const ORIGINAL_TAB_STORAGE_KEY = "harmonovaOriginalTabIds";
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
@@ -11,11 +11,30 @@ const MAX_SUMMARY_CHARACTERS = 64 * 1024;
 // Read old on-disk keys exactly once during upgrades, then store them under the
 // HarmoNova namespace. Never overwrite existing new-format data.
 const oldStorageKey = (key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic");
+function storageCall(area, method, ...args) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(new Error("STORAGE_UNAVAILABLE"));
+      else resolve(result);
+    };
+    try {
+      const pending = area[method](...args, (value) => {
+        finish(chrome.runtime.lastError, value);
+      });
+      if (pending && typeof pending.then === "function") pending.then(
+        value => finish(null, value), error => finish(error),
+      );
+    } catch (error) { finish(error); }
+  });
+}
 async function migratedGet(area, keys) {
   const defaults = Array.isArray(keys) ? {} : { ...keys };
   const requested = Array.isArray(keys) ? keys : Object.keys(keys);
   const prior = requested.map(oldStorageKey);
-  const raw = await new Promise((resolve) => area.get([...requested, ...prior], resolve));
+  const raw = await storageCall(area, "get", [...requested, ...prior]);
   const updates = {};
   const removals = [];
   const result = { ...defaults };
@@ -30,30 +49,44 @@ async function migratedGet(area, keys) {
     }
   }
   if (Object.keys(updates).length) {
-    await new Promise((resolve) => area.set(updates, resolve));
-    await new Promise((resolve) => area.remove(removals, resolve));
+    await storageCall(area, "set", updates);
+    await storageCall(area, "remove", removals);
   }
   return result;
 }
 const localGet = (keys) => migratedGet(chrome.storage.local, keys);
-const localSet = (value) => new Promise((resolve) => chrome.storage.local.set(value, resolve));
-const localRemove = (keys) => new Promise((resolve) => chrome.storage.local.remove(keys, resolve));
+const localSet = (value) => storageCall(chrome.storage.local, "set", value);
+const localRemove = (keys) => storageCall(chrome.storage.local, "remove", keys);
 const sessionGet = (keys) => migratedGet(chrome.storage.session, keys);
-const sessionSet = (value) => new Promise((resolve) => chrome.storage.session.set(value, resolve));
-const sessionRemove = (keys) => new Promise((resolve) => chrome.storage.session.remove(keys, resolve));
+const sessionSet = (value) => storageCall(chrome.storage.session, "set", value);
+const sessionRemove = (keys) => storageCall(chrome.storage.session, "remove", keys);
 const syncGet = (keys) => migratedGet(chrome.storage.sync, keys);
 
-for (const area of [chrome.storage.local, chrome.storage.session]) {
-  if (typeof area.setAccessLevel === "function") {
-    area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});
-  }
-}
+// Register listeners synchronously. Every privileged operation awaits the
+// same fail-closed worker initialization promise.
+const workerReady = Promise.all([chrome.storage.local, chrome.storage.session].map(async area => {
+  if (typeof area.setAccessLevel !== "function") throw new Error("STORAGE_UNAVAILABLE");
+  await area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+})).then(async () => {
+  await localGet({ harmonovaSettings: null });
+  await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: null });
+});
 
 async function originalTabIds() {
   const stored = await sessionGet({ [ORIGINAL_TAB_STORAGE_KEY]: [] });
   return Array.isArray(stored[ORIGINAL_TAB_STORAGE_KEY]) ? stored[ORIGINAL_TAB_STORAGE_KEY].filter(Number.isInteger) : [];
 }
 
+async function verifiedHnTab(tabId) {
+  if (!Number.isSafeInteger(tabId) || tabId <= 0 || typeof chrome.tabs.get !== "function")
+    throw new Error("INVALID_TAB");
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab || tab.id !== tabId || typeof tab.url !== "string") throw new Error("INVALID_TAB");
+  try {
+    if (new URL(tab.url).origin !== "https://news.ycombinator.com") throw new Error("INVALID_TAB");
+  } catch { throw new Error("INVALID_TAB"); }
+  return tab;
+}
 async function setOriginalTab(tabId, enabled) {
   if (!Number.isInteger(tabId)) return;
   const ids = new Set(await originalTabIds());
@@ -63,22 +96,27 @@ async function setOriginalTab(tabId, enabled) {
 }
 
 function safeHackerNewsUrl(value) {
-  try {
-    const url = new URL(value || "https://news.ycombinator.com/news");
-    if (url.origin !== "https://news.ycombinator.com") throw new Error("invalid origin");
-    url.hash = "";
-    return url.href;
-  } catch {
-    return "https://news.ycombinator.com/news";
-  }
+  if (!HarmoNovaMessageBoundary.isSafeOriginalUrl(value)) throw new Error("INVALID_NAVIGATION");
+  const url = new URL(value);
+  url.hash = "";
+  return url.href;
 }
 
-async function openOriginalTab(url) {
-  const tab = await chrome.tabs.create({ url: "about:blank", active: true });
-  if (!Number.isInteger(tab.id)) throw new Error("missing tab id");
-  await setOriginalTab(tab.id, true);
-  await chrome.tabs.update(tab.id, { url: safeHackerNewsUrl(url) });
-  return tab.id;
+async function openOriginalTab(url, windowId) {
+  const target = safeHackerNewsUrl(url);
+  const tab = await chrome.tabs.create({
+    url: "about:blank", active: true,
+    ...(Number.isSafeInteger(windowId) ? { windowId } : {}),
+  });
+  if (!Number.isInteger(tab.id)) throw new Error("INVALID_TAB");
+  try {
+    await setOriginalTab(tab.id, true); // Must happen before navigation.
+    await chrome.tabs.update(tab.id, { url: target });
+    return tab.id;
+  } catch (error) {
+    await setOriginalTab(tab.id, false).catch(() => {});
+    throw error;
+  }
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -720,28 +758,42 @@ async function summarizeWithOpenRouter(port, message, controller) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "harmonova-ai") return;
+  const authorization = HarmoNovaMessageBoundary.validatePort(port, chrome.runtime);
+  if (!authorization.ok) {
+    port.disconnect();
+    return;
+  }
   let controller = null;
   port.onMessage.addListener((message) => {
+    const validated = HarmoNovaMessageBoundary.validateAiMessage(message);
+    if (!validated.ok) {
+      try { port.postMessage({ type: "error", code: validated.error.code,
+        message: "AI request rejected", storyId: null }); } catch {}
+      return;
+    }
     if (message?.type === "cancel") {
       controller?.abort();
       controller = null;
       return;
     }
     if (message?.type !== "summarize") return;
-    controller?.abort();
+    if (controller) {
+      try { port.postMessage({ type: "error", storyId: message.storyId,
+        code: "AI_BUSY", message: "An AI request is already active" }); } catch {}
+      return;
+    }
     const requestController = new AbortController();
     controller = requestController;
     const timer = setTimeout(() => requestController.abort(new Error("Summary timed out. Try again.")), 120_000);
-    summarizeWithOpenRouter(port, message, requestController)
+    workerReady.then(() => summarizeWithOpenRouter(port, message, requestController))
       .catch((error) => {
         if (controller !== requestController || error?.name === "AbortError") return;
         try {
           port.postMessage({
             type: "error",
             storyId: Number(message.storyId),
-            message: error?.message || "Summary failed",
-            code: error?.code || "",
+            message: error?.code === "REMOTE_FETCH_BLOCKED" ? "Source unavailable under network privacy rules" : "Summary unavailable",
+            code: error?.code === "REMOTE_FETCH_BLOCKED" ? "REMOTE_FETCH_BLOCKED" : "AI_REQUEST_FAILED",
           });
         } catch {}
       })
@@ -756,14 +808,7 @@ chrome.runtime.onConnect.addListener((port) => {
 // SEC-52: message senders that carry user data must be the extension's own
 // top-frame content script running on Hacker News.
 function isTrustedHnContentSender(sender) {
-  if (!sender || sender.id !== chrome.runtime.id) return false;
-  if (sender.frameId !== 0) return false;
-  const url = sender.tab?.url || sender.url || "";
-  try {
-    return new URL(url).origin === "https://news.ycombinator.com";
-  } catch {
-    return false;
-  }
+  return HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime) === "hn";
 }
 
 // ---------------------------------------------------------------------------
@@ -841,7 +886,7 @@ async function draftClearAll(username) {
   }));
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+function dispatchWorkerMessage(message, sender, sendResponse) {
   if (!message) return;
   if (message.type === "HARMONOVA_LOCAL_STATE_GET") {
     if (!isTrustedHnContentSender(sender)) {
@@ -919,7 +964,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "HARMONOVA_AI_STATUS") {
-    aiKeyStatus().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Status unavailable" }));
+    const caller = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
+    aiKeyStatus().then(status => {
+      if (caller === "options") sendResponse(status);
+      else sendResponse({ ok: true, hasKey: Boolean(status.hasKey),
+        configured: Boolean(status.hasKey), enabled: false });
+    }).catch(() => sendResponse({ ok: false,
+      error: { code: "STORAGE_UNAVAILABLE", message: "Status unavailable", retryable: true } }));
     return true;
   }
   if (["HARMONOVA_AI_SAVE_KEY", "HARMONOVA_AI_CLEAR_KEY"].includes(message.type)
@@ -944,21 +995,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "HARMONOVA_TAB_MODE") {
-    const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
-    originalTabIds()
-      .then((ids) => sendResponse({ ok: true, original: Number.isInteger(tabId) && ids.includes(tabId) }))
-      .catch(() => sendResponse({ ok: false, original: false }));
+    (async () => {
+      const kind = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
+      const tabId = kind === "hn" ? sender.tab.id : message.tabId;
+      if (kind === "popup") await verifiedHnTab(tabId);
+      const ids = await originalTabIds();
+      sendResponse({ ok: true, original: ids.includes(tabId) });
+    })().catch(() => sendResponse({ ok: false, original: false }));
     return true;
   }
   if (message.type === "HARMONOVA_OPEN_ORIGINAL") {
-    openOriginalTab(message.url)
-      .then((tabId) => sendResponse({ ok: true, tabId }))
-      .catch(() => sendResponse({ ok: false }));
+    (async () => {
+      const kind = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
+      const ownerTab = kind === "popup" ? await verifiedHnTab(message.tabId) : sender.tab;
+      const tabId = await openOriginalTab(message.url, ownerTab.windowId);
+      sendResponse({ ok: true, tabId });
+    })().catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (message.type === "HARMONOVA_ENABLE_TAB") {
-    const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
-    setOriginalTab(tabId, false)
+    verifiedHnTab(message.tabId)
+      .then(() => setOriginalTab(message.tabId, false))
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -971,5 +1028,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   getMetadata(message.url, message.rich === true)
     .then((value) => sendResponse({ ok: true, ...value }))
     .catch(() => sendResponse({ ok: false }));
+  return true;
+}
+
+// One synchronous registration and one validated, initialized dispatcher.
+// Unknown senders/operations never reach business logic or storage.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const permission = HarmoNovaMessageBoundary.validateMessage(message, sender, chrome.runtime);
+  if (!permission.ok) {
+    sendResponse(permission);
+    return true;
+  }
+  workerReady.then(() => dispatchWorkerMessage(message, sender, sendResponse))
+    .catch(() => sendResponse({
+      ok: false, error: { code: "WORKER_UNAVAILABLE", message: "Extension storage is unavailable", retryable: true },
+    }));
   return true;
 });
