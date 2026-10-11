@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.13.4] - 2026-10-11
+
+### Fixed
+- **Editing comments:** Accept both authenticated legacy xedit/hmac and token-based r/fnid forms. Verify the acting account and any explicitly supplied comment ID, retain drafts on ambiguous results, and perform bounded, read-only refreshes to confirm the edited text.
+- **Submitting stories:** Verify the acting account and snapshot submitted IDs before requesting the ephemeral /submit form, then POST with its fresh fnid. Preserve drafts on unsuccessful or filtered submissions and provide explicit links to HN's submit form and submitted history.
+- **Verification UI:** Explain ambiguous submissions and expired HN forms more clearly, and provide a direct HN handoff when edit forms cannot be read.
+
+### Tested
+- Added mocked modern edit form support and mismatched-ID rejection, fresh submit-token request-order checks, and refreshed browser checks for unconfirmed native-HN submission handoffs.
+
 ## [0.13.3] - 2026-10-11
 
 ### Fixed

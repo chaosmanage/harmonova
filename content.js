@@ -1480,6 +1480,13 @@ function openSubmitModal() {
       open.type = "button";
       open.addEventListener("click", () => openOriginalHackerNews("/submit"));
       status.appendChild(open);
+      const session = window.HarmonicHN?.session?.();
+      if (session?.username) {
+        const check = el("button", "submit-hn-open", "Check my submissions");
+        check.type = "button";
+        check.addEventListener("click", () => openOriginalHackerNews("/submitted?id=" + encodeURIComponent(session.username)));
+        status.appendChild(check);
+      }
     }
   };
 
@@ -1558,7 +1565,8 @@ function openSubmitModal() {
       return;
     }
     if (outcome.status === "loginRequired" || outcome.status === "accountChanged") updateAccountChip();
-    fail(outcome.message || "Hacker News did not confirm the submission. Check /newest before posting again.");
+    fail(outcome.message || "Hacker News did not confirm the submission. Check your HN submissions before posting again.",
+      outcome.status === "indeterminate" || outcome.status === "failure" || outcome.status === "rateLimited");
   }
 }
 
@@ -3350,7 +3358,11 @@ async function refreshFeed() {
       try {
         const opened = await window.HarmonicHN.openEditForm(comment.id, { storyId: state.selectedId || comment.id });
         if (opened.status !== "ok") {
-          showToast(opened.message || "Hacker News did not offer an edit form for this comment.");
+          showToast(opened.message || "Hacker News did not offer an edit form for this comment.", {
+            actionLabel: "Check on HN",
+            onAction: () => openOriginalHackerNews("/edit?id=" + comment.id),
+            duration: 9000,
+          });
           return;
         }
         openComposer({ parentId: comment.id, storyId: state.selectedId || comment.id, mode: "edit", handle: opened.handle, initialText: opened.currentText || "", anchor: row });

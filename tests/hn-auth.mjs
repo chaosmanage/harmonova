@@ -22,6 +22,7 @@ const fixture = (...parts) => fs.readFileSync(path.join(fixtureDir, ...parts), "
 const STORY_ID = 50022292;
 const FIRST_COMMENT = 50034061; // synthetic: voted + unfavorited state
 const SECOND_COMMENT = 50029143; // synthetic: plain (not voted) state
+const EDIT_COMMENT = 50033557;
 
 // ---------------------------------------------------------------------------
 // Mocked Hacker News server
@@ -43,6 +44,9 @@ function createHnMock() {
     directSubmitResponse: false,
     newSubmission: null,
     suppressSubmittedIndex: false,
+    editFnidForm: false,
+    editWrongId: false,
+    editedText: null,
   };
   const requests = [];
 
@@ -83,6 +87,11 @@ function createHnMock() {
       }
       case "/item": {
         let html = state.loggedIn ? fixture("synthetic", "item-in.html") : fixture("synthetic", "item-out.html");
+        if (state.editedText !== null) {
+          const escape = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const row = '<tr class="athing comtr" id="' + EDIT_COMMENT + '"><td><span class="comhead"><a class="hnuser">' + USER + '</a></span><div class="commtext">' + escape(state.editedText) + '</div></td></tr>';
+          html = html.replace('<table border="0" class="comment-tree"><tbody>', '<table border="0" class="comment-tree"><tbody>' + row);
+        }
         if (state.postedComment && state.commentReadLag > 0) state.commentReadLag--;
         else if (state.postedComment) {
           const escape = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -93,8 +102,16 @@ function createHnMock() {
       }
       case "/reply":
         return serveHtml(withUser(fixture("synthetic", "reply-in.html")));
-      case "/edit":
-        return serveHtml(withUser(fixture("synthetic", "edit-in.html")));
+      case "/edit": {
+        let html = fixture("synthetic", "edit-in.html");
+        if (state.editFnidForm) {
+          html = html.replace('action="xedit"', 'action="r"')
+            .replace(/<input type="hidden" name="hmac" value="[^"]+">/, '<input type="hidden" name="fnid" value="AbCdEf123456Zz"><input type="hidden" name="fnop" value="edit-comment">')
+            .replace(/<input type="hidden" name="id" value="[^"]+">/,
+              state.editWrongId ? '<input type="hidden" name="id" value="99999999">' : '');
+        }
+        return serveHtml(withUser(html));
+      }
       case "/delete-confirm":
         return serveHtml(withUser(fixture("synthetic", "delete-confirm-in.html")));
       case "/submitted": {
@@ -154,6 +171,10 @@ function createHnMock() {
     // Serve action responses as the redirect target's document directly:
     // Playwright-fulfilled 3xx responses are not re-intercepted, so a real
     // redirect's follow-up request would escape the mock and hit the network.
+    if (pathname === "/r" && method === "POST" && record.bodyParams.fnop === "edit-comment") {
+      state.editedText = record.bodyParams.text;
+      return route.fulfill(serveHtml(withUser(fixture("synthetic", "news-in.html"))));
+    }
     if (pathname === "/r" && method === "POST" && state.directSubmitResponse) {
       if (!state.suppressSubmittedIndex) state.newSubmission = Object.fromEntries(new URLSearchParams(record.postData || ""));
       return route.fulfill(serveHtml(withUser(fixture("synthetic", "news-in.html"))));
@@ -709,6 +730,47 @@ await test("matching older title cannot confirm a new unindexed submission", asy
   const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'Unindexed' })");
   assert.equal(result.status, "indeterminate", JSON.stringify(result));
   assert.equal(hn.requests.filter((r) => r.path === "/r" && r.method === "POST").length, 1);
+});
+
+await test("HN edit form accepts server-bound fnid/fnop without a hidden id", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.editFnidForm = true;
+  const opened = await world.evaluate("HarmonicHN.openEditForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(opened.status, "ok", JSON.stringify(opened));
+  const result = await world.evaluate("HarmonicHN.saveEdit(" + JSON.stringify(opened.handle) + ", 'Updated comment through fnid')");
+  assert.equal(result.status, "success", JSON.stringify(result));
+  const posts = hn.requests.filter((request) => request.path === "/r" && request.method === "POST");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].bodyParams.fnid, 'AbCdEf123456Zz');
+  assert.equal(posts[0].bodyParams.fnop, 'edit-comment');
+  assert.equal(posts[0].bodyParams.text, 'Updated comment through fnid');
+  assert.match(posts[0].contentType, /^application\/x-www-form-urlencoded/);
+});
+
+await test("HN edit form rejects explicit wrong comment ID", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.editFnidForm = true;
+  hn.state.editWrongId = true;
+  const opened = await world.evaluate("HarmonicHN.openEditForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(opened.status, "failure", JSON.stringify(opened));
+  assert.equal(hn.requests.filter((request) => request.method === "POST").length, 0);
+});
+
+await test("HN submit form is fetched last before using the one-time token", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.directSubmitResponse = true;
+  const opened = await world.evaluate("HarmonicHN.openSubmitForm()");
+  assert.equal(opened.status, "ok", JSON.stringify(opened));
+  const before = hn.requests.filter((request) => request.method === "GET");
+  assert.equal(before.at(-1).path, "/submit", "form token must be fetched after session and submitted checks");
+  const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'Fresh token story', text: 'A meaningful description' })");
+  assert.equal(result.status, "success", JSON.stringify(result));
+  const postIndex = hn.requests.findIndex((request) => request.path === "/r" && request.method === "POST");
+  assert.equal(hn.requests[postIndex - 1].path, "/submit", "do not make GET requests between fnid and POST");
+  assert.equal(hn.requests.filter((request) => request.path === "/r" && request.method === "POST").length, 1);
 });
 
 await browser.close();

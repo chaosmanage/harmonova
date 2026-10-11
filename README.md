@@ -24,7 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.13.3**.
+The current extension version is **0.13.4**.
+
+Version 0.13.4 repairs **comment editing** against both HN edit-form variants (including one-time `fnid`/`fnop` forms without an explicit ID), verifies edits against the refreshed thread, and changes **story submission** to fetch the one-use HN form *after* checking the session and existing submissions. Unconfirmed posts retain the draft and offer native HN submission and history links.
 
 Version 0.13.3 fixes form posting to Hacker News: comment, edit, delete and story-submit requests now use the actual `application/x-www-form-urlencoded` browser form encoding rather than `text/plain`, which HN cannot reliably parse. The mocked HN server now rejects wrongly encoded posts, with Chromium assertions for the actual outgoing `Content-Type`. The thread action bar now puts **Add reply**, **Upvote**, dedicated **Article** and **Discussion** summary buttons, and **More** up front. Profile remains available from the author name, while bookmarks and favorites remain in the More menu.
 

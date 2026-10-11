@@ -872,20 +872,44 @@
     return outcome;
   }
 
+  // HN has served both direct xedit/hmac and one-time r/fnid edit forms.
+  // One-time fnids bind the edited item on the server, so the hidden id may be
+  // absent; if an id is present, it must still match the requested comment.
+  function parseEditForm(doc, commentId) {
+    return parseFormByPredicate(doc, (element) => {
+      const action = (element.getAttribute("action") || "").replace(/^\//, "");
+      if (!["xedit", "comment", "r"].includes(action) ||
+          (element.getAttribute("method") || "GET").toUpperCase() !== "POST" ||
+          !element.querySelector('textarea[name="text"]')) return false;
+      if (action === "r") {
+        const operation = element.querySelector('input[name="fnop"]')?.value || "";
+        if (!/edit/i.test(operation)) return false;
+      }
+      return true;
+    });
+  }
+
   async function openEditForm(commentId, options = {}) {
     if (!currentSession) return { status: "loginRequired", message: "Sign in to edit" };
+    if (!Number.isSafeInteger(commentId) || commentId <= 0) return { status: "failure", message: "Invalid comment ID" };
+    const username = currentSession.username;
     const page = await enqueue("/edit?" + new URLSearchParams({ id: String(commentId), ...(options.goto ? { goto: options.goto } : {}) }).toString());
-    if (page.classification === "loginPage") { setSession(null, null); return { status: "loginRequired", message: "Sign in to edit" }; }
+    if (page.classification === "loginPage") {
+      return { status: "loginRequired", message: "Hacker News asks you to sign in before editing. Open the comment on Hacker News.", detail: "" };
+    }
     if (page.classification !== "ok") return { status: "failure", message: "Hacker News did not offer an edit form for this comment.", detail: page.classification };
-    const form = parseFormByPredicate(page.doc, (f) => ["xedit", "comment"].includes(f.getAttribute("action")));
-    if (!form || !HEX40.test(form.fields.hmac || "") || Number(form.fields.id) !== commentId) {
-      return { status: "failure", message: "Hacker News edit form did not match this comment. Edit on Hacker News instead.", detail: "" };
+    const form = parseEditForm(page.doc, commentId);
+    const hasHmac = Boolean(form && HEX40.test(form.fields.hmac || ""));
+    const hasFnid = Boolean(form && FNID.test(form.fields.fnid || "") && form.fields.fnop);
+    if (!form || (!hasHmac && !hasFnid) ||
+        (form.fields.id !== undefined && Number(form.fields.id) !== commentId)) {
+      return { status: "failure", message: "Hacker News did not provide a usable edit form. The editing window may have expired. Open the comment on Hacker News to check.", detail: "editFormUnavailable" };
     }
     refreshSessionFromDoc(page.doc);
-    if (!currentSession) return { status: "loginRequired", message: "Sign in to edit" };
+    if (currentSession?.username !== username) return accountChangedOutcome();
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    formHandles.set(handle, { kind: "edit", action: form.action || "xedit", fields: { ...form.fields }, username: currentSession.username, commentId, storyId: options.storyId || commentId, createdAt: Date.now() });
+    formHandles.set(handle, { kind: "edit", action: form.action || "xedit", fields: { ...form.fields }, username, commentId, storyId: options.storyId || commentId, createdAt: Date.now() });
     return { status: "ok", handle, currentText: form.fields.text || "" };
   }
 
@@ -896,13 +920,21 @@
     const body = { ...entry.fields, text };
     const page = await enqueue("/" + (entry.action || "xedit"), { method: "POST", body });
     let verified = page;
-    if (page.classification === "ok" && !redirectedToItem(page)) {
-      try {
-        if (new URL(page.url).pathname === "/xedit") verified = await enqueue("/item?id=" + entry.storyId);
-      } catch {}
+    let edited = page.classification === "ok" && redirectedToItem(page)
+      ? findOwnComment(page.doc, entry.username, null, text, entry.commentId) : null;
+    // HN can return the edit handler itself, or a stale redirected item page.
+    // Verify with GETs only; never resend the edit POST.
+    if (page.classification === "ok" && !edited) {
+      for (let attempt = 0; attempt < 3 && !edited; attempt++) {
+        try {
+          const fresh = await enqueue("/item?id=" + entry.storyId);
+          if (fresh.classification !== "ok" || !redirectedToItem(fresh)) break;
+          verified = fresh;
+          edited = findOwnComment(fresh.doc, entry.username, null, text, entry.commentId);
+        } catch { break; }
+      }
     }
-    const edited = findOwnComment(verified.doc, entry.username, null, text, entry.commentId);
-    const outcome = formOutcome(page, () => redirectedToItem(verified) && Boolean(edited), { indeterminate: "Hacker News did not confirm the edit. Your draft is kept." });
+    const outcome = formOutcome(page, () => redirectedToItem(verified) && Boolean(edited), { indeterminate: "Hacker News has not shown the updated comment. Your draft is kept; check the comment before editing again." });
     if (outcome.status === "success") formHandles.delete(handle);
     return outcome;
   }
@@ -949,14 +981,30 @@
   async function openSubmitForm() {
     if (!currentSession) return { status: "loginRequired", message: "Sign in to submit" };
     const username = currentSession.username;
+    // Check the acting account and snapshot recent submissions *before*
+    // requesting HN's short-lived fnid, rather than opening more HN pages
+    // between obtaining the form closure and posting it.
+    const verification = await enqueue("/news");
+    if (verification.classification !== "ok" || !parseTopBar(verification.doc).definitive) {
+      return { status: "failure", message: "Could not verify your Hacker News session. Nothing was posted; retry shortly." };
+    }
+    refreshSessionFromDoc(verification.doc);
+    if (!currentSession) return { status: "loginRequired", message: "Hacker News requires you to sign in again before submitting." };
+    if (currentSession.username !== username) return accountChangedOutcome();
+    let previousIds = null;
+    try {
+      const list = await enqueue("/submitted?id=" + encodeURIComponent(username));
+      if (list.classification === "ok" && list.status === 200) previousIds = new Set(parseList(list.doc).ids);
+    } catch {} // A missing baseline cannot be treated as proof of publication.
+
+    // This must be the final GET before the user submits; its fnid is bound
+    // to HN's one-use form handler and may expire when delayed.
     const page = await enqueue("/submit");
     if (page.classification === "loginPage") {
-      // /submit can gate an action even while /news still recognizes the user.
-      // Confirm the session before changing the account chip or clearing tokens.
       const check = await enqueue("/news");
       if (check.classification === "ok") refreshSessionFromDoc(check.doc);
       if (currentSession?.username === username && parseTopBar(check.doc).username === username) {
-        return { status: "failure", message: "Hacker News is requesting sign-in for submission despite your active session. Open the original Hacker News submit page to complete any verification." };
+        return { status: "failure", message: "Hacker News is requesting sign-in for submissions despite your active session. Open its own submit page to complete verification." };
       }
       return currentSession?.username && currentSession.username !== username
         ? accountChangedOutcome()
@@ -964,28 +1012,16 @@
     }
     if (page.classification !== "ok") return { status: "failure", message: "Could not open the Hacker News submit form.", detail: page.classification };
     const form = parseFnidForm(page.doc);
-    if (!form || !FNID.test(form.fields.fnid || "")) {
-      return { status: "failure", message: "Hacker News submit form could not be read. Submit on Hacker News instead.", detail: "" };
+    if (!form || !FNID.test(form.fields.fnid || "") ||
+        (form.action !== "r" && form.action !== "/r") || form.method !== "POST") {
+      return { status: "failure", message: "Hacker News did not return a usable submit form. Open the original HN submit page instead.", detail: "submitFormUnavailable" };
     }
-    // Verify the acting account on a canonical page immediately before giving
-    // out a submit handle. Action-only pages may omit account UI altogether.
-    const verification = await enqueue("/news");
-    if (verification.classification !== "ok" || !parseTopBar(verification.doc).definitive) {
-      return { status: "failure", message: "Could not verify your Hacker News session. Nothing was posted; retry in a moment." };
-    }
-    refreshSessionFromDoc(verification.doc);
+    refreshSessionFromDoc(page.doc);
     if (!currentSession) return { status: "loginRequired", message: "Hacker News requires you to sign in again before submitting." };
     if (currentSession.username !== username) return accountChangedOutcome();
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    // Capture the author's current submitted IDs to distinguish a newly
-    // accepted post from an older story with the same title (e.g. "test").
-    let previousIds = null;
-    try {
-      const list = await enqueue("/submitted?id=" + encodeURIComponent(username));
-      if (list.classification === "ok" && list.status === 200) previousIds = new Set(parseList(list.doc).ids);
-    } catch {}
-    formHandles.set(handle, { kind: "submit", action: form.action || "r", fields: { ...form.fields }, username: currentSession.username, previousIds, createdAt: Date.now() });
+    formHandles.set(handle, { kind: "submit", action: "r", fields: { ...form.fields }, username, previousIds, createdAt: Date.now() });
     return { status: "ok", handle };
   }
 
@@ -1030,9 +1066,11 @@
         } catch { break; }
       }
     }
-    const outcome = formOutcome(page, (response) => {
-      try { return confirmedId !== null || new URL(response.url).pathname === "/newest"; } catch { return false; }
-    }, { indeterminate: "Hacker News has not shown your new submission in your submitted list yet. Nothing was posted again. Check your submissions before retrying." });
+    const outcome = page.classification === "expiredLink"
+      ? { status: "failure", message: "Hacker News rejected the expired submission form. Your draft is kept. Open HN's own submit page to retry with a fresh form." }
+      : formOutcome(page, (response) => {
+        try { return confirmedId !== null || new URL(response.url).pathname === "/newest"; } catch { return false; }
+      }, { indeterminate: "Hacker News has not confirmed this story in your submitted list. It may have rejected or filtered the submission (especially a short test post). Your draft is kept; check HN submissions before trying again." });
     if (outcome.status === "success") {
       formHandles.delete(handle);
       if (confirmedId) outcome.newStoryId = confirmedId;

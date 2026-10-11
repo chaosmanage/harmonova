@@ -596,15 +596,16 @@ await test("New post sends the exact /r payload once and preserves data if redir
   assert.equal(posted.bodyParams.url, "https://example.com/harmonic");
   // Verification makes bounded GET reads against the author's submitted list,
   // so wait until the final outcome rather than observing the in-flight status.
-  await page.waitForFunction(() => /has not shown|did not confirm/i.test(
+  await page.waitForFunction(() => /has not confirmed|has not shown|did not confirm/i.test(
     document.querySelector('.submit-status')?.textContent || ''), null, { timeout: 16000 });
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/r")).length, 1, "SEC-34: submit never retried");
   // The offline mock serves /newest HTML directly at /r rather than a real
   // redirect; without a new submission ID the app must keep the form open.
   assert.equal(await modal.count(), 1, "unconfirmed response keeps submission form");
   const status = await page.locator(".submit-status").textContent();
-  assert.match(status, /has not shown|did not confirm/i, "ambiguous response is not reported as success: " + status);
+  assert.match(status, /has not confirmed|has not shown|did not confirm/i, "ambiguous response is not reported as success: " + status);
   assert.equal(await page.locator(".submit-title").inputValue(), "Harmonic submits a story", "title kept");
+  assert.equal(await page.locator(".submit-hn-open").count(), 2, "unconfirmed post offers native submit and submissions links");
 });
 
 await test("submit validation refuses empty posts and unsafe URLs locally", async ({ page, hn }) => {
@@ -662,7 +663,9 @@ await test("validationRequired on POST keeps the values and hands off to HN's st
   const hnTabPromise = page.context().waitForEvent("page");
   await page.locator(".submit-hn-open").click();
   const hnTab = await hnTabPromise;
-  await hnTab.waitForURL(/\/submit/, { timeout: 20000 });
+  // A native HN handoff succeeds once navigation commits; the public login
+  // page may stall during network load on CI or in a headless browser.
+  await hnTab.waitForURL(/\/submit/, { timeout: 20000, waitUntil: "commit" });
   assert.ok(hnTab.url().startsWith("https://news.ycombinator.com/submit"), "stock HN submit form opens (never auto-filled)");
   await hnTab.close();
 });
