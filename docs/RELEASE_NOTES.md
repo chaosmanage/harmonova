@@ -1,10 +1,10 @@
-# Harmonic for Hacker News v0.13.6
+# Harmonic for Hacker News v0.13.7
 
-A desktop reading experience for Hacker News, inspired by [Simon Halvdansson's Harmonic Android app](https://github.com/SimonHalvdansson/Harmonic-HN). Big thanks to the original project for the design direction and the open-source groundwork.
+**Documentation and onboarding update.** Harmonic is a Chrome extension that brings a Harmonic-inspired reading experience to Hacker News on desktop. A huge thank-you to [Simon Halvdansson and the original Harmonic Android app](https://github.com/SimonHalvdansson/Harmonic-HN), which inspired this project.
 
 ## Install in Chrome — no build needed
 
-1. Download **`harmonic-hn-browser-0.13.6.zip`** from the Assets section below.
+1. Download **`harmonic-hn-browser-0.13.7.zip`** from the Assets section below.
 2. Unzip it. You'll find a folder named **`harmonic-hn-browser`** inside.
 3. Open **`chrome://extensions`**, turn on **Developer mode**, and click **Load unpacked**.
 4. Select that inner **`harmonic-hn-browser`** folder (the one containing `manifest.json`).
@@ -12,12 +12,14 @@ A desktop reading experience for Hacker News, inspired by [Simon Halvdansson's H
 
 You can also [clone or download the repository](https://github.com/chaosmanage/harmonic-hn-browser) and load its root folder directly. No Node.js or build step is necessary for either route.
 
-## What's included
+## What's new
 
-- A split desktop feed and discussion reader with tinted cards, threaded comments, multiple feeds, and site-wide search.
-- Themes, reader preferences, link previews, account actions, and an original-HN fallback.
-- Separate optional OpenRouter summaries for article text and public HN discussion.
-- The v0.13.6 behavior: editing/deleting existing comments requires confirmation and hands off to HN's native pages; they are **not** supported inside Harmonic for now.
+- A shorter README explaining why I brought the Harmonic Android experience to my desktop, including trying the app in an emulator before making a Chrome extension.
+- Much simpler installation instructions, with a picture of the Chrome **Load unpacked** button. No terminal or build required.
+- Screenshots of feeds, search, appearance, story settings, and the optional AI summarization interface. The summary example is clearly marked as a demo.
+- More focused feature, privacy, troubleshooting, and architecture guides. The extension itself works the same as v0.13.6.
+
+**Known limitation:** editing and deleting existing comments is handled through Hacker News' original pages after confirmation.
 
 See the [README](https://github.com/chaosmanage/harmonic-hn-browser#readme), [feature guide](https://github.com/chaosmanage/harmonic-hn-browser/blob/main/docs/FEATURES.md), and [changelog](https://github.com/chaosmanage/harmonic-hn-browser/blob/main/CHANGELOG.md) for details.
 

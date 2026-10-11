@@ -17,6 +17,8 @@ The one that contains `manifest.json` **directly inside it**.
 
 Chrome cannot load a compressed ZIP through **Load unpacked**. Extract it first. You should not need `npm install`, `npm run build`, or a Chrome Web Store account.
 
+![Chrome extensions page with Developer mode enabled and the Load unpacked button visible](assets/install-chrome.png)
+
 ## Chrome says “Manifest file is missing or unreadable”
 
 You're probably selecting the parent of the extension folder. Open the folder in your file manager first and verify that you can see `manifest.json` beside `content.js` and `background.js`. Then select that folder itself.

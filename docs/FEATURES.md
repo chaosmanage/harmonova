@@ -12,6 +12,8 @@ Harmonic changes how you **read** Hacker News, not where the discussions live. O
 
 Choose a feed from the title menu: Top, New, Best, Ask HN, Show HN, Jobs, and additional HN collections such as Active Discussions, Best Comments, Launch HN, and past front pages. Use **Manage feeds** to hide or reorder the less-used ones.
 
+![Feed switcher with Top, New, Best, Ask HN, Show HN, Jobs and Manage feeds](assets/feeds.png)
+
 Each story card can show its title, points, domain, age, reply count, favicon, and an optional preview image. Card tints help stories stand apart without turning the entire page into a grid of boxes. Story settings let you change density, preview sizing, points display, dimming for read stories, keyword/domain filters, and whether a card click opens the article or its comments.
 
 Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; Harmonic doesn't trap external links in its own reader.
@@ -33,6 +35,8 @@ The search field has two distinct modes:
 
 Search results open inside the same reader. For comment results, Harmonic can take you to the relevant discussion and comment. Site-wide results come from Algolia's index, so an extremely recent comment may not be indexed immediately.
 
+![Site-wide search controls showing content types, dates, sorting and author filters](assets/search.png)
+
 ## Your Hacker News account
 
 Reading needs no login. To interact as a user, sign in through **Hacker News's own login page** using the account entry in Harmonic. Harmonic doesn't ask for, read, or store your HN password.
@@ -53,6 +57,10 @@ Open **Settings** from Harmonic's menu or the extension toolbar popup.
 
 Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; adjust reading fonts, zoom and story display; change comment treatment; control preview images and favicons; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
 
+| Appearance | Story settings |
+| --- | --- |
+| ![Harmonic theme and font controls](assets/appearance.png) | ![Harmonic story customization controls](assets/story-settings.png) |
+
 Tags and blocking are **private local reading preferences**, not HN account features. Tagging a username helps you recognize them later; blocking replaces their comments with an unblockable placeholder. Neither setting changes what other users see on Hacker News.
 
 ### Link extras
@@ -72,7 +80,13 @@ The **Article** and **Discussion** buttons are separate for a reason: one summar
 3. Open a story and click **Article** or **Discussion**. The request runs only when you click.
 4. You can stop a running summary or regenerate it. The summary appears in the current reader, not in a new service.
 
+![AI settings and OpenRouter configuration in the Harmonic settings pane](assets/ai-settings.png)
+
 For an article summary, Harmonic fetches and extracts readable article text. Some websites block this; you may then choose to summarize public HN discussion separately. For a discussion summary, the source is the public comments rather than the external article. **Extracted source text is sent to OpenRouter** along with the configured summary prompt. Generated summaries can be inaccurate, especially on ambiguous threads.
+
+![AI summary presentation in Harmonic using test-only sample output](assets/ai-summary-demo.png)
+
+*Demonstration screenshot with a mocked OpenRouter response. The example text is not a real summary of the visible article.*
 
 The AI key can be stored **in this Chrome profile** or **for this browser session only**. It isn't synced via Chrome Sync. See [Privacy & security](PRIVACY.md) for the precise data flow and storage trade-offs.
 

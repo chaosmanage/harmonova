@@ -6,12 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+- Nothing yet.
+
+## [0.13.7] - 2026-10-11
+
 ### Documentation
-- Reorganized documentation into a reader-first README and maintained feature, installation, privacy, architecture, and development guides. Added current screenshots and unpacked-install instructions, with prominent credit to the original Harmonic Android project.
-- Included documentation in release ZIPs and removed obsolete implementation/audit plans.
+- Replaced the long README with a simpler first-person introduction: why I enjoy Harmonic Android, why ordinary desktop HN felt less intuitive to me, the Android emulator experiment, and why I chose a Chrome extension.
+- Added clear no-build installation instructions and a screenshot showing Chrome's Developer mode and Load unpacked controls.
+- Added authentic screenshots of feed options, site-wide search, appearance, story settings, and AI settings, plus a clearly labeled mocked AI summary preview.
+- Organized feature, troubleshooting, privacy, architecture, and contributor documentation, kept prominent credit to Simon Halvdansson, and removed obsolete plans.
+- Kept this project under Apache License 2.0, matching the upstream Harmonic Android project. Expanded release packages to include the guides and screenshots.
 
 ### Tests
-- Fixed the Chromium security test selector to target Article now that Article and Discussion have separate summary controls.
+- Updated the browser security test to select the distinct Article summary button after the Article/Discussion toolbar split.
 
 ## [0.13.6] - 2026-10-11
 

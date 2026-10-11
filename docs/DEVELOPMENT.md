@@ -41,6 +41,8 @@ harmonic-hn-browser/
 
 Generated material such as `dist/`, `node_modules/`, and `test-results/` is ignored by Git. Captured raw HN fixture data, traces, and any credentials must remain untracked. Documentation screenshots in `docs/assets/` are an intentional exception.
 
+To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot uses a deterministic **mock response**, not a real OpenRouter key or a summary of a real article. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured separately from the live reader.
+
 ## Test commands
 
 The commands below run from the repository root. The browser tests launch Chromium with the extension loaded; most tests use local mocks or sanitized HTML fixtures.
@@ -84,7 +86,7 @@ The script reads the version from `manifest.json` and creates:
 ```text
 dist/
 ├── harmonic-hn-browser/                 ready for Load unpacked
-└── harmonic-hn-browser-0.13.6.zip      ZIP containing that folder
+└── harmonic-hn-browser-0.13.7.zip      ZIP containing that folder
 ```
 
 The folder name inside the ZIP is deliberately **stable**, even though the ZIP filename contains the version. When updating an unpacked installation, keeping the extracted path stable reduces the chance of Chrome treating it as a different extension.
@@ -113,8 +115,8 @@ Please don't add screenshot dumps, raw response captures, API credentials, or te
 Example maintainer command, **after** preparing and pushing the intended commit:
 
 ```bash
-gh release create v0.13.6 dist/harmonic-hn-browser-0.13.6.zip \
-  --title "Harmonic for Hacker News v0.13.6" \
+gh release create v0.13.7 dist/harmonic-hn-browser-0.13.7.zip \
+  --title "Harmonic for Hacker News v0.13.7" \
   --notes-file docs/RELEASE_NOTES.md
 ```
 

@@ -2,7 +2,9 @@
 
 [← Back to README](../README.md) · [Development](DEVELOPMENT.md) · [Privacy & security](PRIVACY.md)
 
-Harmonic is deliberately a small **Manifest V3 browser extension**, not a frontend app hosted on a separate domain. Chrome injects CSS and scripts into HN pages; an extension service worker handles privileged cross-origin work. There is no bundler or application framework in the runtime.
+Harmonic is a **Manifest V3 browser extension**, not a separate website or a port of the Android app. Open HN as usual and the extension replaces the reading interface. Stories and discussion content still come from HN-related APIs; signing in still happens on Hacker News. There is no project-owned backend or build step.
+
+The content script draws the UI and an extension service worker handles cross-origin requests. That separation keeps optional OpenRouter credentials out of the Hacker News page.
 
 ## At a glance
 
