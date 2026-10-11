@@ -646,24 +646,25 @@ await test("favorite response without account links preserves the session", asyn
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/logout")).length, 0);
 });
 
-await test("thread toolbar opens reply, groups summaries and bookmarks via More", async ({ page }) => {
+await test("thread toolbar exposes profile, favorite, share and grouped summaries", async ({ page }) => {
   await gotoFeed(page);
   await page.locator('.story-comment-button').first().click();
   await page.locator('.thread-actions').waitFor({ state: 'visible' });
   const labels = await page.locator('.thread-actions button').evaluateAll((buttons) =>
     buttons.map((button) => button.getAttribute('aria-label')));
-  assert.equal(labels.length, 5, JSON.stringify(labels));
-  assert.ok(labels.includes('Add reply') && labels.includes('Summarize article') && labels.includes('Summarize discussion'));
-  assert.ok(!labels.includes('Open author') && !labels.includes('Share') && !labels.includes('Bookmark'));
+  assert.equal(labels.length, 8, JSON.stringify(labels));
+  for (const label of ['My profile', 'Add reply', 'Upvote', 'Favorite', 'Share story', 'More', 'Summarize article', 'Summarize discussion']) {
+    assert.ok(labels.includes(label), 'toolbar includes ' + label);
+  }
+  assert.ok(!labels.some((label) => /bookmark/i.test(label)));
   assert.equal(await page.locator('[role="group"][aria-label="AI summaries"]').count(), 1);
   await page.getByRole('button', { name: 'Add reply' }).click();
   await page.locator('.composer-input').waitFor({ state: 'visible' });
   await page.locator('.composer-cancel').click();
   await page.locator('.thread-actions button[aria-label="More"]').click();
-  await page.locator('.harmonova-popup .popup-item', { hasText: 'Bookmark story' }).click();
-  assert.ok((await page.locator('.harmonova-toast').textContent()).includes('Bookmarked'));
-  await page.locator('.thread-actions button[aria-label="More"]').click();
-  assert.ok((await page.locator('.harmonova-popup').textContent()).includes('Remove bookmark'));
+  const menuText = await page.locator('.harmonova-popup').textContent();
+  assert.ok(menuText.includes('Show only OP comments'));
+  assert.ok(!/bookmark story|collapse all comments|expand all comments/i.test(menuText));
 });
 
 await test("Chromium bounds long right-click menus and hides job cards", async ({ page }) => {

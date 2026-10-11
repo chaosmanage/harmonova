@@ -110,16 +110,21 @@ try {
   // Thread toolbar keeps its primary actions and exposes the two AI sources.
   const threadLabels = await page.locator(".thread-actions button").evaluateAll((buttons) =>
     buttons.map((button) => button.getAttribute("aria-label")));
-  assert.equal(threadLabels.length, 5, "reply, vote, two summaries, and More should be the only toolbar buttons");
-  for (const label of ["Open author", "Comments", "Bookmark", "Share"]) {
-    assert.ok(!threadLabels.includes(label), "remove redundant toolbar control " + label);
+  assert.equal(threadLabels.length, 8, "toolbar includes profile, reply, vote, favorite, summaries, share and More");
+  for (const label of ["Add reply", "Summarize article", "Summarize discussion", "Share story", "More"]) {
+    assert.ok(threadLabels.includes(label), "thread toolbar has " + label);
   }
-  assert.ok(threadLabels.includes("Add reply") && threadLabels.includes("Summarize discussion") && threadLabels.includes("Summarize article"));
+  assert.ok(threadLabels.some((label) => ["My profile", "Log in"].includes(label)), "profile/login action exists");
+  assert.equal(await page.locator('.thread-actions [data-thread-vote]').count(), 1, "vote control exists");
+  assert.equal(await page.locator('.thread-actions [data-thread-favorite]').count(), 1, "HN favorite star exists");
+  assert.ok(!threadLabels.some((label) => /bookmark/i.test(label)), "no bookmark action in toolbar");
   assert.equal(await page.locator('.thread-actions [role="group"][aria-label="AI summaries"]').count(), 1, "source actions stay grouped in the toolbar");
   // The thread More menu (comment rows also have per-comment "More" buttons).
   const threadMore = page.locator(".thread-actions button.thread-action[aria-label='More']");
   await threadMore.click();
-  assert.ok((await page.locator('.harmonova-popup').textContent()).includes('Bookmark story'), 'bookmarks move to More');
+  const menuText = await page.locator(".harmonova-popup").textContent();
+  assert.ok(!/bookmark story|remove bookmark|collapse all comments|expand all comments/i.test(menuText), "removed actions stay out");
+  assert.ok(menuText.includes("Show only OP comments") && menuText.includes("Open on original Hacker News"), "OP filter and original-site action");
   await page.getByRole("button", { name: /Sort comments/ }).click();
   const sortLabels = await page.locator(".harmonova-popup .popup-item").allTextContents();
   for (const mode of ["Default", "Newest first", "Oldest first", "Reply count"]) {
@@ -137,7 +142,7 @@ try {
   const settingRows = await page.locator(".setting-row").count();
   assert.ok(settingRows >= 16, "expected expanded HarmoNova-style settings controls");
   const settingsText = await page.locator(".settings-panel").textContent();
-  for (const label of ["Content zoom", "Comment text size", "Card click opens comments", "Comment sorting", "Thread colors", "AI summarization", "OpenRouter model", "Use AI summarization"]) {
+  for (const label of ["Content zoom", "Comment text size", "Comment zoom", "Enable story card click", "Card click opens comments", "Comment sorting", "Thread colors", "AI summarization", "OpenRouter model", "Use AI summarization"]) {
     assert.ok(settingsText.includes(label), "settings should contain " + label);
   }
 
@@ -171,6 +176,11 @@ try {
   await page.waitForTimeout(150);
   assert.ok((await commentSizeRow.textContent()).includes("16 sp"), "comment text size should be adjustable");
 
+  const commentsZoomRow = page.locator(".setting-row").filter({ hasText: "Comment zoom" });
+  const commentsZoomSlider = commentsZoomRow.locator('input[type="range"]');
+  assert.equal(await commentsZoomSlider.inputValue(), "100");
+  await commentsZoomSlider.fill("75");
+  assert.ok((await commentsZoomRow.textContent()).includes("75%"));
   await openSettingsCategory("AI");
   const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
   assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
@@ -205,6 +215,7 @@ try {
   await zoomSlider.fill("100");
   await openSettingsCategory("Comments");
   await commentSizeSlider.fill("15");
+  await commentsZoomSlider.fill("100");
   await openSettingsCategory("Stories");
   const cardClickRow = page.locator(".setting-row").filter({ hasText: "Card click opens comments" });
   const cardClickInput = cardClickRow.locator('input[type="checkbox"]');

@@ -42,9 +42,11 @@
     continuousRails: false,
     storyTextSize: 17.5,
     commentTextSize: 15,
+    commentZoom: 100,
     contentScale: 100,
     commentSort: "Default",
     cardClickComments: false,
+    cardClickEnabled: true,
     alwaysOpenComments: false,
     headerTint: true,
     headerImage: true,
@@ -154,7 +156,6 @@
     activeSummary: null,
     summaryGeneration: 0,
     search: {
-      mode: "loaded", // "loaded" filters loaded stories; "global" searches all of HN
       active: false, // global search results are currently displayed
       tag: "story",
       range: "any", // any | day | week | month | year
@@ -183,6 +184,7 @@
     listView: null, // open account list view { kind, path, pendingMore, done, loading, seen }
     sessionToastReady: false, // suppress "Signed in as…" toast during startup harvest
     threadAuthor: "", // Phase 7: OP highlight
+    threadOpOnly: false, // Per-thread OP-comment filter
     userTags: new Map(), // author -> short tag (local, exportable)
     blockedUsers: new Set(), // locally blocked authors
     seenTimes: new Map(), // story id -> last-visit timestamp for new-comment markers
@@ -597,11 +599,12 @@
     app.dataset.headerImage = String(state.settings.headerImage);
     app.dataset.compactPoints = String(state.settings.compactPoints);
     app.dataset.showDomain = String(state.settings.showDomain !== false);
-    if (state.search.mode === "loaded") filterStories();
+    filterStories();
     const contentScale = Math.max(0.75, Math.min(1.25, Number(state.settings.contentScale || 100) / 100));
     const storySetting = Number(state.settings.storyTextSize || 17.5);
     const storyScale = storySetting / 17.5;
     const commentSetting = Number(state.settings.commentTextSize || 15);
+    const commentScale = Math.max(0.7, Math.min(1.3, Number(state.settings.commentZoom ?? 100) / 100));
     app.dataset.cardClickComments = String(state.settings.cardClickComments);
     // HarmoNova's semantic settings rendered at desktop density. The Android app's dp/sp
     // values are physically larger on a high-density display, so this preserves the same
@@ -610,12 +613,16 @@
     app.style.setProperty("--story-index-size", ((22 + (storySetting - 17.5) * 1.2) * contentScale) + "px");
     app.style.setProperty("--story-meta-size", (16.5 * storyScale * contentScale) + "px");
     app.style.setProperty("--story-comment-count-size", (19 * storyScale * contentScale) + "px");
-    app.style.setProperty("--comment-text-size", ((19 + (commentSetting - 15) * 1.2) * contentScale) + "px");
+    app.style.setProperty("--comment-text-size", ((19 + (commentSetting - 15) * 1.2) * contentScale * commentScale) + "px");
+    app.style.setProperty("--comment-meta-size", (17 * contentScale * commentScale) + "px");
+    app.style.setProperty("--comment-row-gap", (10 * contentScale * commentScale) + "px");
+    app.style.setProperty("--comment-indent", (12 * contentScale * commentScale) + "px");
+    app.style.setProperty("--comment-paragraph-gap", (14 * contentScale * commentScale) + "px");
     app.style.setProperty("--story-pad-y", (15 * contentScale) + "px");
     app.style.setProperty("--story-pad-x", (13 * contentScale) + "px");
     app.style.setProperty("--story-gap", (9 * contentScale) + "px");
-    app.style.setProperty("--comment-pad-y", (14 * contentScale) + "px");
-    app.style.setProperty("--comment-pad-x", (16 * contentScale) + "px");
+    app.style.setProperty("--comment-pad-y", (14 * contentScale * commentScale) + "px");
+    app.style.setProperty("--comment-pad-x", (16 * contentScale * commentScale) + "px");
     app.style.setProperty("--thread-title-size", (32 * contentScale) + "px");
     app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
     // Phase 7 part 3: appearance — surface theme and interface font live on
@@ -697,35 +704,26 @@
     searchWrap = el("div", "feed-search");
     searchInput = el("input", "feed-search-input");
     searchInput.type = "search";
-    searchInput.placeholder = "Search stories";
+    searchInput.placeholder = "Search all Hacker News";
     searchInput.autocomplete = "off";
     searchInput.addEventListener("input", onSearchInput);
     searchInput.addEventListener("keydown", onSearchKeydown);
     searchInput.addEventListener("focus", renderRecentSearches);
-    searchWrap.append(svg("search"), searchInput);
+    const closeSearchButton = button("close", "Close search", "feed-search-close");
+    closeSearchButton.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      closeSearch();
+    });
+    searchWrap.append(svg("search"), searchInput, closeSearchButton);
     toolbar.append(row, updatedLabel, searchWrap, createSearchPanel());
     return toolbar;
   }
 
-  // The search panel hangs below the search pill: mode tabs, then (in
-  // "All of Hacker News" mode) filter chips and controls, then recent
-  // searches. Recent searches live in memory only (SEC-51).
+  // Search covers all of Hacker News. Recent searches stay in memory only.
   function createSearchPanel() {
     searchPanel = el("div", "hn-search-panel");
 
-    const modes = el("div", "hn-search-modes");
-    const loadedTab = el("button", "hn-search-mode active", "Loaded stories");
-    loadedTab.type = "button";
-    loadedTab.dataset.mode = "loaded";
-    loadedTab.addEventListener("click", () => setSearchMode("loaded"));
-    const globalTab = el("button", "hn-search-mode", "All of Hacker News");
-    globalTab.type = "button";
-    globalTab.dataset.mode = "global";
-    globalTab.addEventListener("click", () => setSearchMode("global"));
-    modes.append(loadedTab, globalTab);
-
     searchFilters = el("div", "hn-search-filters");
-    searchFilters.hidden = true;
 
     searchChips = el("div", "hn-search-chips");
     const chips = [
@@ -805,14 +803,11 @@
     searchSubmit = el("button", "hn-search-submit");
     searchSubmit.type = "button";
     searchSubmit.hidden = true;
-    searchSubmit.addEventListener("click", () => {
-      setSearchMode("global");
-      runGlobalSearch(0);
-    });
+    searchSubmit.addEventListener("click", () => runGlobalSearch(0));
     searchRecent = el("div", "hn-search-recent");
     searchRecent.hidden = true;
 
-    searchPanel.append(modes, searchSubmit, searchFilters, searchRecent);
+    searchPanel.append(searchSubmit, searchFilters, searchRecent);
     return searchPanel;
   }
 
@@ -1018,10 +1013,9 @@ function updateThreadVoteUi() {
     favoriteButton.classList.toggle("active", !pending && Boolean(story?.favorited));
     favoriteButton.title = story?.favorited ? "Unfavorite" : "Favorite";
     favoriteButton.setAttribute("aria-label", favoriteButton.title);
-    // Phase 4: hide the control when the fetched document shows no favorite
-    // link (unknown state keeps the control visible until the fetch lands).
-    favoriteButton.hidden = !pending && story !== null && story.favoriteAvailable === false;
-    if (!pending) favoriteButton.disabled = false;
+    // Keep the star visible in the toolbar, but do not offer an HN action
+    // when the fetched item document provides no favorite link.
+    if (!pending) favoriteButton.disabled = story !== null && story.favoriteAvailable === false;
   }
   const hideButton = threadPane.querySelector("[data-thread-hide]");
   if (hideButton) {
@@ -2403,11 +2397,9 @@ function openFeedMenu(anchor) {
     }
     filterStories();
     searchWrap.classList.remove("open");
-    state.search.mode = "loaded";
-    searchPanel.querySelectorAll(".hn-search-mode").forEach((tab) =>
-      tab.classList.toggle("active", tab.dataset.mode === "loaded"));
-    searchFilters.hidden = true;
     searchSubmit.hidden = true;
+    searchRecent.hidden = true;
+    syncSearchPanelSpace();
   }
 
   function abortSearch() {
@@ -2417,32 +2409,12 @@ function openFeedMenu(anchor) {
     state.search.controller = null;
   }
 
-  function setSearchMode(mode) {
-    if (state.search.mode === mode) return;
-    state.search.mode = mode;
-    searchPanel.querySelectorAll(".hn-search-mode").forEach((tab) => tab.classList.toggle("active", tab.dataset.mode === mode));
-    searchFilters.hidden = mode !== "global";
-    if (mode === "loaded") {
-      abortSearch();
-      if (state.search.active) {
-        state.search.active = false;
-        restoreFeedList();
-      }
-      filterStories();
-    } else {
-      renderRecentSearches();
-      searchInput.focus();
-    }
-    syncSearchPanelSpace();
-  }
-
   function onSearchInput() {
     if (state.search.active) {
       abortSearch();
       state.search.active = false;
       restoreFeedList();
     }
-    filterStories();
     renderRecentSearches();
   }
 
@@ -2473,7 +2445,6 @@ function openFeedMenu(anchor) {
         else selectStory(current.id);
         closeSearch();
       } else {
-        setSearchMode("global");
         runGlobalSearch(0);
       }
     }
@@ -2488,14 +2459,13 @@ function openFeedMenu(anchor) {
 
   function filterStories() {
     if (state.search.active) return;
-    const q = searchInput.value.trim().toLowerCase();
     const domains = parseListSetting(state.settings.hiddenDomains);
     const keywords = parseListSetting(state.settings.hiddenKeywords);
     const hideJobs = state.settings.hideJobs;
     const hideRead = state.settings.hideRead;
     document.querySelectorAll(".story-card").forEach((card) => {
       const hay = (card.dataset.search || "").toLowerCase();
-      let hidden = Boolean(q) && !hay.includes(q);
+      let hidden = false;
       if (!hidden && domains.length) hidden = domains.some((entry) => (card.dataset.domain || "").endsWith(entry));
       if (!hidden && keywords.length) hidden = keywords.some((entry) => hay.includes(entry));
       if (!hidden && hideJobs && card.dataset.type === "job") hidden = true;
@@ -2647,19 +2617,8 @@ function openFeedMenu(anchor) {
       container.appendChild(more);
     }
     storyList.replaceChildren(container);
-    // Continue automatically when the last result enters the feed viewport.
-    // The button remains available for keyboard access and browsers without
-    // IntersectionObserver, while the existing request guard prevents overlap.
-    const more = container.querySelector(".hn-search-more");
-    if (more && typeof IntersectionObserver !== "undefined") {
-      const observer = new IntersectionObserver((entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        if (state.search.active && !state.search.controller && more.isConnected)
-          more.click();
-      }, { root: storyList, rootMargin: "280px" });
-      observer.observe(more);
-    }
+    // Keep pagination explicit; opening global search must not automatically
+    // consume later pages before the user chooses to load more results.
   }
 
   function createCommentHitCard(hit) {
@@ -2730,7 +2689,7 @@ function openFeedMenu(anchor) {
     searchSubmit.hidden = !searchWrap.classList.contains("open") || query.length < 2 || state.search.active;
     searchSubmit.textContent = 'Search Hacker News for “' + query.slice(0, 200) + '” ↵';
     const searchOpen = searchWrap.classList.contains("open");
-    const showRecents = state.search.mode === "global" && searchOpen && !searchInput.value.trim() && state.search.recent.length > 0;
+    const showRecents = searchOpen && !searchInput.value.trim() && state.search.recent.length > 0;
     searchRecent.hidden = !showRecents;
     searchRecent.replaceChildren();
     if (showRecents) {
@@ -2903,7 +2862,7 @@ function openFeedMenu(anchor) {
     });
 
     card.addEventListener("click", (event) => {
-      if (event.target.closest("a,button")) return;
+      if (event.target.closest("a,button") || !state.settings.cardClickEnabled) return;
       markRead(story.id);
       if (state.settings.cardClickComments || !story.url) {
         selectStory(story);
@@ -3890,6 +3849,7 @@ async function refreshFeed() {
     // story) must retarget the selection, or the fetched payloads are dropped
     // when the stale selectedId fails the guard below.
     state.selectedId = id;
+    state.threadOpOnly = false;
     state.itemState = null;
     state.pollOptions = null;
     state.pollOptionsRenderedKey = "";
@@ -3974,7 +3934,7 @@ async function refreshFeed() {
     }
     // Phase 4: favorite + hide controls. Availability gating happens in
     // updateThreadVoteUi once the fetched item document lands.
-    const favoriteButton = threadAction("heart", storyState?.favorited ? "Unfavorite" : "Favorite", handleStoryFavorite);
+    const favoriteButton = threadAction("star", storyState?.favorited ? "Unfavorite" : "Favorite", handleStoryFavorite);
     favoriteButton.setAttribute("data-thread-favorite", "1");
     favoriteButton.classList.toggle("active", Boolean(storyState?.favorited));
     if (!session) {
@@ -3990,6 +3950,10 @@ async function refreshFeed() {
     }
 
     const actions = el("div", "thread-actions");
+    const profileAction = threadAction("user", session ? "My profile" : "Log in", () => session
+      ? openUserPanel(session.username)
+      : openAccountMenu(profileAction));
+    profileAction.classList.add("thread-profile-action");
     const summaryActions = el("div", "summary-action-group");
     summaryActions.setAttribute("role", "group");
     summaryActions.setAttribute("aria-label", "AI summaries");
@@ -4002,15 +3966,27 @@ async function refreshFeed() {
       action.appendChild(el("span", "summary-action-label", label));
       summaryActions.appendChild(action);
     }
-    actions.append(replyAction, upvoteButton, summaryActions);
+    const shareAction = threadAction("share", "Share story", async () => {
+      const url = "https://news.ycombinator.com/item?id=" + item.id;
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: item.title || "Hacker News", url });
+          return;
+        } catch (error) {
+          if (error?.name === "AbortError") return;
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("Story link copied");
+      } catch {
+        window.open(url, "_blank", "noopener");
+      }
+    });
+    actions.append(profileAction, replyAction, upvoteButton, favoriteButton, summaryActions, shareAction);
     const more = threadAction("more", "More", (event) => {
       const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
       openPopup(event.currentTarget, [
-        { label: state.bookmarks.has(item.id) ? "Remove bookmark" : "Bookmark story", icon: "star",
-          action: async () => {
-            await toggleBookmark(item.id);
-            showToast(state.bookmarks.has(item.id) ? "Bookmarked" : "Bookmark removed");
-          } },
         { label: "Reply to story", icon: "comment", action: () => session
           ? openComposer({ parentId: item.id, storyId: item.id })
           : showToast("Sign in to reply") },
@@ -4027,10 +4003,14 @@ async function refreshFeed() {
           input?.focus();
         } },
         { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
-        { label: "Open on Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
+        { label: state.threadOpOnly ? "Show all comments" : "Show only OP comments", icon: "user", action: () => {
+          state.threadOpOnly = !state.threadOpOnly;
+          const input = threadPane.querySelector(".comment-search");
+          const count = threadPane.querySelector(".comment-search-count");
+          filterThreadComments(input?.value, count, totalComments);
+        } },
+        { label: "Open on original Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
         ...(archiveHref(item) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(item) }] : []),
-        { label: "Collapse all comments", action: () => setAllCommentsCollapsed(true) },
-        { label: "Expand all comments", action: () => setAllCommentsCollapsed(false) },
         // Phase 4: flag only when Hacker News offers the link, behind a
         // confirmation dialog (SEC-36).
         ...(session && storyState?.flagAvailable
@@ -4062,9 +4042,8 @@ async function refreshFeed() {
       appendSanitizedHtml(storyText, item.text);
       headerBody.appendChild(storyText);
     }
-    favoriteButton.classList.add("thread-secondary-action");
     hideButton.classList.add("thread-secondary-action");
-    headerBody.append(createSummarySurface(item.id), actions, favoriteButton, hideButton);
+    headerBody.append(createSummarySurface(item.id), actions, hideButton);
     updateSummarySurface(item.id);
     header.append(hero, headerBody);
     threadPane.appendChild(header);
@@ -4129,6 +4108,7 @@ async function refreshFeed() {
     for (const comment of sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
     if (!comments.childElementCount) comments.appendChild(el("div", "empty-comments", "No comments yet."));
     threadPane.appendChild(comments);
+    if (state.threadOpOnly) filterThreadComments(searchBox.value, matchLabel, total);
     // Once the discussion has been read, its comments are never "new" again.
     if (state.settings.markNewComments && Number.isInteger(item.id)) {
       setTimeout(() => {
@@ -4185,16 +4165,12 @@ async function refreshFeed() {
     }
   }
 
-  function setAllCommentsCollapsed(collapsed) {
-    document.querySelectorAll(".comment-row").forEach((row) => row.classList.toggle("collapsed", collapsed));
-  }
-
   // Phase 7 part 2: in-thread comment filter. A top-level branch stays visible
   // when any comment inside it matches; non-matching branches hide entirely.
   function filterThreadComments(query, matchLabel, total) {
     const q = String(query || "").trim().toLowerCase();
     const rows = [...threadPane.querySelectorAll(".comment-row")];
-    if (!q) {
+    if (!q && !state.threadOpOnly) {
       rows.forEach((row) => { row.hidden = false; });
       if (matchLabel) matchLabel.textContent = "";
       return;
@@ -4203,7 +4179,7 @@ async function refreshFeed() {
     for (const row of rows) {
       const card = row.querySelector(":scope > .comment-card");
       const text = ((card?.textContent || "") + " " + (row.dataset.author || "")).toLowerCase();
-      ownMatch.set(row, text.includes(q));
+      ownMatch.set(row, text.includes(q) && (!state.threadOpOnly || row.dataset.author === state.threadAuthor));
     }
     // Children appear after their parent in DOM order, so reverse iteration
     // settles every subtree before its ancestor is decided.
@@ -4214,7 +4190,7 @@ async function refreshFeed() {
       row.hidden = !keep;
       if (keep) kept++;
     }
-    if (matchLabel) matchLabel.textContent = kept + " of " + total + " match";
+    if (matchLabel) matchLabel.textContent = kept + " of " + total + (state.threadOpOnly ? " in OP threads" : " match");
   }
 
   function openSortMenu(anchor) {
@@ -4379,7 +4355,8 @@ async function refreshFeed() {
       settingToggle("Hide [delayed]", "hideDelayed", "Collapse HN's [delayed] placeholder comments"),
       settingToggle("Comment avatars", "showAvatars", "Show generated local avatars beside comment authors"),
       settingToggle("Swap comment actions", "swapCommentActions", "Tap opens actions; long-press collapses"),
-      settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp")
+      settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp"),
+      settingSlider("Comment zoom", "commentZoom", 70, 130, 5, "%")
     );
 
     const userDataSection = el("div", "settings-section");
@@ -4455,9 +4432,10 @@ async function refreshFeed() {
     const behaviorSection = el("div", "settings-section");
     behaviorSection.append(
       el("h3", "", "Behavior"),
-      settingToggle("Card click opens comments", "cardClickComments", "Clicking anywhere on a story card, including its title or image, opens the discussion. Open the article from the story title inside the discussion."),
+      settingToggle("Enable story card click", "cardClickEnabled", "Click a card background to open its article. When off, use the title or comments button instead."),
+      settingToggle("Card click opens comments", "cardClickComments", "Switch story-card clicks from the article to the discussion. The comments button always opens the discussion."),
       settingToggle("Article links also open comments", "alwaysOpenComments", "When a title or preview opens an article in a new tab, also load its discussion here."),
-      el("p", "settings-note", "The large comment button always opens the discussion. With card-click comments enabled, open the article from the title inside the discussion. Bookmarks and read state stay local to this Chrome profile.")
+      el("p", "settings-note", "By default, clicking a story card opens the article and its comments button opens the discussion. Turn off card clicks to use only the explicit title and comments controls.")
     );
 
     // Phase 1: Account explainer. HarmoNova has no password field (SEC-01);

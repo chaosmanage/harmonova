@@ -159,6 +159,9 @@ html.harmonova-hn *{box-sizing:border-box}
   font-size:16px;
 }
 .feed-search-input::placeholder{color:#6f6e78}
+.feed-search-close{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:0;border:0;border-radius:50%;background:transparent;color:#aaa8b5;cursor:pointer}
+.feed-search-close:hover,.feed-search-close:focus-visible{background:#2c2b34;color:#fff}
+.feed-search-close .harmonova-icon{width:18px;height:18px}
 
 .story-list{
   height:100%;
@@ -462,10 +465,10 @@ html.harmonova-hn *{box-sizing:border-box}
 .thread-meta .harmonova-icon{width:17px;height:17px;opacity:.9}
 .thread-actions{
   display:grid;
-  grid-template-columns:minmax(42px,1fr) minmax(42px,1fr) minmax(158px,2.4fr) minmax(42px,1fr);
+  grid-template-columns:repeat(4,minmax(38px,1fr)) minmax(176px,2.3fr) repeat(2,minmax(38px,1fr));
   align-items:center;
   gap:8px;
-  max-width:860px;
+  max-width:980px;
   margin-top:12px;
 }
 .thread-action{
@@ -483,6 +486,8 @@ html.harmonova-hn *{box-sizing:border-box}
 .thread-action:hover{background:rgba(255,255,255,.085);color:#fff}
 .thread-action:active{transform:scale(.93)}
 .thread-action.active{color:#ff959e}
+.thread-action[hidden]{display:none!important}
+.thread-profile-action .harmonova-icon{width:22px;height:22px}
 .thread-action .harmonova-icon{width:24px;height:24px}
 /* Summarizing the article and the HN comments are deliberately distinct.
    One compact pair keeps their source visible instead of hiding an action. */
@@ -547,13 +552,13 @@ html.harmonova-hn *{box-sizing:border-box}
 .comment-row{
   --rail:#5e97f6;
   position:relative;
-  margin:0 0 10px;
+  margin:0 0 var(--comment-row-gap,10px);
 }
 .comment-children{
   display:grid;
-  gap:10px;
-  margin-top:10px;
-  margin-left:12px;
+  gap:var(--comment-row-gap,10px);
+  margin-top:var(--comment-row-gap,10px);
+  margin-left:var(--comment-indent,12px);
 }
 .harmonova-app[data-continuous-rails="true"] .comment-row>.comment-children{
   padding-left:10px;
@@ -596,12 +601,12 @@ html.harmonova-hn *{box-sizing:border-box}
 }
 .comment-author{
   color:#b9b7c2!important;
-  font-size:17px;
+  font-size:var(--comment-meta-size,17px);
   font-weight:700;
 }
 .comment-age{
   color:#85838e!important;
-  font-size:17px;
+  font-size:var(--comment-meta-size,17px);
 }
 .comment-body{
   color:#e3e1e6;
@@ -609,7 +614,7 @@ html.harmonova-hn *{box-sizing:border-box}
   line-height:1.47;
   overflow-wrap:anywhere;
 }
-.comment-body p{margin:0 0 14px}
+.comment-body p{margin:0 0 var(--comment-paragraph-gap,14px)}
 .comment-body p:last-child{margin-bottom:0}
 .comment-body pre,
 .comment-body code{font-family:"Google Sans Code","SFMono-Regular",Consolas,monospace}
@@ -800,10 +805,10 @@ html.harmonova-hn *{box-sizing:border-box}
   .thread-hero-image{height:146px}
   .thread-header-body{padding:14px 18px 12px}
   .thread-title{font-size:28px}
-  .thread-actions{grid-template-columns:minmax(42px,1fr) minmax(42px,1fr) minmax(158px,2.4fr) minmax(42px,1fr);overflow-x:auto}
+  .thread-actions{grid-template-columns:repeat(4,minmax(38px,1fr)) minmax(176px,2.3fr) repeat(2,minmax(38px,1fr));overflow-x:auto}
   .comments-heading{padding-left:14px;padding-right:14px}
   .comments{padding-left:10px;padding-right:10px}
-  .comment-body{font-size:17px}
+  .comment-body{font-size:var(--comment-text-size)}
 }
 
 /* Keep all HN quote syntaxes visually identical after normalization. */
@@ -1920,7 +1925,7 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
 @keyframes hn-search-progress{to{background-position:-200% 0}}
 
 @media(max-width:540px){
-  .thread-actions{gap:3px}
+  .thread-actions{grid-template-columns:repeat(4,minmax(28px,1fr)) minmax(132px,2.3fr) repeat(2,minmax(28px,1fr));gap:2px}
   .summary-action-group{gap:0;padding:2px}
   .summary-action-group .summary-action{gap:0;padding:0 4px;font-size:11px}
   .summary-action-group .harmonova-icon{display:none}

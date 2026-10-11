@@ -426,7 +426,6 @@ await runBrowser("browser: site search renders story and comment hits with safe 
 
   // Open search, switch to global mode, and run a story search.
   await page.locator(".feed-toolbar-actions button").first().click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("sqlite wal");
   await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results").waitFor({ state: "visible", timeout: 10000 });
@@ -438,6 +437,9 @@ await runBrowser("browser: site search renders story and comment hits with safe 
   const storyCards = page.locator(".hn-search-results .story-card");
   assert.equal(await storyCards.count(), 2, "two valid story hits render");
   assert.equal((await storyCards.nth(0).locator(".story-card-title").textContent()).trim(), "Alpha story about databases");
+
+  assert.equal(await page.locator('.hn-search-mode').count(), 0, 'loaded-stories mode removed');
+  assert.equal(await page.locator('.feed-search-close').count(), 1, 'search close button visible');
 
   // Comment chip switches tags and renders the comment hit safely.
   await page.locator('.hn-search-chip[data-tag="comment"]').click();
@@ -456,6 +458,9 @@ await runBrowser("browser: site search renders story and comment hits with safe 
   assert.equal(commentRequest.params.query, "sqlite wal");
   assert.equal(commentRequest.params.hitsPerPage, "30");
   assert.ok(commentRequest.path.endsWith("/search"), "relevance sort uses /search");
+  await page.locator('.feed-search-close').click();
+  assert.equal(await page.locator('.feed-search.open').count(), 0, 'close button hides search');
+  assert.equal(await page.locator('.hn-search-results').count(), 0, 'closing search restores the feed');
   await page.close();
 });
 
@@ -490,7 +495,6 @@ await runBrowser("browser: filters, paging, empty and error states work", async 
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   await page.locator(".feed-toolbar-actions button").first().click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
 
   // Filters are applied to the request.
   await page.locator(".hn-search-select").first().selectOption("week");
@@ -583,7 +587,6 @@ await runBrowser("browser: stale in-flight searches are cancelled (AbortControll
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   await page.locator(".feed-toolbar-actions button").first().click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("slow");
   await page.locator(".feed-search-input").press("Enter");
   await page.getByText("Searching Hacker News…").waitFor({ state: "visible", timeout: 10000 });
@@ -630,7 +633,6 @@ await runBrowser("browser: comment hits open the thread and scroll to the commen
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   await page.locator(".feed-toolbar-actions button").first().click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("sqlite wal");
   await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results .story-card").first().waitFor({ state: "visible", timeout: 10000 });
@@ -674,7 +676,6 @@ await runBrowser("browser: recent searches are offered and memory-only", async (
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   await page.locator(".feed-toolbar-actions button").first().click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("sqlite wal");
   await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results .story-card").first().waitFor({ state: "visible", timeout: 10000 });
@@ -686,7 +687,6 @@ await runBrowser("browser: recent searches are offered and memory-only", async (
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   await page.locator(".feed-toolbar-actions button").first().click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.waitForTimeout(350);
   assert.equal(await page.locator(".hn-search-recent-item").count(), 0, "recent searches never survive a reload");
   await page.close();
