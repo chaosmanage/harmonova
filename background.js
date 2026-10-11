@@ -7,7 +7,6 @@ const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
 const MAX_ARTICLE_CHARACTERS = 15_000;
 const MAX_SUMMARY_CHARACTERS = 64 * 1024;
-const MAX_REDIRECT_HOPS = 5;
 
 // Read old on-disk keys exactly once during upgrades, then store them under the
 // HarmoNova namespace. Never overwrite existing new-format data.
@@ -86,39 +85,23 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   setOriginalTab(tabId, false).catch(() => {});
 });
 
-// SEC-22/SEC-24 fetch helper used by every non-HN background request:
-// cookies are never sent, the URL policy is applied to the request and to every
-// redirect hop, and the hop count is capped.
-async function fetchPolicy(url, init = {}) {
-  if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) throw new Error("Blocked URL");
-  let current = String(url);
-  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(current)) throw new Error("Blocked redirect target");
-    const response = await fetch(current, {
-      ...init,
-      redirect: "manual",
-      credentials: "omit",
-    });
-    const status = response.status;
-    if (response.type === "opaqueredirect" || (status >= 300 && status < 400)) {
-      // Service-worker fetches may only expose an opaque redirect response.
-      // Try to read Location; when it is unreadable, re-dispatch once with a
-      // followed redirect and validate the final URL before using the body.
-      const location = response.headers ? response.headers.get("location") : null;
-      if (location) {
-        const resolved = new URL(location, current);
-        if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(resolved.href)) throw new Error("Blocked redirect target");
-        current = resolved.href;
-        continue;
-      }
-      if (hop === MAX_REDIRECT_HOPS) throw new Error("Too many redirects");
-      const followed = await fetch(current, { ...init, redirect: "follow", credentials: "omit" });
-      if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(followed.url)) throw new Error("Blocked redirect target");
-      return followed;
-    }
-    return response;
+// All privileged external fetches fail closed on redirects.
+function remoteFetchBlocked() {
+  const error = new Error("REMOTE_FETCH_BLOCKED");
+  error.code = "REMOTE_FETCH_BLOCKED";
+  return error;
+}
+async function fetchPolicy(value, init = {}) {
+  const target = HarmoNovaUrlPolicy.canonicalRemoteUrl(value);
+  if (!target) throw remoteFetchBlocked();
+  let response;
+  try {
+    response = await fetch(target, { ...init, redirect: "error", credentials: "omit", referrerPolicy: "no-referrer" });
+  } catch {
+    throw remoteFetchBlocked();
   }
-  throw new Error("Too many redirects");
+  if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) throw remoteFetchBlocked();
+  return response;
 }
 
 const metadataCache = new Map();
@@ -691,7 +674,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
       { role: "user", content: articleText },
     ],
   };
-  const response = await fetch(OPENROUTER_CHAT_URL, {
+  const response = await fetchPolicy(OPENROUTER_CHAT_URL, {
     method: "POST",
     signal: controller.signal,
     credentials: "omit",
@@ -719,7 +702,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
       // Reasoning-heavy models sometimes exhaust the first budget without text.
       // Make at most one non-streaming recovery attempt with a larger budget.
       port.postMessage({ type: "status", storyId, status: "generating", detail: "Retrying without streaming…" });
-      const retry = await fetch(OPENROUTER_CHAT_URL, {
+      const retry = await fetchPolicy(OPENROUTER_CHAT_URL, {
         method: "POST", signal: controller.signal, credentials: "omit",
         headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", "X-Title": "HarmoNova for Hacker News" },
         body: JSON.stringify({ ...requestPayload, stream: false, max_tokens: 3500 }),

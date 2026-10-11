@@ -1,3 +1,5 @@
+import { loadBackground } from './helpers/worker.mjs';
+import { launchExtension } from './helpers/extension.mjs';
 // HarmoNova security regression suite (Phase H).
 // Part 1 runs background.js and url-policy.js in a Node vm with a mock chrome API.
 // Part 2 runs Chromium against the real extension to exercise the live code paths.
@@ -91,41 +93,6 @@ test("SEC-23: policy identifies Hacker News hosts for refusal", () => {
 // Part 1: background.js behaviour under mocked chrome APIs
 // ---------------------------------------------------------------------------
 
-function loadBackground({ fetchImpl }) {
-  const stores = { local: {}, session: {}, sync: {} };
-  const listeners = { message: null, connect: null };
-  const area = (name) => ({
-    get(keys, cb) { const result = { ...keys, ...stores[name] }; cb?.(result); return Promise.resolve(result); },
-    set(value, cb) { Object.assign(stores[name], value); cb?.(); return Promise.resolve(); },
-    remove(keys, cb) { for (const key of [keys].flat()) delete stores[name][key]; cb?.(); return Promise.resolve(); },
-    setAccessLevel() { return Promise.resolve(); },
-  });
-  const context = vm.createContext({
-    chrome: {
-      storage: Object.fromEntries(["local", "session", "sync"].map((name) => [name, area(name)])),
-      tabs: { onRemoved: { addListener() {} } },
-      runtime: {
-        id: "test-extension-id",
-        getURL: (p) => "chrome-extension://test-extension-id/" + p,
-        onConnect: { addListener(fn) { listeners.connect = fn; } },
-        onMessage: { addListener(fn) { listeners.message = fn; } },
-      },
-    },
-    importScripts: (...files) => {
-      for (const file of files) {
-        vm.runInContext(fs.readFileSync(path.join(repoRoot, file), "utf8"), context);
-      }
-    },
-    URL, URLSearchParams, AbortController, AbortSignal, TextDecoder, TextEncoder,
-    setTimeout, clearTimeout, console,
-    crypto: { subtle: { digest: (algo, bytes) => crypto.subtle.digest(algo, bytes) } },
-    btoa: (value) => Buffer.from(value, "binary").toString("base64"),
-    fetch: fetchImpl,
-    Response, ReadableStream, OffscreenCanvas: class {}, createImageBitmap: async () => { throw new Error("no canvas in tests"); },
-  });
-  vm.runInContext(fs.readFileSync(path.join(repoRoot, "background.js"), "utf8"), context);
-  return { context, stores, listeners };
-}
 
 test("SEC-22: every background fetch uses credentials omit and validated URLs", async () => {
   const calls = [];
@@ -142,7 +109,8 @@ test("SEC-22: every background fetch uses credentials omit and validated URLs", 
   assert.ok(calls.length >= 3, "expected metadata, article and tint fetches");
   for (const call of calls) {
     assert.equal(call.options.credentials, "omit", "credentials omit for " + call.url);
-    assert.equal(call.options.redirect, "manual", "manual redirects for " + call.url);
+    assert.equal(call.options.redirect, "error", "redirects rejected for " + call.url);
+    assert.equal(call.options.referrerPolicy, "no-referrer");
   }
 });
 
@@ -223,7 +191,7 @@ test("SEC-24: redirects are re-validated and capped", async () => {
   assert.deepEqual(hops, ["https://example.com/a"], "private redirect target must not be fetched");
 });
 
-test("SEC-24: redirect chains beyond five hops are refused", async () => {
+test("SEC-24: redirects are refused before a second hop", async () => {
   const requested = [];
   const { context } = loadBackground({
     fetchImpl: async (url) => {
@@ -232,14 +200,14 @@ test("SEC-24: redirect chains beyond five hops are refused", async () => {
       return new Response(null, { status: 302, headers: { location: "https://example.com/" + (n + 1) } });
     },
   });
-  await assert.rejects(() => context.fetchArticleText("https://example.com/0"), /Too many redirects/);
-  assert.ok(requested.length <= 7, "hop count is capped, got " + requested.length);
+  await assert.rejects(() => context.fetchArticleText("https://example.com/0"), /REMOTE_FETCH_BLOCKED/);
+  assert.deepEqual(requested, ["https://example.com/0"], "no subsequent redirect hops");
   // getMetadata swallows fetch errors by design; it must still return empty metadata.
   const meta = await context.getMetadata("https://example.com/0");
   assert.equal(meta.image, null);
 });
 
-test("SEC-24: valid redirect hop is followed and content used", async () => {
+test("SEC-24: even public redirects are intentionally refused", async () => {
   const { context } = loadBackground({
     fetchImpl: async (url) => {
       if (String(url) === "https://example.com/start") {
@@ -251,7 +219,7 @@ test("SEC-24: valid redirect hop is followed and content used", async () => {
     },
   });
   const meta = await context.getMetadata("https://example.com/start");
-  assert.equal(meta.image, "https://img.example.com/pic.jpg");
+  assert.equal(meta.image, null, "a public redirect must not trigger a second fetch");
 });
 
 test("SEC-42: metadata images must be https and off the HN origin", async () => {
@@ -320,17 +288,9 @@ const runBrowserTests = async () => {
   const outDir = path.resolve(process.env.TEST_OUTPUT_DIR || "test-results");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const context = await chromium.launchPersistentContext("", {
-    executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-    headless: true,
-    viewport: { width: 1919, height: 872 },
-    args: [
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-extensions-except=" + extensionPath,
-      "--load-extension=" + extensionPath,
-    ],
-  });
+  const harness = await launchExtension();
+  const context = harness.context;
+  await context.route('https://news.ycombinator.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(path.join(repoRoot, 'tests/fixtures/hn/news.html'), 'utf8') }));
 
   const previewRequests = [];
   const evilRequests = [];
@@ -486,13 +446,12 @@ const runBrowserTests = async () => {
     assert.equal(passwordInputs, 0, "SEC-01: no password inputs in the HarmoNova UI");
 
     fs.writeFileSync(path.join(outDir, "security.png"), await page.screenshot());
+    harness.assertOffline();
   } finally {
-    await context.close();
+    await harness.close();
   }
 };
 
-const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === url.fileURLToPath(import.meta.url);
-
-if (isDirectRun) {
-  await runBrowserTests();
+if (process.env.SECURITY_BROWSER_TESTS) {
+  test("Chromium offline security fixtures", runBrowserTests);
 }
