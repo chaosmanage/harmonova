@@ -458,6 +458,24 @@ await test("story card opens article by default and can disable background click
   await page.locator('[data-thread-vote]').waitFor({ state: 'visible' });
 });
 
+await test("dim read visibly fades opened stories and respects the toggle", async ({ page }) => {
+  await gotoFeed(page);
+  const readCard = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
+  const unreadCard = page.locator('.story-card[data-story-id="' + STORY_2 + '"]');
+  assert.equal(await unreadCard.evaluate((card) => getComputedStyle(card).opacity), "1", "unread stories remain fully opaque");
+
+  await readCard.locator(".story-comment-button").click();
+  await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
+  await waitFor(() => readCard.evaluate((card) => Number(getComputedStyle(card).opacity) <= 0.45), 5000, 50, "read story dimming");
+  assert.equal(await unreadCard.evaluate((card) => getComputedStyle(card).opacity), "1", "unread stories remain prominent");
+
+  const panel = await settingsPath(page);
+  await settingRow(panel, "Dim read stories", "input").uncheck();
+  await waitFor(() => readCard.evaluate((card) => getComputedStyle(card).opacity === "1"), 5000, 50, "dimming disabled");
+  await settingRow(panel, "Dim read stories", "input").check();
+  await waitFor(() => readCard.evaluate((card) => Number(getComputedStyle(card).opacity) <= 0.45), 5000, 50, "dimming re-enabled");
+});
+
 await test("hide read filters stories after opening them", async ({ page }) => {
   await gotoFeed(page);
   await page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-comment-button').click();
