@@ -27,7 +27,7 @@ const worker = vm.createContext({
       vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), worker);
     }
   },
-  URL, AbortController, AbortSignal, TextDecoder, TextEncoder, setTimeout, clearTimeout,
+  URL, AbortController, AbortSignal, TextDecoder, TextEncoder, structuredClone, setTimeout, clearTimeout,
   crypto: { subtle: { digest: (algo, bytes) => crypto.subtle.digest(algo, bytes) } },
   btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
   fetch: async () => { throw new Error('Unexpected network request'); },

@@ -331,7 +331,7 @@ const swDrafts = async () => {
   const worker = browser.serviceWorkers().find((sw) => sw.url().includes("background"));
   if (!worker) throw new Error("background service worker not running");
   return worker.evaluate(
-    () => new Promise((resolve) => chrome.storage.session.get(["harmonovaDrafts"], (data) => resolve(data.harmonovaDrafts || {})))
+    () => new Promise((resolve) => chrome.storage.session.get(["harmonovaDraftsV2"], (data) => resolve(data.harmonovaDraftsV2?.drafts || {})))
   );
 };
 
@@ -487,8 +487,7 @@ await test("drafts are cleared on logout", async ({ page, hn }) => {
   await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Doomed draft");
-  await new Promise((resolve) => setTimeout(resolve, 1100));
-  assert.ok(Object.values(await swDrafts()).length > 0, "draft exists before logout");
+  await waitFor(async () => Object.values(await swDrafts()).some(d => d?.text === "Doomed draft"), 20000, 150, "logout draft persisted");
 
   hn.state.loggedIn = false; // HN invalidates the session on logout
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
@@ -553,9 +552,7 @@ await test("validationRequired on open keeps the draft and offers the HN escape 
     "'Open this reply on Hacker News' button appears"
   );
   assert.equal(await composer(page).count(), 1, "composer stays open");
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  const drafts = await swDrafts();
-  assert.ok(Object.values(drafts).some((draft) => draft?.text === "Kept while HN verifies"), "draft kept on validationRequired");
+  await waitFor(async () => Object.values(await swDrafts()).some(d => d?.text === "Kept while HN verifies"), 20000, 150, "verification draft persisted");
 });
 
 await test("tooFast on post keeps the draft and never retries the POST", async ({ page, hn }) => {
@@ -673,7 +670,7 @@ await test("P04 open composer rejects page-world click, Ctrl/Cmd+Enter and disca
   await openThreadFully(page);
   await openStoryReply(page);
   await typeInto(page, "Preserved trusted draft");
-  await page.waitForTimeout(700);
+  await waitFor(async () => Object.values(await swDrafts()).some(d => d?.text === "Preserved trusted draft"), 20000, 150, "trusted draft persisted");
   await page.evaluate(() => {
     const input = document.querySelector(".composer-input");
     input.value = "Page-world synthetic text";
@@ -684,7 +681,7 @@ await test("P04 open composer rejects page-world click, Ctrl/Cmd+Enter and disca
   await page.waitForTimeout(1200);
   assert.equal(hn.requests.filter(r => r.method === "POST").length, 0);
   assert.equal(await page.locator(".composer-input").inputValue(), "Page-world synthetic text");
-  assert.ok(Object.values(await swDrafts()).some(d => d.text === "Preserved trusted draft"));
+  assert.ok(Object.values(await swDrafts()).some(d => d.text === "Preserved trusted draft"), "draft state: " + JSON.stringify(await swDrafts()));
   await typeInto(page, "Real trusted button text");
   await page.locator(".composer-submit").dblclick();
   await page.locator(".composer").waitFor({ state: "hidden", timeout: 15000 });

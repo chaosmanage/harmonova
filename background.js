@@ -1,6 +1,5 @@
-importScripts("url-policy.js", "message-boundary.js", "ai-policy.js");
+importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js");
 
-const ORIGINAL_TAB_STORAGE_KEY = "harmonovaOriginalTabIds";
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
 const AI_POLICY_LOCAL_STORAGE_KEY = "harmonovaAiPolicyV1";
@@ -62,6 +61,16 @@ const sessionGet = (keys) => migratedGet(chrome.storage.session, keys);
 const sessionSet = (value) => storageCall(chrome.storage.session, "set", value);
 const sessionRemove = (keys) => storageCall(chrome.storage.session, "remove", keys);
 const syncGet = (keys) => migratedGet(chrome.storage.sync, keys);
+const readerStore = HarmoNovaReaderStore.create({ localGet, localSet, sessionGet, sessionSet,
+  broadcast: async (record) => {
+    if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return;
+    const tabs = await chrome.tabs.query({ url: "https://news.ycombinator.com/*" });
+    await Promise.allSettled(tabs.filter(tab => !tab.incognito && Number.isSafeInteger(tab.id))
+      .map(tab => chrome.tabs.sendMessage(tab.id, { type: "HARMONOVA_READER_SNAPSHOT",
+        revision: record.revision, readStoryIds: record.readIds, bookmarks: record.bookmarks,
+        userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
+  },
+});
 
 // Register listeners synchronously. Every privileged operation awaits the
 // same fail-closed worker initialization promise.
@@ -72,6 +81,11 @@ const workerReady = Promise.all([chrome.storage.local, chrome.storage.session].m
   await localGet({ harmonovaSettings: null });
   await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: null });
   await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
+  await readerStore.stateSnapshot();
+  if (chrome.tabs?.query) {
+    const tabs = await chrome.tabs.query({});
+    await readerStore.reconcileOriginalTabs(tabs.map(tab => tab.id));
+  }
 });
 async function currentAiPolicy() {
   const stored = await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
@@ -85,10 +99,7 @@ async function saveAiPolicy(value) {
   return { ok: true, policy };
 }
 
-async function originalTabIds() {
-  const stored = await sessionGet({ [ORIGINAL_TAB_STORAGE_KEY]: [] });
-  return Array.isArray(stored[ORIGINAL_TAB_STORAGE_KEY]) ? stored[ORIGINAL_TAB_STORAGE_KEY].filter(Number.isInteger) : [];
-}
+const originalTabIds = () => readerStore.getOriginalTabs();
 
 async function verifiedHnTab(tabId) {
   if (!Number.isSafeInteger(tabId) || tabId <= 0 || typeof chrome.tabs.get !== "function")
@@ -100,13 +111,7 @@ async function verifiedHnTab(tabId) {
   } catch { throw new Error("INVALID_TAB"); }
   return tab;
 }
-async function setOriginalTab(tabId, enabled) {
-  if (!Number.isInteger(tabId)) return;
-  const ids = new Set(await originalTabIds());
-  if (enabled) ids.add(tabId);
-  else ids.delete(tabId);
-  await sessionSet({ [ORIGINAL_TAB_STORAGE_KEY]: [...ids] });
-}
+const setOriginalTab = (tabId, enabled) => readerStore.setOriginalTab(tabId, enabled);
 
 function safeHackerNewsUrl(value) {
   if (!HarmoNovaMessageBoundary.isSafeOriginalUrl(value)) throw new Error("INVALID_NAVIGATION");
@@ -862,151 +867,32 @@ function isTrustedHnContentSender(sender) {
 // from trusted HarmoNova content-script senders.
 // ---------------------------------------------------------------------------
 
-const DRAFTS_KEY = "harmonovaDrafts";
-const DRAFT_MAX_BYTES = 20_000;
-const DRAFT_MAX_COUNT = 50;
-
-function draftKey(username, parentId) {
-  return String(username || "") + ":" + Number(parentId);
-}
-
-async function getDrafts() {
-  const stored = await sessionGet({ [DRAFTS_KEY]: null });
-  const drafts = stored?.[DRAFTS_KEY];
-  return drafts && typeof drafts === "object" && !Array.isArray(drafts) ? drafts : {};
-}
-
-async function saveDrafts(drafts) {
-  await sessionSet({ [DRAFTS_KEY]: drafts });
-}
-
-function draftTooLarge(text) {
-  try {
-    return new Blob([text]).size > DRAFT_MAX_BYTES;
-  } catch {
-    return text.length > DRAFT_MAX_BYTES;
-  }
-}
-
-async function draftGet(username, parentId) {
-  const drafts = await getDrafts();
-  const entry = drafts[draftKey(username, parentId)];
-  return entry && typeof entry.text === "string" ? entry.text : "";
-}
-
-async function draftSet(username, parentId, text) {
-  const drafts = await getDrafts();
-  const key = draftKey(username, parentId);
-  if (draftTooLarge(text)) {
-    const entry = drafts[key];
-    return { ok: false, message: "Draft is over 20 KB and was not saved", kept: Boolean(entry) };
-  }
-  drafts[key] = { text, parentId, username: username || "", updatedAt: Date.now() };
-  const keys = Object.keys(drafts);
-  if (keys.length > DRAFT_MAX_COUNT) {
-    keys
-      .sort((a, b) => (drafts[a]?.updatedAt || 0) - (drafts[b]?.updatedAt || 0))
-      .slice(0, keys.length - DRAFT_MAX_COUNT)
-      .forEach((stale) => delete drafts[stale]);
-  }
-  await saveDrafts(drafts);
-  return { ok: true };
-}
-
-async function draftClear(username, parentId) {
-  const drafts = await getDrafts();
-  delete drafts[draftKey(username, parentId)];
-  await saveDrafts(drafts);
-}
-
-async function draftClearAll(username) {
-  const drafts = await getDrafts();
-  for (const [key, entry] of Object.entries(drafts)) {
-    if (entry.username === username) delete drafts[key];
-  }
-  await new Promise((resolve, reject) => chrome.storage.session.set({ [DRAFTS_KEY]: drafts }, () => {
-    if (chrome.runtime.lastError) reject(new Error("Draft cleanup failed"));
-    else resolve();
-  }));
-}
-
 function dispatchWorkerMessage(message, sender, sendResponse) {
   if (!message) return;
-  if (message.type === "HARMONOVA_LOCAL_STATE_GET") {
-    if (!isTrustedHnContentSender(sender)) {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    localGet({ readStoryIds: [], harmonovaBookmarks: [], harmonovaSettings: null })
-      .then((stored) => sendResponse({
-        ok: true,
-        readStoryIds: Array.isArray(stored.readStoryIds) ? stored.readStoryIds : [],
-        harmonovaBookmarks: Array.isArray(stored.harmonovaBookmarks) ? stored.harmonovaBookmarks : [],
-        harmonovaSettings: stored.harmonovaSettings || null,
-      }))
-      .catch(() => sendResponse({ ok: false }));
+  const reply = promise => {
+    promise.then(sendResponse).catch(() => sendResponse({ ok: false, error: {
+      code: "STORAGE_UNAVAILABLE", message: "Reader data could not be saved", retryable: true } }));
     return true;
-  }
-  if (message.type === "HARMONOVA_READ_IDS_SET") {
-    if (!isTrustedHnContentSender(sender)) {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger).slice(-1500) : [];
-    localSet({ readStoryIds: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_BOOKMARKS_SET") {
-    if (!isTrustedHnContentSender(sender)) {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    const ids = Array.isArray(message.ids) ? message.ids.filter(Number.isInteger) : [];
-    localSet({ harmonovaBookmarks: ids }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  // Composer drafts (SEC-50): trusted HN content-script senders only. The
-  // acting username always comes from the content script's own session state.
-  if (message.type === "HARMONOVA_DRAFT_GET") {
-    if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0) {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    draftGet(String(message.username || ""), message.parentId)
-      .then((text) => sendResponse({ ok: true, text }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_DRAFT_SET") {
-    if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0 || typeof message.text !== "string") {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    draftSet(String(message.username || ""), message.parentId, message.text)
-      .then((result) => sendResponse(result))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_DRAFT_CLEAR") {
-    if (!isTrustedHnContentSender(sender) || !Number.isInteger(message.parentId) || message.parentId <= 0) {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    draftClear(String(message.username || ""), message.parentId)
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_DRAFT_CLEAR_ALL") {
-    if (!isTrustedHnContentSender(sender)) {
-      sendResponse({ ok: false, message: "Untrusted sender" });
-      return true;
-    }
-    draftClearAll(String(message.username || ""))
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
+  };
+  if (message.type === "HARMONOVA_LOCAL_STATE_GET")
+    return reply(readerStore.stateSnapshot().then(record => ({ ok: true,
+      revision: record.revision, pageOriginMigrated: record.pageOriginMigrated === true,
+      readStoryIds: record.readIds, harmonovaBookmarks: record.bookmarks,
+      userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
+  if (message.type === "HARMONOVA_MARK_READ") return reply(readerStore.markRead(message.id));
+  if (message.type === "HARMONOVA_SET_BOOKMARK") return reply(readerStore.setBookmark(message.id, message.desired));
+  if (message.type === "HARMONOVA_IMPORT_READER_DATA") return reply(readerStore.importData(message.data));
+  if (message.type === "HARMONOVA_MIGRATE_PAGE_DATA") return reply(readerStore.migratePageData(message.data));
+  if (message.type === "HARMONOVA_SET_TAG") return reply(readerStore.setTag(message.username, message.tag));
+  if (message.type === "HARMONOVA_SET_BLOCKED") return reply(readerStore.setBlocked(message.username, message.desired));
+  if (message.type === "HARMONOVA_MARK_SEEN") return reply(readerStore.markSeen(message.id, message.timestamp));
+  if (message.type === "HARMONOVA_DRAFT_BEGIN") return reply(readerStore.beginDraft(message.username, message.parentId));
+  if (message.type === "HARMONOVA_DRAFT_SET") return reply(readerStore.saveDraft(message.username,
+    message.parentId, message.token, message.revision, message.text));
+  if (message.type === "HARMONOVA_DRAFT_CLEAR") return reply(readerStore.clearDraft(message.username,
+    message.parentId, message.token));
+  if (message.type === "HARMONOVA_DRAFT_RETIRE") return reply(Promise.resolve(readerStore.retireDraft(message.token)));
+  if (message.type === "HARMONOVA_DRAFT_CLEAR_ALL") return reply(readerStore.clearAccountDrafts(message.username));
   if (message.type === "HARMONOVA_AI_STATUS") {
     const caller = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
     Promise.all([aiKeyStatus(), currentAiPolicy()]).then(([status, policy]) => {

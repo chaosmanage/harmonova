@@ -28,7 +28,7 @@ export function loadBackground({ fetchImpl, failAccessLevel = false, failStorage
         vm.runInContext(fs.readFileSync(path.join(repoRoot, file), "utf8"), context);
       }
     },
-    URL, URLSearchParams, AbortController, AbortSignal, TextDecoder, TextEncoder,
+    URL, URLSearchParams, AbortController, AbortSignal, TextDecoder, TextEncoder, structuredClone,
     setTimeout, clearTimeout, console,
     crypto: { subtle: { digest: (algo, bytes) => crypto.subtle.digest(algo, bytes) } },
     btoa: (value) => Buffer.from(value, "binary").toString("base64"),

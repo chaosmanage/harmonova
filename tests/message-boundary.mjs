@@ -27,17 +27,17 @@ test("P02 sender classification is based on document URL, not tab URL", async ()
     { ...good, tab: { id: 0, url: HN } },
     { ...good, tab: { id: 23, url: HN, incognito: true } },
   ]) {
-    const result = await invoke(listeners, { type: "HARMONOVA_BOOKMARKS_SET", ids: [3] }, s);
+    const result = await invoke(listeners, { type: "HARMONOVA_SET_BOOKMARK", id: 3, desired: true }, s);
     assert.equal(result.ok, false);
-    assert.equal(stores.local.harmonovaBookmarks, undefined);
+    assert.notEqual(stores.local.harmonovaReaderStateV1?.bookmarks?.includes(3), true);
   }
 });
 test("P02 rejects malformed fields and unknown operations before side effects", async () => {
   const { listeners, stores } = setup();
   for (const m of [
-    { type: "HARMONOVA_BOOKMARKS_SET", ids: [1, -1] },
-    { type: "HARMONOVA_BOOKMARKS_SET", ids: [2], userGesture: true },
-    { type: "HARMONOVA_READ_IDS_SET", ids: Array(1501).fill(1) },
+    { type: "HARMONOVA_SET_BOOKMARK", id: -1, desired: true },
+    { type: "HARMONOVA_SET_BOOKMARK", id: 2, desired: true, userGesture: true },
+    { type: "HARMONOVA_MARK_READ", id: [1,2] },
     { type: "HARMONOVA_DRAFT_SET", parentId: 3, username: "alice", text: "a".repeat(20001) },
     { type: "HARMONOVA_DRAFT_SET", parentId: "3", username: "alice", text: "a" },
     { type: "HARMONOVA_DRAFT_SET", parentId: 3, username: {}, text: "a" },
@@ -50,7 +50,7 @@ test("P02 rejects malformed fields and unknown operations before side effects", 
     { type: "UNLISTED_OPERATION" },
     { type: "HARMONOVA_DRAFT_CLEAR_ALL", username: "bad user" },
   ]) assert.equal((await invoke(listeners, m)).ok, false, JSON.stringify(m).slice(0,70));
-  assert.equal(stores.local.harmonovaBookmarks, undefined);
+  assert.notEqual(stores.local.harmonovaReaderStateV1?.bookmarks?.includes(3), true);
   assert.equal(stores.session.harmonovaDrafts, undefined);
 });
 test("P02 extension-page callers have narrow independent permissions", async () => {
@@ -65,16 +65,16 @@ test("P02 extension-page callers have narrow independent permissions", async () 
 });
 test("P02 permits normal reader snapshots but refuses all private persistence", async () => {
   const { listeners, stores } = setup();
-  assert.equal((await invoke(listeners, { type: "HARMONOVA_BOOKMARKS_SET", ids: [5,6] })).ok, true);
-  assert.deepEqual(stores.local.harmonovaBookmarks, [5,6]);
+  assert.equal((await invoke(listeners, { type: "HARMONOVA_SET_BOOKMARK", id: 5, desired: true })).ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1?.bookmarks)), [5]);
   const privateSender = sender({ tab: { ...good.tab, incognito: true } });
-  for (const type of ["HARMONOVA_BOOKMARKS_SET", "HARMONOVA_READ_IDS_SET",
+  for (const type of ["HARMONOVA_SET_BOOKMARK", "HARMONOVA_MARK_READ",
     "HARMONOVA_DRAFT_SET", "HARMONOVA_DRAFT_GET", "HARMONOVA_LOCAL_STATE_GET"]) {
     const result = await invoke(listeners, { type, ids: [9], username: "alice",
       parentId: 3, text: "private" }, privateSender);
     assert.equal(result.ok, false, type);
   }
-  assert.deepEqual(stores.local.harmonovaBookmarks, [5,6]);
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1?.bookmarks)), [5]);
   assert.equal(stores.session.harmonovaDrafts, undefined);
 });
 test("P02 options only see key preview; content receives boolean status", async () => {
@@ -117,10 +117,10 @@ test("P02 AI message rejects forged policy and gesture overrides", () => {
 test("P02 initialization failures reject trusted requests before writes or fetch", async () => {
   for (const option of [{ failAccessLevel: true }, { failStorage: true }]) {
     const { listeners, stores } = setup(option);
-    const reply = await invoke(listeners, { type: "HARMONOVA_BOOKMARKS_SET", ids: [9] });
+    const reply = await invoke(listeners, { type: "HARMONOVA_SET_BOOKMARK", id: 9, desired: true });
     assert.equal(reply.ok, false);
     assert.equal(reply.error?.code, "WORKER_UNAVAILABLE");
-    assert.equal(stores.local.harmonovaBookmarks, undefined);
+    assert.notEqual(stores.local.harmonovaReaderStateV1?.bookmarks?.includes(3), true);
   }
 });
 

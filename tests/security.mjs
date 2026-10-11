@@ -247,12 +247,12 @@ test("SEC-52: state handlers only accept the extension's top-frame HN sender", a
     assert.ok(ok, "handler should respond async");
   });
   const trusted = { id: "test-extension-id", frameId: 0, url: "https://news.ycombinator.com/item?id=9", origin: "https://news.ycombinator.com", tab: { id: 1, url: "https://news.ycombinator.com/item?id=9" } };
-  const read = await send({ type: "HARMONOVA_READ_IDS_SET", ids: [5, 6] }, trusted);
+  const read = await send({ type: "HARMONOVA_MARK_READ", id: 5 }, trusted);
   assert.equal(read.ok, true);
-  assert.deepEqual(stores.local.readStoryIds, [5, 6]);
-  const bookmarks = await send({ type: "HARMONOVA_BOOKMARKS_SET", ids: [7] }, trusted);
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1.readIds)), [5]);
+  const bookmarks = await send({ type: "HARMONOVA_SET_BOOKMARK", id: 7, desired: true }, trusted);
   assert.equal(bookmarks.ok, true);
-  assert.deepEqual(stores.local.harmonovaBookmarks, [7]);
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1.bookmarks)), [7]);
 
   for (const [name, sender] of [
     ["wrong extension id", { id: "other", frameId: 0, tab: { id: 1, url: "https://news.ycombinator.com/" } }],
@@ -261,10 +261,10 @@ test("SEC-52: state handlers only accept the extension's top-frame HN sender", a
     ["no tab", { id: "test-extension-id", frameId: 0, url: "chrome-extension://test-extension-id/ai-settings.html" }],
   ]) {
     const before = JSON.stringify(stores.local);
-    const reply = await send({ type: "HARMONOVA_READ_IDS_SET", ids: [99] }, sender);
+    const reply = await send({ type: "HARMONOVA_MARK_READ", id: 99 }, sender);
     assert.equal(reply.ok, false, name + " must be refused");
     assert.equal(JSON.stringify(stores.local), before, name + " must not write");
-    const reply2 = await send({ type: "HARMONOVA_BOOKMARKS_SET", ids: [99] }, sender);
+    const reply2 = await send({ type: "HARMONOVA_SET_BOOKMARK", id: 99, desired: true }, sender);
     assert.equal(reply2.ok, false, name + " bookmarks must be refused");
   }
 });
