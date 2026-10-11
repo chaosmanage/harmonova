@@ -1,6 +1,6 @@
 # Harmonic for Hacker News - Chrome Browser Extension
 
-**A better place to read Hacker News on your desktop.**
+**A better place to read Hacker News on your browser.**
 
 Harmonic for Hacker News is a free, open-source Chrome extension that gives [Hacker News](https://news.ycombinator.com/) a more comfortable reading interface: colorful story cards, a two-column layout, thoughtful comment threads, and controls that stay out of the way until you need them.
 
