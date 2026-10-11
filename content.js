@@ -1013,10 +1013,9 @@ function updateThreadVoteUi() {
     favoriteButton.classList.toggle("active", !pending && Boolean(story?.favorited));
     favoriteButton.title = story?.favorited ? "Unfavorite" : "Favorite";
     favoriteButton.setAttribute("aria-label", favoriteButton.title);
-    // Phase 4: hide the control when the fetched document shows no favorite
-    // link (unknown state keeps the control visible until the fetch lands).
-    favoriteButton.hidden = !pending && story !== null && story.favoriteAvailable === false;
-    if (!pending) favoriteButton.disabled = false;
+    // Keep the star visible in the toolbar, but do not offer an HN action
+    // when the fetched item document provides no favorite link.
+    if (!pending) favoriteButton.disabled = story !== null && story.favoriteAvailable === false;
   }
   const hideButton = threadPane.querySelector("[data-thread-hide]");
   if (hideButton) {
@@ -2618,19 +2617,8 @@ function openFeedMenu(anchor) {
       container.appendChild(more);
     }
     storyList.replaceChildren(container);
-    // Continue automatically when the last result enters the feed viewport.
-    // The button remains available for keyboard access and browsers without
-    // IntersectionObserver, while the existing request guard prevents overlap.
-    const more = container.querySelector(".hn-search-more");
-    if (more && typeof IntersectionObserver !== "undefined") {
-      const observer = new IntersectionObserver((entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        if (state.search.active && !state.search.controller && more.isConnected)
-          more.click();
-      }, { root: storyList, rootMargin: "280px" });
-      observer.observe(more);
-    }
+    // Keep pagination explicit; opening global search must not automatically
+    // consume later pages before the user chooses to load more results.
   }
 
   function createCommentHitCard(hit) {
@@ -4055,7 +4043,7 @@ async function refreshFeed() {
       headerBody.appendChild(storyText);
     }
     hideButton.classList.add("thread-secondary-action");
-    headerBody.append(createSummarySurface(item.id), actions, favoriteButton, hideButton);
+    headerBody.append(createSummarySurface(item.id), actions, hideButton);
     updateSummarySurface(item.id);
     header.append(hero, headerBody);
     threadPane.appendChild(header);

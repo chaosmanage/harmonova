@@ -417,13 +417,13 @@ await test("favorite toggles through HN's token with a confirmation re-fetch", a
   assert.ok(toast2.includes("Removed from favorites"), "unfavorite toast: " + toast2);
 });
 
-await test("favorite control is hidden when the item document offers no favorite link", async ({ page, hn }) => {
+await test("favorite star is disabled when the item document offers no favorite link", async ({ page, hn }) => {
   hn.state.removeFavoriteLink = true;
   await gotoFeed(page);
   await openThreadFully(page);
   await page.waitForFunction(() => {
     const button = document.querySelector("[data-thread-favorite]");
-    return button && button.hidden;
+    return button && !button.hidden && button.disabled;
   }, { timeout: 10000 });
 });
 

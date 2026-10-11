@@ -432,9 +432,35 @@ await test("hide jobs filters job stories in every feed, including Jobs", async 
   );
 });
 
+await test("story card opens article by default and can disable background clicks", async ({ page }) => {
+  await gotoFeed(page);
+  await browser.route('https://mocked-source.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Mock article</title>' }));
+  const card = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
+  const opened = browser.waitForEvent('page', { timeout: 10000 });
+  await card.locator('.story-meta').click();
+  const article = await opened;
+  await article.waitForURL(/mocked-source\.com/, { timeout: 10000 });
+  assert.ok(article.url().includes('mocked-source.com'), 'card background opens the article');
+  await article.close();
+
+  const panel = await settingsPath(page);
+  const enabled = panel.locator('.setting-row', { hasText: 'Enable story card click' }).locator('input');
+  assert.ok(await enabled.isChecked(), 'card clicks enabled by default');
+  await enabled.uncheck();
+  await panel.locator('.settings-header .icon-button').first().click();
+  const previousPages = browser.pages().length;
+  await card.locator('.story-meta').click();
+  await page.waitForTimeout(300);
+  assert.equal(browser.pages().length, previousPages, 'disabled background does not open a page');
+  assert.equal(new URL(page.url()).pathname, '/news', 'disabled background does not open comments');
+  await card.locator('.story-comment-button').click();
+  await page.locator('[data-thread-vote]').waitFor({ state: 'visible' });
+});
+
 await test("hide read filters stories after opening them", async ({ page }) => {
   await gotoFeed(page);
-  await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').click();
+  await page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-comment-button').click();
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
   const panel = await settingsPath(page);
   await settingRow(panel, "Hide read stories", "input").click();

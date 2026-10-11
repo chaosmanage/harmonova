@@ -512,9 +512,9 @@ await test("rate-limited upvote backs off, rolls back, and keeps the Open on HN 
   assert.match(toast, /rate.?limit/i, "rate-limit toast: " + toast);
   await page.waitForFunction(() => !document.querySelector("[data-thread-vote]")?.classList.contains("active"), { timeout: 30000 });
   assert.equal(await page.locator("[data-thread-points] span").last().textContent(), "54", "rollback after rate limit");
-  // The thread More menu keeps the "Open on Hacker News" escape hatch.
+  // The thread More menu keeps the "Open on original Hacker News" escape hatch.
   await page.locator(".thread-actions .thread-action").last().click();
-  await page.locator(".harmonova-popup .popup-item", { hasText: "Open on Hacker News" }).waitFor({ state: "visible" });
+  await page.locator(".harmonova-popup .popup-item", { hasText: "Open on original Hacker News" }).waitFor({ state: "visible" });
 });
 
 await test("feed card menu upvote uses the harvested token and badges the card", async ({ page, hn }) => {

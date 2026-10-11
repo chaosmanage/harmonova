@@ -249,6 +249,24 @@ await test("OP comments are highlighted with a badge and a row class", async ({ 
   assert.equal(await otherRow.locator(".op-badge").count(), 0, "non-OP rows carry no badge");
 });
 
+await test("OP-only filter shows OP comments and can restore every comment", async ({ page }) => {
+  await gotoFeed(page);
+  await openThreadFully(page);
+  const more = page.locator('.thread-actions button[aria-label="More"]');
+  await more.click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: "Show only OP comments" }).click();
+  await page.waitForFunction(() => {
+    const rows = [...document.querySelectorAll(".comments > .comment-row")];
+    return rows.some((row) => row.dataset.author === "submitter_0" && !row.hidden) &&
+      rows.some((row) => row.dataset.author !== "submitter_0" && row.hidden);
+  });
+  await more.click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: "Show all comments" }).click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll(".comments > .comment-row")].every((row) => !row.hidden)
+  );
+});
+
 await test("generated avatars are deterministic and local", async ({ page }) => {
   await gotoFeed(page);
   await openThreadFully(page);
