@@ -45,6 +45,9 @@
     HARMONOVA_DRAFT_CLEAR_ALL: { from: ["hn"], fields: ["username"], reader: true,
       valid: m => username(m.username) },
     HARMONOVA_AI_STATUS: { from: ["hn", "options"], fields: [] },
+    HARMONOVA_AI_POLICY_GET: { from: ["options"], fields: [] },
+    HARMONOVA_AI_POLICY_SAVE: { from: ["options"], fields: ["policy"],
+      valid: m => m.policy && typeof m.policy === "object" && !Array.isArray(m.policy) },
     HARMONOVA_AI_SAVE_KEY: { from: ["options"], fields: ["apiKey", "storage"],
       valid: m => text(m.apiKey, 4096) && m.apiKey.length > 0 &&
         ["persistent", "session"].includes(m.storage) },

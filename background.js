@@ -1,8 +1,9 @@
-importScripts("url-policy.js", "message-boundary.js");
+importScripts("url-policy.js", "message-boundary.js", "ai-policy.js");
 
 const ORIGINAL_TAB_STORAGE_KEY = "harmonovaOriginalTabIds";
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
+const AI_POLICY_LOCAL_STORAGE_KEY = "harmonovaAiPolicyV1";
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
 const MAX_ARTICLE_CHARACTERS = 15_000;
@@ -70,7 +71,19 @@ const workerReady = Promise.all([chrome.storage.local, chrome.storage.session].m
 })).then(async () => {
   await localGet({ harmonovaSettings: null });
   await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: null });
+  await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
 });
+async function currentAiPolicy() {
+  const stored = await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
+  return HarmoNovaAiPolicy.fromStorage(stored[AI_POLICY_LOCAL_STORAGE_KEY]);
+}
+async function saveAiPolicy(value) {
+  const policy = HarmoNovaAiPolicy.normalize(value);
+  if (!policy) return { ok: false, error: { code: "INVALID_AI_POLICY", message: "Check AI settings", retryable: false } };
+  await localSet({ [AI_POLICY_LOCAL_STORAGE_KEY]: policy });
+  abortAllAiRequests(); // Existing consent/model is no longer authoritative.
+  return { ok: true, policy };
+}
 
 async function originalTabIds() {
   const stored = await sessionGet({ [ORIGINAL_TAB_STORAGE_KEY]: [] });
@@ -140,6 +153,18 @@ async function fetchPolicy(value, init = {}) {
   }
   if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) throw remoteFetchBlocked();
   return response;
+}
+
+async function verifiedStoryArticleUrl(storyId, signal) {
+  if (!Number.isSafeInteger(storyId) || storyId <= 0) throw remoteFetchBlocked();
+  const response = await fetchPolicy(`https://hacker-news.firebaseio.com/v0/item/${storyId}.json`, { signal });
+  if (!response.ok) throw remoteFetchBlocked();
+  const record = JSON.parse(await readResponseTextLimited(response, 8192));
+  if (record?.type !== "story" || record?.id !== storyId || typeof record.url !== "string")
+    throw remoteFetchBlocked();
+  const url = HarmoNovaUrlPolicy.canonicalRemoteUrl(record.url);
+  if (!url) throw remoteFetchBlocked();
+  return url;
 }
 
 const metadataCache = new Map();
@@ -571,11 +596,12 @@ async function saveAiKey(value, storage) {
     await localSet({ [AI_KEY_LOCAL_STORAGE_KEY]: key });
     await sessionRemove([AI_KEY_SESSION_STORAGE_KEY, oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]);
   }
-  await chrome.storage.sync.set({ harmonovaAiKeyStorage: mode });
+  await storageCall(chrome.storage.sync, "set", { harmonovaAiKeyStorage: mode });
   return aiKeyStatus();
 }
 
 async function clearAiKey() {
+  abortAllAiRequests();
   await Promise.all([
     localRemove([AI_KEY_LOCAL_STORAGE_KEY, oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]),
     sessionRemove([AI_KEY_SESSION_STORAGE_KEY, oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]),
@@ -680,27 +706,28 @@ async function jsonOpenRouterSummary(response) {
 }
 
 async function summarizeWithOpenRouter(port, message, controller) {
-  const storyId = Number(message.storyId);
-  const model = String(message.model || "").trim();
-  const prompt = String(message.systemPrompt || "").trim();
+  const storyId = message.storyId;
+  const policy = await currentAiPolicy();
+  if (!policy.enabled || policy.consentVersion !== 1) {
+    const error = new Error("AI consent required"); error.code = "AI_CONSENT_REQUIRED"; throw error;
+  }
+  const model = policy.model;
+  const prompt = policy.systemPrompt;
   const discussion = message.source === "discussion";
-  if (!Number.isInteger(storyId) || (!discussion && !message.url)) throw new Error("Invalid summary request");
-  if (!model) throw new Error("Choose an OpenRouter model in Settings");
-  if (!prompt) throw new Error("System prompt is empty");
-
   const { key } = await getAiKey();
+  if (controller.signal.aborted) throw new Error("Summary cancelled");
   if (!key) throw new Error("OpenRouter API key is not configured");
 
-  port.postMessage({ type: "status", storyId, status: "extracting" });
+  port.postMessage({ type: "status", requestId: message.requestId, storyId, status: "extracting" });
   const articleText = discussion
     ? String(message.discussionText || "").slice(0, MAX_ARTICLE_CHARACTERS)
-    : await fetchArticleText(message.url, controller.signal);
+    : await fetchArticleText(await verifiedStoryArticleUrl(storyId, controller.signal), controller.signal);
   if (discussion && articleText.length < 30) {
     throw new Error("Not enough public Hacker News discussion text to summarize.");
   }
-  port.postMessage({ type: "status", storyId, status: "generating", inputCharacters: articleText.length });
+  port.postMessage({ type: "status", requestId: message.requestId, storyId, status: "generating", inputCharacters: articleText.length });
 
-  const stream = message.streamResponses !== false;
+  const stream = policy.streamResponses === true;
   const requestPayload = {
     model,
     stream,
@@ -733,13 +760,13 @@ async function summarizeWithOpenRouter(port, message, controller) {
   if (stream) {
     try {
       summary = await streamOpenRouter(response, (text) => {
-        port.postMessage({ type: "progress", storyId, text });
+        port.postMessage({ type: "progress", requestId: message.requestId, storyId, text });
       });
     } catch (error) {
-      if (error?.code !== "EMPTY_SUMMARY" || controller.signal.aborted) throw error;
+      if (error?.code !== "EMPTY_SUMMARY" || controller.signal.aborted || !policy.allowEmptyRetry) throw error;
       // Reasoning-heavy models sometimes exhaust the first budget without text.
       // Make at most one non-streaming recovery attempt with a larger budget.
-      port.postMessage({ type: "status", storyId, status: "generating", detail: "Retrying without streaming…" });
+      port.postMessage({ type: "status", requestId: message.requestId, storyId, status: "generating", detail: "Retrying without streaming…" });
       const retry = await fetchPolicy(OPENROUTER_CHAT_URL, {
         method: "POST", signal: controller.signal, credentials: "omit",
         headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", "X-Title": "HarmoNova for Hacker News" },
@@ -754,9 +781,14 @@ async function summarizeWithOpenRouter(port, message, controller) {
   } else {
     summary = await jsonOpenRouterSummary(response);
   }
-  port.postMessage({ type: "success", storyId, text: summary });
+  port.postMessage({ type: "success", requestId: message.requestId, storyId, text: summary });
 }
 
+const activeAiByTab = new Map();
+function abortAllAiRequests() {
+  for (const controller of activeAiByTab.values()) controller.abort();
+  activeAiByTab.clear();
+}
 chrome.runtime.onConnect.addListener((port) => {
   const authorization = HarmoNovaMessageBoundary.validatePort(port, chrome.runtime);
   if (!authorization.ok) {
@@ -772,18 +804,22 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
     if (message?.type === "cancel") {
-      controller?.abort();
+      if (controller) {
+        controller.abort();
+        if (activeAiByTab.get(authorization.tabId) === controller) activeAiByTab.delete(authorization.tabId);
+      }
       controller = null;
       return;
     }
     if (message?.type !== "summarize") return;
-    if (controller) {
-      try { port.postMessage({ type: "error", storyId: message.storyId,
+    if (controller || activeAiByTab.has(authorization.tabId) || activeAiByTab.size >= 2) {
+      try { port.postMessage({ type: "error", requestId: message.requestId, storyId: message.storyId,
         code: "AI_BUSY", message: "An AI request is already active" }); } catch {}
       return;
     }
     const requestController = new AbortController();
     controller = requestController;
+    activeAiByTab.set(authorization.tabId, requestController);
     const timer = setTimeout(() => requestController.abort(new Error("Summary timed out. Try again.")), 120_000);
     workerReady.then(() => summarizeWithOpenRouter(port, message, requestController))
       .catch((error) => {
@@ -791,7 +827,7 @@ chrome.runtime.onConnect.addListener((port) => {
         try {
           port.postMessage({
             type: "error",
-            storyId: Number(message.storyId),
+            storyId: Number(message.storyId), requestId: message.requestId,
             message: error?.code === "REMOTE_FETCH_BLOCKED" ? "Source unavailable under network privacy rules" : "Summary unavailable",
             code: error?.code === "REMOTE_FETCH_BLOCKED" ? "REMOTE_FETCH_BLOCKED" : "AI_REQUEST_FAILED",
           });
@@ -800,9 +836,17 @@ chrome.runtime.onConnect.addListener((port) => {
       .finally(() => {
         clearTimeout(timer);
         if (controller === requestController) controller = null;
+        if (activeAiByTab.get(authorization.tabId) === requestController)
+          activeAiByTab.delete(authorization.tabId);
       });
   });
-  port.onDisconnect.addListener(() => controller?.abort());
+  port.onDisconnect.addListener(() => {
+    if (controller) {
+      controller.abort();
+      if (activeAiByTab.get(authorization.tabId) === controller) activeAiByTab.delete(authorization.tabId);
+      controller = null;
+    }
+  });
 });
 
 // SEC-52: message senders that carry user data must be the extension's own
@@ -965,12 +1009,21 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
   }
   if (message.type === "HARMONOVA_AI_STATUS") {
     const caller = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
-    aiKeyStatus().then(status => {
-      if (caller === "options") sendResponse(status);
+    Promise.all([aiKeyStatus(), currentAiPolicy()]).then(([status, policy]) => {
+      if (caller === "options") sendResponse({ ...status, policy });
       else sendResponse({ ok: true, hasKey: Boolean(status.hasKey),
-        configured: Boolean(status.hasKey), enabled: false });
+        ...HarmoNovaAiPolicy.view(policy) });
     }).catch(() => sendResponse({ ok: false,
       error: { code: "STORAGE_UNAVAILABLE", message: "Status unavailable", retryable: true } }));
+    return true;
+  }
+  if (message.type === "HARMONOVA_AI_POLICY_GET") {
+    currentAiPolicy().then(policy => sendResponse({ ok: true, policy }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "HARMONOVA_AI_POLICY_SAVE") {
+    saveAiPolicy(message.policy).then(sendResponse).catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (["HARMONOVA_AI_SAVE_KEY", "HARMONOVA_AI_CLEAR_KEY"].includes(message.type)

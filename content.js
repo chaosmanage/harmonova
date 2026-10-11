@@ -445,6 +445,7 @@
 
   async function saveSettings() {
     const settings = { ...state.settings };
+    for (const key of ["aiEnabled", "aiModel", "aiSystemPrompt", "aiStreamResponses", "aiAutoSummarize"]) delete settings[key];
     pageStorageSet(SETTINGS_BACKUP_KEY, settings);
     await chromeSyncSet({ harmonovaSettings: settings });
   }
@@ -2812,7 +2813,7 @@ function openFeedMenu(anchor) {
       markRead(story.id);
       if (state.settings.cardClickComments || !story.url) {
         event.preventDefault();
-        selectStory(story);
+        selectStory(story, true, true, event);
       } else if (state.settings.alwaysOpenComments) {
         setTimeout(() => selectStory(story, false), 0);
       }
@@ -2828,7 +2829,7 @@ function openFeedMenu(anchor) {
       event.preventDefault();
       event.stopPropagation();
       openPopup(card, [
-        { label: "Open discussion", icon: "comment", action: () => selectStory(story) },
+        { label: "Open discussion", icon: "comment", action: (event) => selectStory(story, true, true, event) },
         ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(nitterize(articleHref(story)), "_blank", "noopener") }] : []),
         ...(archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(story) }] : []),
         { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
@@ -2869,7 +2870,7 @@ function openFeedMenu(anchor) {
       markRead(story.id);
       if (state.settings.cardClickComments || !story.url) {
         event.preventDefault();
-        selectStory(story);
+        selectStory(story, true, true, event);
       } else if (state.settings.alwaysOpenComments) {
         setTimeout(() => selectStory(story, false), 0);
       }
@@ -2881,14 +2882,14 @@ function openFeedMenu(anchor) {
     commentButton.append(svg("comment"), el("strong", "", compact(story.descendants || 0)));
     commentButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      selectStory(story);
+      selectStory(story, true, true, event);
     });
 
     card.addEventListener("click", (event) => {
       if (event.target.closest("a,button") || !state.settings.cardClickEnabled) return;
       markRead(story.id);
       if (state.settings.cardClickComments || !story.url) {
-        selectStory(story);
+        selectStory(story, true, true, event);
       } else {
         window.open(articleHref(story), "_blank", "noopener");
       }
@@ -3671,8 +3672,8 @@ async function refreshFeed() {
         if (discussionTextForSummary(state.thread, state.selectedStory || state.thread)) {
           const fallback = el("button", "composer-hn-open", "Summarize HN discussion instead");
           fallback.type = "button";
-          fallback.addEventListener("click", () => {
-            if (state.selectedId === storyId) startStorySummary(state.selectedStory || state.thread, { source: "discussion" });
+          fallback.addEventListener("click", (event) => {
+            if (event.isTrusted && state.selectedId === storyId) startStorySummary(state.selectedStory || state.thread, { source: "discussion", trusted: true });
           });
           body.appendChild(fallback);
         }
@@ -3743,6 +3744,10 @@ async function refreshFeed() {
 
   async function startStorySummary(item, options = {}) {
     const automatic = Boolean(options.automatic);
+    if (automatic) {
+      if (state.aiSelectionIntent !== Number(item?.id)) return;
+      state.aiSelectionIntent = null; // One-use intent; rendering never reissues billing.
+    } else if (!options.trusted) return;
     const source = options.source === "discussion" ? "discussion" : "article";
     if (state.activeSummary?.storyId === Number(item?.id)) {
       if (automatic) return;
@@ -3754,23 +3759,9 @@ async function refreshFeed() {
       if (!automatic) showToast("This story has no linked article to summarize");
       return;
     }
-    if (!state.settings.aiEnabled) {
-      if (!automatic) {
-        showToast("AI summarization is disabled in Settings");
-        openSettings({ focusAi: true });
-      }
-      return;
-    }
-    if (!String(state.settings.aiModel || "").trim() || !String(state.settings.aiSystemPrompt || "").trim()) {
-      if (!automatic) {
-        showToast("Finish AI summarization setup in Settings");
-        openSettings({ focusAi: true });
-      }
-      return;
-    }
     const keyStatus = await runtimeMessage({ type: "HARMONOVA_AI_STATUS" });
     if (generation !== state.summaryGeneration || Number(item.id) !== state.selectedId) return;
-    if (!keyStatus?.hasKey) {
+    if (!keyStatus?.hasKey || !keyStatus.enabled || (automatic && !keyStatus.autoSummarize)) {
       if (!automatic) {
         showToast("Add your OpenRouter API key in Settings");
         openSettings({ focusAi: true });
@@ -3788,10 +3779,11 @@ async function refreshFeed() {
     state.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
     updateSummarySurface(storyId);
     const port = chrome.runtime.connect({ name: "harmonova-ai" });
-    state.activeSummary = { storyId, port, source };
+    const requestId = "summary-" + storyId + "-" + generation;
+    state.activeSummary = { storyId, port, source, requestId };
 
     port.onMessage.addListener((message) => {
-      if (state.activeSummary?.port !== port || Number(message?.storyId) !== storyId) return;
+      if (state.activeSummary?.port !== port || Number(message?.storyId) !== storyId || message?.requestId !== requestId) return;
       if (message.type === "status") {
         const current = summaryStateFor(storyId);
         state.summaries.set(storyId, { ...current, status: message.status, detail: String(message.detail || ""), error: "" });
@@ -3816,11 +3808,8 @@ async function refreshFeed() {
     });
     port.postMessage({
       type: "summarize",
+      requestId,
       storyId,
-      url: item.url,
-      model: state.settings.aiModel,
-      systemPrompt: state.settings.aiSystemPrompt,
-      streamResponses: state.settings.aiStreamResponses,
       source,
       ...(source === "discussion" ? { discussionText } : {}),
     });
@@ -3850,8 +3839,9 @@ async function refreshFeed() {
     return placeholder;
   }
 
-  async function selectStory(storyOrId, push = true, scrollTop = true) {
+  async function selectStory(storyOrId, push = true, scrollTop = true, gesture = null) {
     const id = typeof storyOrId === "number" ? storyOrId : storyOrId.id;
+    state.aiSelectionIntent = gesture?.isTrusted ? id : null;
     state.selectedId = id;
     state.selectedStory = typeof storyOrId === "object" ? storyOrId : state.stories.find((s) => s.id === id) || null;
     if (app) app.classList.add("show-thread");
@@ -3980,9 +3970,9 @@ async function refreshFeed() {
     const summaryActions = el("div", "summary-action-group");
     summaryActions.setAttribute("role", "group");
     summaryActions.setAttribute("aria-label", "AI summaries");
-    const articleSummary = threadAction("sparkle", "Summarize article", () => startStorySummary(item, { source: "article" }),
+    const articleSummary = threadAction("sparkle", "Summarize article", () => startStorySummary(item, { source: "article", trusted: true }),
       { summaryId: item.id, summarySource: "article", disabled: !item.url });
-    const discussionSummary = threadAction("comment", "Summarize discussion", () => startStorySummary(item, { source: "discussion" }),
+    const discussionSummary = threadAction("comment", "Summarize discussion", () => startStorySummary(item, { source: "discussion", trusted: true }),
       { summaryId: item.id, summarySource: "discussion" });
     for (const [action, label] of [[articleSummary, "Article"], [discussionSummary, "Discussion"]]) {
       action.classList.add("summary-action");
@@ -4072,7 +4062,7 @@ async function refreshFeed() {
     threadPane.appendChild(header);
     updateSummarySurface(item.id);
     const existingSummary = summaryStateFor(item.id);
-    if (item.url && state.settings.aiAutoSummarize && existingSummary.status === "idle") {
+    if (item.url && state.aiSelectionIntent === item.id && existingSummary.status === "idle") {
       startStorySummary(item, { automatic: true });
     }
 
@@ -4433,23 +4423,16 @@ async function refreshFeed() {
     );
 
     const aiSection = el("div", "settings-section ai-settings-section");
-    const resetPrompt = el("button", "setting-button", "Reset to HarmoNova default");
-    resetPrompt.type = "button";
-    resetPrompt.addEventListener("click", async () => {
-      state.settings.aiSystemPrompt = DEFAULT_SETTINGS.aiSystemPrompt;
-      aiSection.querySelector("textarea").value = DEFAULT_SETTINGS.aiSystemPrompt;
-      await saveSettings();
+    const openAi = el("button", "setting-button", "Open AI settings");
+    openAi.type = "button";
+    openAi.addEventListener("click", (event) => {
+      if (!event.isTrusted) return;
+      runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
     });
     aiSection.append(
       el("h3", "", "AI summarization"),
-      settingToggle("Use AI summarization", "aiEnabled", "One click on Story tools summarizes the linked article"),
-      aiKeySettingRow(),
-      settingText("OpenRouter model", "aiModel", "Use openrouter/free for the free-model router or enter any OpenRouter model ID"),
-      settingText("System prompt", "aiSystemPrompt", "HarmoNova’s concise article-summary instruction", { multiline: true }),
-      resetPrompt,
-      settingToggle("Stream responses", "aiStreamResponses", "Show the summary as OpenRouter generates it"),
-      settingToggle("Automatically summarize articles", "aiAutoSummarize", "Start summarizing when a discussion with a linked article opens"),
-      el("p", "settings-note", "OpenRouter is the only cloud provider in this lightweight release. The default model is openrouter/free. API keys never sync and never enter Hacker News page storage.")
+      el("p", "settings-note", "AI consent, model, prompt, automatic summaries and streaming are controlled only in HarmoNova's extension-owned AI settings page. Old Hacker News settings cannot enable AI."),
+      aiKeySettingRow(), openAi
     );
 
     const behaviorSection = el("div", "settings-section");

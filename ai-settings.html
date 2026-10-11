@@ -16,6 +16,20 @@
       </div>
     </header>
 
+    <section class="card" aria-labelledby="ai-policy-title">
+      <h2 id="ai-policy-title">Summarization permissions</h2>
+      <p>Saving here grants consent to use your OpenRouter key for the selected features. Existing saved keys and older Hacker News preferences never grant consent.</p>
+      <label><input id="policy-enabled" type="checkbox"> Enable AI summaries using my stored key</label>
+      <label><input id="policy-auto" type="checkbox"> Automatically summarize after I select a story</label>
+      <label for="policy-model">OpenRouter model</label>
+      <input id="policy-model" type="text" maxlength="200" value="openrouter/free" autocomplete="off">
+      <label for="policy-prompt">System prompt (up to 8 KiB)</label>
+      <textarea id="policy-prompt" rows="5"></textarea>
+      <label><input id="policy-stream" type="checkbox" checked> Stream generated text</label>
+      <label><input id="policy-retry" type="checkbox"> Permit one extra provider request if a streamed response is empty (may incur an additional charge)</label>
+      <div class="actions"><button id="policy-save" class="primary" type="button">Save AI permissions</button><button id="policy-import" type="button" hidden>Use previous model/prompt as draft</button></div>
+      <p id="policy-message" class="message" role="status"></p>
+    </section>
     <section class="card">
       <label for="api-key">OpenRouter API key</label>
       <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
@@ -42,6 +56,7 @@
 
     <p class="note">Chrome extensions do not have a general OS-keychain API. Persistent mode keeps the key in HarmoNova’s private extension-local storage and restricts that storage to trusted extension contexts; session mode avoids persisting the key to disk.</p>
   </main>
+  <script src="ai-policy.js"></script>
   <script src="ai-settings.js"></script>
 </body>
 </html>

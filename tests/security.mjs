@@ -119,6 +119,7 @@ test("SEC-22: OpenRouter requests carry no cookies", async () => {
   const { context } = loadBackground({
     fetchImpl: async (url, options) => {
       calls.push({ url: String(url), options });
+      if (String(url).includes("firebaseio.com")) return new Response(JSON.stringify({ id: 1, type: "story", url: "https://example.com/a" }));
       if (String(url).includes("openrouter.ai")) {
         return new Response(JSON.stringify({ choices: [{ message: { content: "- a" } }] }), {
           headers: { "content-type": "application/json" },
@@ -130,6 +131,7 @@ test("SEC-22: OpenRouter requests carry no cookies", async () => {
     },
   });
   await context.saveAiKey("k", "session");
+  await context.saveAiPolicy({ ...context.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, streamResponses: false });
   await context.summarizeWithOpenRouter(
     { postMessage() {} },
     { storyId: 1, url: "https://example.com/a", model: "openrouter/free", systemPrompt: "p", streamResponses: false },
@@ -334,7 +336,9 @@ const runBrowserTests = async () => {
     articleRequests.push({ url: request.url(), cookie: request.headers()["cookie"] || null });
     return route.fulfill({ status: 200, contentType: "text/html", body: ARTICLE_HTML });
   });
+  let aiPosts = 0;
   await context.route("https://openrouter.ai/api/v1/chat/completions", (route) => {
+    if (route.request().method() === "POST") aiPosts++;
     if (route.request().method() !== "POST") return route.fulfill({ status: 405, body: "method" });
     const payload = [
       'data: {"choices":[{"delta":{"content":"- Real summary text\\n"}}]}',
@@ -368,6 +372,20 @@ const runBrowserTests = async () => {
     const page = context.pages()[0] || await context.newPage();
     await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
     await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
+    // P03: audit repro in ordinary page world. Neither old storage nor a
+    // synthetic story click can enable paid work before extension-page consent.
+    await page.evaluate(() => {
+      localStorage.setItem("harmonova:settings:v1", JSON.stringify({
+        aiEnabled: true, aiAutoSummarize: true, aiModel: "attacker/paid-model",
+        aiSystemPrompt: "Injected", aiStreamResponses: true,
+      }));
+      location.hash = "harmonova-settings";
+      document.querySelectorAll("input,textarea").forEach(node => node.dispatchEvent(new Event("change", { bubbles: true })));
+      document.querySelector(".story-comment-button")?.click();
+    });
+    await page.waitForTimeout(400);
+    assert.equal(aiPosts, 0, "page-world synthetic AI activation must never reach provider");
+    await page.evaluate(() => document.querySelector(".settings-overlay")?.remove());
 
     const settingsPage = await context.newPage();
     await settingsPage.goto(`chrome-extension://${extensionId}/ai-settings.html`, { waitUntil: "domcontentloaded" });
@@ -375,10 +393,14 @@ const runBrowserTests = async () => {
     await settingsPage.locator('input[name="storage"][value="session"]').check();
     await settingsPage.click("#save");
     await settingsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"), null, { timeout: 5000 });
+    await settingsPage.locator("#policy-enabled").check();
+    await settingsPage.locator("#policy-save").click();
+    await settingsPage.waitForFunction(() => document.querySelector("#policy-message")?.textContent?.includes("saved"));
     await settingsPage.close();
 
     await page.locator('[data-story-id="910001"]').locator(".story-comment-button").click();
     await page.locator(".thread-title").waitFor({ state: "visible", timeout: 15000 });
+    assert.equal(aiPosts, 0, "disabled automatic mode must not issue a provider request");
     const sparkle = page.locator('[data-summary-action-id="910001"][data-summary-source="article"]');
     await sparkle.waitFor({ state: "visible", timeout: 10000 });
     await sparkle.click();
@@ -391,6 +413,19 @@ const runBrowserTests = async () => {
     assert.equal(evilRequests.length, 0, "SEC-44: the image URL from AI output must never be fetched");
     const summaryText = await page.locator('[data-summary-story-id="910001"]').innerText();
     assert.ok(summaryText.includes("Real summary text"), "summary text renders");
+    assert.equal(aiPosts, 1, "trusted explicit click makes exactly one provider request");
+    const updatedSettingsPage = await context.newPage();
+    await updatedSettingsPage.goto(`chrome-extension://${extensionId}/ai-settings.html`);
+    await updatedSettingsPage.locator("#policy-auto").check();
+    await updatedSettingsPage.locator("#policy-save").click();
+    await updatedSettingsPage.waitForFunction(() => document.querySelector("#policy-message")?.textContent?.includes("saved"));
+    await updatedSettingsPage.close();
+    await page.locator('[data-story-id="910002"] .story-comment-button').click();
+    await page.waitForFunction(() => document.querySelector('[data-summary-story-id="910002"]')?.dataset.status === "success");
+    assert.equal(aiPosts, 2, "trusted automatic selection issues one request");
+    await page.evaluate(() => document.querySelector('[data-story-id="910001"] .story-comment-button')?.click());
+    await page.waitForTimeout(500);
+    assert.equal(aiPosts, 2, "synthetic selection with automatic consent still does not bill");
 
     // -- SEC-22: background requests never carry cookies --------------------
     articleRequests.length = 0; // drop the pre-cookie preview requests

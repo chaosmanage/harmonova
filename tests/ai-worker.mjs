@@ -27,7 +27,7 @@ const worker = vm.createContext({
       vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), worker);
     }
   },
-  URL, AbortController, AbortSignal, TextDecoder, setTimeout, clearTimeout,
+  URL, AbortController, AbortSignal, TextDecoder, TextEncoder, setTimeout, clearTimeout,
   crypto: { subtle: { digest: (algo, bytes) => crypto.subtle.digest(algo, bytes) } },
   btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
   fetch: async () => { throw new Error('Unexpected network request'); },
@@ -86,8 +86,10 @@ test('credentials move between persistent and session stores and reject content-
 
 test('non-streaming request uses private credentials and the capped article', async () => {
   await worker.saveAiKey('test-private-key', 'session');
+  await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, streamResponses: false });
   let request;
   worker.fetch = async (url, options) => {
+    if (url.includes('firebaseio.com')) return new Response(JSON.stringify({ id: 1, type: 'story', url: 'https://example.com' }));
     if (url.includes('openrouter.ai')) {
       request = options;
       return new Response(JSON.stringify({ choices: [{ message: { content: '- Summary' } }] }));
@@ -108,8 +110,10 @@ test('non-streaming request uses private credentials and the capped article', as
 
 test('empty streamed reasoning output retries once without streaming', async () => {
   await worker.saveAiKey('retry-test-key', 'session');
+  await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, model: 'example/reasoning', allowEmptyRetry: true });
   const requests = [];
   worker.fetch = async (url, options) => {
+    if (url.includes('firebaseio.com')) return new Response(JSON.stringify({ id: 77, type: 'story', url: 'https://example.com/story' }));
     if (!url.includes('openrouter.ai')) return new Response('Article content', { headers: { 'content-type': 'text/plain' } });
     const request = JSON.parse(options.body);
     requests.push(request);
@@ -139,6 +143,7 @@ test('HTTP 403 gives a clear access restriction instead of a generic fetch error
 
 test('opt-in discussion summary does not fetch blocked articles or mislabel source', async () => {
   await worker.saveAiKey('private-discussion-key', 'session');
+  await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, streamResponses: false });
   const requests = [];
   worker.fetch = async (url, options) => {
     requests.push({ url, body: options?.body });
