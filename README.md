@@ -1,10 +1,10 @@
 # HarmoNova for Hacker News — Chrome Browser Extension
 
-**Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson.** This is an independent project, not affiliated with or endorsed by the original developer.
-
 **A better place to read Hacker News on your browser.**
 
 HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https://news.ycombinator.com/) a cleaner, more enjoyable desktop interface. Read stories, follow discussions, search Hacker News, and use your HN account without leaving the website.
+
+**Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson.** This is an independent project, not affiliated with or endorsed by the original developer.
 
 <p align="center"><img src="icons/harmonova-logo.svg" alt="HarmoNova for Hacker News" width="660"></p>
 
