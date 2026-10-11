@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.13.0**.
+The current extension version is **0.13.1**.
 
-Version 0.13.0 fixes real Hacker News account-action protocol mismatches, confirms comments against redirected item pages before clearing drafts, preserves locally confirmed comments during Algolia indexing delays, restores story/comment search, and returns the reading interface to compact Harmonic defaults. Account and post actions now live in More/context menus, Settings has a category index, and comment voting uses a contextual overlay. **Live authenticated verification remains pending** because Hacker News served a validation wall from the VPS. See [`CHANGELOG.md`](CHANGELOG.md) for details.
+Version 0.13.1 tightens right-click menu sizing and icon colors, corrects HN login detection for posting and favorites, makes Hide jobs hide rendered cards across feeds, and improves AI summary retries and failure details. This is a follow-up to 0.13.0, which fixes real Hacker News account-action protocol mismatches, confirms comments against redirected item pages before clearing drafts, preserves locally confirmed comments during Algolia indexing delays, restores story/comment search, and returns the reading interface to compact Harmonic defaults. Account and post actions now live in More/context menus, Settings has a category index, and comment voting uses a contextual overlay. **Live authenticated verification remains pending** because Hacker News served a validation wall from the VPS. See [`CHANGELOG.md`](CHANGELOG.md) for details.
 
 ## Account actions and voting
 

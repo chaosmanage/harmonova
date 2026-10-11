@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+- Nothing yet.
+
+## [0.13.1] - 2026-10-11
+
 ### Fixed
 - **Context menus:** Keep comment and story right-click actions compact, viewport-bounded, scrollable, and readable even for very long comment excerpts; tint icons subtly to match the Harmonic themes.
 - **HN account actions:** Do not mistake partial HN navigation bars or submit-only login gates for an actual sign-out. Verify the active account before issuing submission forms, preserve draft contents, and offer an original-HN handoff when submission requires verification.
