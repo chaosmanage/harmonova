@@ -11,10 +11,12 @@ zip_path="dist/${folder}-${version}.zip"
 
 mkdir -p dist
 rm -rf "$tmp"
-mkdir -p "$tmp/icons"
+mkdir -p "$tmp/icons" "$tmp/docs/assets"
 
 cp manifest.json content.js styles.css background.js url-policy.js hn-session.js hn-search.js popup.html popup.css popup.js ai-settings.html ai-settings.css ai-settings.js README.md CHANGELOG.md LICENSE "$tmp/"
-cp icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png "$tmp/icons/"
+cp icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png icons/README.md "$tmp/icons/"
+cp docs/*.md "$tmp/docs/"
+cp docs/assets/*.png "$tmp/docs/assets/"
 
 rm -rf "$out"
 mv "$tmp" "$out"

@@ -437,7 +437,7 @@ const runBrowserTests = async () => {
 
     await page.locator('[data-story-id="910001"]').locator(".story-comment-button").click();
     await page.locator(".thread-title").waitFor({ state: "visible", timeout: 15000 });
-    const sparkle = page.locator('[data-summary-action-id="910001"]');
+    const sparkle = page.locator('[data-summary-action-id="910001"][data-summary-source="article"]');
     await sparkle.waitFor({ state: "visible", timeout: 10000 });
     await sparkle.click();
     await page.waitForFunction(() => {

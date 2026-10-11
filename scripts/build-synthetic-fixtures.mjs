@@ -4,8 +4,8 @@
 // logged-in fixtures are SYNTHETIC: they are derived from real logged-out
 // captures and carry placeholder tokens (0*40 / 1*40) and the placeholder
 // username `harmonic_test`. They exist to exercise parsers and mocked flows;
-// real logged-in captures must replace them when an account is available
-// (docs/implementation-plan.md Phase 0.1).
+// verify authenticated behavior separately with an authorized, interactive
+// Hacker News session; do not commit real credentials or action tokens.
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";

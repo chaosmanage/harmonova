@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-- Nothing yet.
+### Documentation
+- Reorganized documentation into a reader-first README and maintained feature, installation, privacy, architecture, and development guides. Added current screenshots and unpacked-install instructions, with prominent credit to the original Harmonic Android project.
+- Included documentation in release ZIPs and removed obsolete implementation/audit plans.
+
+### Tests
+- Fixed the Chromium security test selector to target Article now that Article and Discussion have separate summary controls.
 
 ## [0.13.6] - 2026-10-11
 

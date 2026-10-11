@@ -11,3 +11,7 @@ tests/fixtures/hn/raw/
 trace*.zip
 
 !icons/*.png
+
+# Documentation screenshots are intentional, not test output.
+!docs/assets/
+!docs/assets/*.png
