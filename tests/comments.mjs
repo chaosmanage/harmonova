@@ -599,6 +599,9 @@ await test("Edit shows only on own comments, prefills HN's current text, and pos
   await otherRow.locator(":scope > .comment-card").click({ button: "right" });
   assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
   assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
+  // Dismiss the other comment's context menu before opening another one;
+  // otherwise its floating surface can intercept the next right click.
+  await page.mouse.click(3, 3);
   await openCommentAction(page, ownRow, "Edit");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/edit") && request.method === "GET"), 20000, 150, "GET /edit");
   const editPage = composer(page);

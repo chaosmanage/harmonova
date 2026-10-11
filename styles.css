@@ -462,9 +462,9 @@ html.harmonic-hn *{box-sizing:border-box}
 .thread-meta .harmonic-icon{width:17px;height:17px;opacity:.9}
 .thread-actions{
   display:grid;
-  grid-template-columns:repeat(7,1fr);
+  grid-template-columns:minmax(42px,1fr) minmax(42px,1fr) minmax(158px,2.4fr) minmax(42px,1fr);
   align-items:center;
-  gap:4px;
+  gap:8px;
   max-width:860px;
   margin-top:12px;
 }
@@ -484,6 +484,38 @@ html.harmonic-hn *{box-sizing:border-box}
 .thread-action:active{transform:scale(.93)}
 .thread-action.active{color:#ff959e}
 .thread-action .harmonic-icon{width:24px;height:24px}
+/* Summarizing the article and the HN comments are deliberately distinct.
+   One compact pair keeps their source visible instead of hiding an action. */
+.summary-action-group{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  min-width:0;
+  gap:2px;
+  padding:3px;
+  border-radius:15px;
+  border:1px solid var(--harmonic-border,rgba(255,255,255,.12));
+  background:var(--harmonic-surface,rgba(255,255,255,.045));
+}
+.summary-action-group .summary-action{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  height:36px;
+  min-width:0;
+  padding:0 8px;
+  border-radius:11px;
+  color:var(--harmonic-secondary,#cfccd6);
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:.01em;
+  white-space:nowrap;
+}
+.summary-action .harmonic-icon{width:18px;height:18px;flex:none}
+.summary-action[data-summary-source="article"] .harmonic-icon{color:var(--harmonic-accent,#dfa675)}
+.summary-action[data-summary-source="discussion"] .harmonic-icon{color:#a9b6db}
+.summary-action.active{background:var(--harmonic-surface-high,rgba(255,255,255,.12));color:var(--harmonic-text,#fff)}
+.summary-action:focus-visible,.thread-action:focus-visible{outline:2px solid var(--harmonic-accent,#dfa675);outline-offset:1px}
 .article-link-action{
   display:grid!important;
   width:54px;
@@ -768,7 +800,7 @@ html.harmonic-hn *{box-sizing:border-box}
   .thread-hero-image{height:146px}
   .thread-header-body{padding:14px 18px 12px}
   .thread-title{font-size:28px}
-  .thread-actions{grid-template-columns:repeat(7,minmax(48px,1fr));overflow-x:auto}
+  .thread-actions{grid-template-columns:minmax(42px,1fr) minmax(42px,1fr) minmax(158px,2.4fr) minmax(42px,1fr);overflow-x:auto}
   .comments-heading{padding-left:14px;padding-right:14px}
   .comments{padding-left:10px;padding-right:10px}
   .comment-body{font-size:17px}
@@ -1886,3 +1918,10 @@ html.harmonic-hn[data-font="serif"]{--harmonic-font-stack:Georgia,"Times New Rom
 .hn-search-results.search-refining{position:relative;opacity:.7;pointer-events:none}
 .hn-search-results.search-refining::before{content:"";height:2px;position:sticky;display:block;top:0;left:0;right:0;z-index:4;background:linear-gradient(90deg,#77749b,#de9ca5,#77749b);background-size:200% 100%;animation:hn-search-progress 1s linear infinite}
 @keyframes hn-search-progress{to{background-position:-200% 0}}
+
+@media(max-width:540px){
+  .thread-actions{gap:3px}
+  .summary-action-group{gap:0;padding:2px}
+  .summary-action-group .summary-action{gap:0;padding:0 4px;font-size:11px}
+  .summary-action-group .harmonic-icon{display:none}
+}

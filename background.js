@@ -665,7 +665,8 @@ async function summarizeWithOpenRouter(port, message, controller) {
   const storyId = Number(message.storyId);
   const model = String(message.model || "").trim();
   const prompt = String(message.systemPrompt || "").trim();
-  if (!Number.isInteger(storyId) || !message.url) throw new Error("Invalid summary request");
+  const discussion = message.source === "discussion";
+  if (!Number.isInteger(storyId) || (!discussion && !message.url)) throw new Error("Invalid summary request");
   if (!model) throw new Error("Choose an OpenRouter model in Settings");
   if (!prompt) throw new Error("System prompt is empty");
 
@@ -673,11 +674,10 @@ async function summarizeWithOpenRouter(port, message, controller) {
   if (!key) throw new Error("OpenRouter API key is not configured");
 
   port.postMessage({ type: "status", storyId, status: "extracting" });
-  const discussion = message.source === "discussion";
   const articleText = discussion
     ? String(message.discussionText || "").slice(0, MAX_ARTICLE_CHARACTERS)
     : await fetchArticleText(message.url, controller.signal);
-  if (discussion && (articleText.length < 30 || !HarmonicUrlPolicy.isAllowedRemoteUrl(message.url))) {
+  if (discussion && articleText.length < 30) {
     throw new Error("Not enough public Hacker News discussion text to summarize.");
   }
   port.postMessage({ type: "status", storyId, status: "generating", inputCharacters: articleText.length });

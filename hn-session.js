@@ -135,7 +135,11 @@
           credentials: "same-origin", // SEC-20
           redirect: "follow",
           headers: { Accept: "text/html,application/xhtml+xml" },
-          ...(options.body ? { body: new URLSearchParams(options.body).toString() } : {}),
+          // Pass URLSearchParams as the request body, NOT its serialized string.
+          // Fetch sets application/x-www-form-urlencoded;charset=UTF-8 for
+          // URLSearchParams. A string is sent as text/plain, so HN does not
+          // parse parent/hmac/text and may silently discard the POST.
+          ...(options.body ? { body: new URLSearchParams(options.body) } : {}),
         });
       } catch (error) {
         if (!isMutation && attempt < MAX_QUEUE_ATTEMPTS - 1) { attempt++; await sleep(1000 * attempt); continue; }

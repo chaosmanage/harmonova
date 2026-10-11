@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.13.3] - 2026-10-11
+
+### Fixed
+- **Hacker News comment and post submission:** Send `URLSearchParams` as the native `fetch` request body, so the browser sets `application/x-www-form-urlencoded;charset=UTF-8`. The previous serialized-string body was sent as `text/plain`, causing HN to receive unparseable form fields and leave posts unconfirmed.
+- **Thread action bar:** Replace the redundant profile and comment-jump buttons with a direct reply action, preserve Upvote, move Bookmark into More alongside Favorite, and remove Share. Present Article and Discussion AI summaries as a compact labeled pair with independent loading, cancellation, regeneration, and source-specific states, including discussion-only stories.
+
+### Tested
+- The mocked Hacker News server now rejects a POST with the wrong form content type, and Chromium tests assert the correct outgoing header for comments and new story submissions. Browser checks cover direct reply, bookmark in More, dedicated summary source actions, and source switching.
+
 ## [0.13.2] - 2026-10-11
 
 ### Fixed

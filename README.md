@@ -24,7 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.13.2**.
+The current extension version is **0.13.3**.
+
+Version 0.13.3 fixes form posting to Hacker News: comment, edit, delete and story-submit requests now use the actual `application/x-www-form-urlencoded` browser form encoding rather than `text/plain`, which HN cannot reliably parse. The mocked HN server now rejects wrongly encoded posts, with Chromium assertions for the actual outgoing `Content-Type`. The thread action bar now puts **Add reply**, **Upvote**, dedicated **Article** and **Discussion** summary buttons, and **More** up front. Profile remains available from the author name, while bookmarks and favorites remain in the More menu.
 
 Version 0.13.2 improves Hacker News post and comment confirmation with bounded read-only follow-up checks (no repeated POSTs), preserves drafts when the outcome remains unverified, explains article HTTP 403 access restrictions, and offers an opt-in summary of public Hacker News discussion instead of pretending to have read the blocked article.
 

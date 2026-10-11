@@ -83,6 +83,7 @@
     search: '<path d="M9.5 3a6.5 6.5 0 104.08 11.56L19 20l1-1-5.44-5.42A6.5 6.5 0 009.5 3zm0 1.8a4.7 4.7 0 110 9.4 4.7 4.7 0 010-9.4z"/>',
     more: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>',
     comment: '<path d="M4 4.5h16v12H9l-4.2 3.1.7-3.1H4v-12zm1.8 1.8v8.4h2.3l-.3 1.4 1.6-1.4h8.8V6.3H5.8z"/>',
+    replyPlus: '<path d="M4 4.5h16v12H9l-4.2 3.1.7-3.1H4v-12zm1.8 1.8v8.4h2.3l-.3 1.4 1.6-1.4h8.8V6.3H5.8z"/><path d="M11 8h2v4h-2zM10 9h4v2h-4z"/>',
     up: '<path d="M12 3l6 7h-4v9h-4v-9H6l6-7z"/>',
     down: '<path d="M12 21l-6-7h4V5h4v9h4l-6 7z"/>',
     thumb: '<path d="M8.5 10.5 12 4c.9 0 1.6.7 1.6 1.6v3.2H19a2 2 0 0 1 1.9 2.5l-1.5 6A2.2 2.2 0 0 1 17.3 19H8.5V10.5Z"/><path d="M4 10.5h4.5V19H4z"/>',
@@ -3684,14 +3685,14 @@ async function refreshFeed() {
     const body = surface.querySelector(".story-summary-body");
     const heading = surface.querySelector(".story-summary-heading strong");
     if (heading) heading.textContent = current.source === "discussion" ? "Discussion summary" : "Summary";
-    if (current.status === "extracting") status.textContent = "Reading article…";
+    if (current.status === "extracting") status.textContent = current.source === "discussion" ? "Preparing discussion…" : "Reading article…";
     else if (current.status === "generating") status.textContent = current.detail || "Summarizing…";
     else if (current.status === "error") status.textContent = "Summary failed";
     else status.textContent = "";
     if (current.status === "error") {
       body.replaceChildren(el("p", "story-summary-error", current.error || "Summary failed"));
       if (current.errorCode === "ARTICLE_ACCESS_DENIED") {
-        const article = state.selectedStory?.url;
+        const article = state.selectedStory?.url || (state.thread?.id === storyId ? state.thread.url : null);
         if (safeHref(article)) {
           const link = el("a", "composer-hn-open", "Open article in browser");
           link.href = safeHref(article);
@@ -3699,11 +3700,11 @@ async function refreshFeed() {
           link.rel = "noopener noreferrer";
           body.appendChild(link);
         }
-        if (discussionTextForSummary(state.thread, state.selectedStory)) {
+        if (discussionTextForSummary(state.thread, state.selectedStory || state.thread)) {
           const fallback = el("button", "composer-hn-open", "Summarize HN discussion instead");
           fallback.type = "button";
           fallback.addEventListener("click", () => {
-            if (state.selectedStory?.id === storyId) startStorySummary(state.selectedStory, { source: "discussion" });
+            if (state.selectedId === storyId) startStorySummary(state.selectedStory || state.thread, { source: "discussion" });
           });
           body.appendChild(fallback);
         }
@@ -3712,14 +3713,19 @@ async function refreshFeed() {
       renderSummaryMarkdown(body, current.text);
     }
     surface.hidden = current.status === "idle" && !current.text;
-    const action = document.querySelector('[data-summary-action-id="' + storyId + '"]');
-    if (action) {
-      const running = current.status === "extracting" || current.status === "generating";
-      action.disabled = false;
-      action.classList.toggle("loading", running);
-      action.classList.toggle("active", current.status === "success");
-      action.title = running ? "Cancel summary" : (current.status === "success" ? "Regenerate summary" : "Story tools");
+    const running = current.status === "extracting" || current.status === "generating";
+    for (const action of document.querySelectorAll('[data-summary-action-id="' + storyId + '"]')) {
+      const source = action.dataset.summarySource;
+      const ownSource = source === (current.source || "article");
+      const label = source === "discussion" ? "discussion" : "article";
+      const active = ownSource && current.status === "success";
+      action.disabled = source === "article" && !state.thread?.url;
+      action.classList.toggle("loading", running && ownSource);
+      action.classList.toggle("active", active);
+      action.title = running && ownSource ? "Cancel " + label + " summary"
+        : active ? "Regenerate " + label + " summary" : "Summarize " + label;
       action.setAttribute("aria-label", action.title);
+      action.setAttribute("aria-pressed", String(active));
     }
   }
 
@@ -3771,11 +3777,12 @@ async function refreshFeed() {
     const automatic = Boolean(options.automatic);
     const source = options.source === "discussion" ? "discussion" : "article";
     if (state.activeSummary?.storyId === Number(item?.id)) {
-      if (!automatic) stopActiveSummary();
-      return;
+      if (automatic) return;
+      if (state.activeSummary.source === source) { stopActiveSummary(); return; }
+      // Choosing the other source switches summaries instead of only cancelling.
     }
     const generation = ++state.summaryGeneration;
-    if (!item?.url) {
+    if (source === "article" && !item?.url) {
       if (!automatic) showToast("This story has no linked article to summarize");
       return;
     }
@@ -3813,7 +3820,7 @@ async function refreshFeed() {
     state.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
     updateSummarySurface(storyId);
     const port = chrome.runtime.connect({ name: "harmonic-ai" });
-    state.activeSummary = { storyId, port };
+    state.activeSummary = { storyId, port, source };
 
     port.onMessage.addListener((message) => {
       if (state.activeSummary?.port !== port || Number(message?.storyId) !== storyId) return;
@@ -3855,6 +3862,7 @@ async function refreshFeed() {
     const b = button(iconName, label, "thread-action");
     if (options.id) b.dataset.bookmarkId = options.id;
     if (options.summaryId) b.dataset.summaryActionId = options.summaryId;
+    if (options.summarySource) b.dataset.summarySource = options.summarySource;
     if (options.active) b.classList.add("active");
     if (options.disabled) b.disabled = true;
     b.addEventListener("click", (event) => {
@@ -3966,9 +3974,9 @@ async function refreshFeed() {
     );
 
     const session = window.HarmonicHN?.session?.() || null;
-    const replyAction = threadAction("comment", "Comments", () => {
-      threadPane.querySelector(".comments")?.scrollIntoView({ block: "start", behavior: "smooth" });
-    });
+    const replyAction = threadAction("replyPlus", "Add reply", () => session
+      ? openComposer({ parentId: item.id, storyId: item.id })
+      : showToast("Sign in to reply"));
     const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
     const preVoted = Boolean(storyState?.voted) || Boolean(state.feedVotes.get(item.id));
     const upvoteButton = threadAction("thumb", preVoted ? "Unvote" : "Upvote", handleStoryVote);
@@ -3996,24 +4004,27 @@ async function refreshFeed() {
     }
 
     const actions = el("div", "thread-actions");
-    actions.append(
-      threadAction("user", "Open author", () => authorLink.click()),
-      replyAction,
-      upvoteButton,
-      threadAction("star", "Bookmark", () => toggleBookmark(item.id), { id: item.id, active: state.bookmarks.has(item.id) }),
-      threadAction("sparkle", "Story tools", () => startStorySummary(item), { summaryId: item.id, disabled: !item.url }),
-      threadAction("share", "Share", async () => {
-        const url = item.url || ("https://news.ycombinator.com/item?id=" + item.id);
-        if (navigator.share) {
-          try { await navigator.share({ title: item.title, url }); return; } catch {}
-        }
-        await navigator.clipboard.writeText(url);
-        showToast("Link copied");
-      })
-    );
+    const summaryActions = el("div", "summary-action-group");
+    summaryActions.setAttribute("role", "group");
+    summaryActions.setAttribute("aria-label", "AI summaries");
+    const articleSummary = threadAction("sparkle", "Summarize article", () => startStorySummary(item, { source: "article" }),
+      { summaryId: item.id, summarySource: "article", disabled: !item.url });
+    const discussionSummary = threadAction("comment", "Summarize discussion", () => startStorySummary(item, { source: "discussion" }),
+      { summaryId: item.id, summarySource: "discussion" });
+    for (const [action, label] of [[articleSummary, "Article"], [discussionSummary, "Discussion"]]) {
+      action.classList.add("summary-action");
+      action.appendChild(el("span", "summary-action-label", label));
+      summaryActions.appendChild(action);
+    }
+    actions.append(replyAction, upvoteButton, summaryActions);
     const more = threadAction("more", "More", (event) => {
       const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
       openPopup(event.currentTarget, [
+        { label: state.bookmarks.has(item.id) ? "Remove bookmark" : "Bookmark story", icon: "star",
+          action: async () => {
+            await toggleBookmark(item.id);
+            showToast(state.bookmarks.has(item.id) ? "Bookmarked" : "Bookmark removed");
+          } },
         { label: "Reply to story", icon: "comment", action: () => session
           ? openComposer({ parentId: item.id, storyId: item.id })
           : showToast("Sign in to reply") },

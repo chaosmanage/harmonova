@@ -123,6 +123,7 @@ function createHnMock() {
     const record = { method, path: pathname + parsed.search, params: Object.fromEntries(parsed.searchParams), postData: null };
     if (method === "POST") {
       record.postData = request.postData() || "";
+      record.contentType = request.headers()["content-type"] || "";
       record.bodyParams = Object.fromEntries(new URLSearchParams(record.postData));
       Object.assign(record.params, record.bodyParams); // POST bodies carry the auth params on HN forms
     }
@@ -136,6 +137,14 @@ function createHnMock() {
 
     const error = consumeError(pathname);
     if (error) return route.fulfill(serveHtml(errorPage(error)));
+
+    // Reproduce HN's form parser: POSTed credentials/fields are not readable
+    // when encoded as text/plain (the old extension bug). Do not falsely
+    // create a comment or submission just because the bytes contain '='.
+    if (method === "POST" && ["/comment", "/r", "/xedit", "/xdelete"].includes(pathname)
+      && !/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(record.contentType)) {
+      return route.fulfill(serveHtml("<html><body><p>Form content type is unsupported.</p></body></html>"));
+    }
 
     // HN's js=t votes return an empty 200 body; no redirect HTML is provided.
     if (pathname === "/vote" && parsed.searchParams.get("js") === "t") {
@@ -554,6 +563,7 @@ await test("reply form opens through the queue and posts once (SEC-34)", async (
   assert.equal(commentRequests[0].params.parent, formParent);
   assert.equal(commentRequests[0].params.hmac, formHmac);
   assert.equal(commentRequests[0].method, "POST");
+  assert.match(commentRequests[0].contentType, /^application\/x-www-form-urlencoded(?:\s*;|$)/i, "POST must use a native HTML form content type");
   await assertNoTokenLeakage(page, consoleMessages);
 });
 
@@ -592,6 +602,26 @@ await test("favorite response without account links preserves the session", asyn
   assert.equal(result.status, "success", JSON.stringify(result));
   assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/logout")).length, 0);
+});
+
+await test("thread toolbar opens reply, groups summaries and bookmarks via More", async ({ page }) => {
+  await gotoFeed(page);
+  await page.locator('.story-comment-button').first().click();
+  await page.locator('.thread-actions').waitFor({ state: 'visible' });
+  const labels = await page.locator('.thread-actions button').evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute('aria-label')));
+  assert.equal(labels.length, 5, JSON.stringify(labels));
+  assert.ok(labels.includes('Add reply') && labels.includes('Summarize article') && labels.includes('Summarize discussion'));
+  assert.ok(!labels.includes('Open author') && !labels.includes('Share') && !labels.includes('Bookmark'));
+  assert.equal(await page.locator('[role="group"][aria-label="AI summaries"]').count(), 1);
+  await page.getByRole('button', { name: 'Add reply' }).click();
+  await page.locator('.composer-input').waitFor({ state: 'visible' });
+  await page.locator('.composer-cancel').click();
+  await page.locator('.thread-actions button[aria-label="More"]').click();
+  await page.locator('.harmonic-popup .popup-item', { hasText: 'Bookmark story' }).click();
+  assert.ok((await page.locator('.harmonic-toast').textContent()).includes('Bookmarked'));
+  await page.locator('.thread-actions button[aria-label="More"]').click();
+  assert.ok((await page.locator('.harmonic-popup').textContent()).includes('Remove bookmark'));
 });
 
 await test("Chromium bounds long right-click menus and hides job cards", async ({ page }) => {
@@ -651,7 +681,9 @@ await test("submission confirms from new author-list ID and does not confuse old
   const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'New post' })");
   assert.equal(result.status, "success", JSON.stringify(result));
   assert.equal(result.newStoryId, 910101);
-  assert.equal(hn.requests.filter((r) => r.path === "/r" && r.method === "POST").length, 1);
+  const submissions = hn.requests.filter((r) => r.path === "/r" && r.method === "POST");
+  assert.equal(submissions.length, 1);
+  assert.match(submissions[0].contentType, /^application\/x-www-form-urlencoded(?:\s*;|$)/i);
   assert.ok(hn.requests.filter((r) => r.path.startsWith("/submitted")).length >= 2);
 });
 

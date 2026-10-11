@@ -147,7 +147,7 @@ test('opt-in discussion summary does not fetch blocked articles or mislabel sour
   };
   const messages = [];
   await worker.summarizeWithOpenRouter({ postMessage: (value) => messages.push(value) }, {
-    storyId: 17, url: 'https://example.com/blocked', source: 'discussion', discussionText: 'HN discussion: browser extension usability, preferences, feedback and concerns.',
+    storyId: 17, source: 'discussion', discussionText: 'HN discussion: browser extension usability, preferences, feedback and concerns.',
     model: 'openrouter/free', systemPrompt: 'Summarize this article', streamResponses: false,
   }, new AbortController());
   assert.equal(requests.length, 1);

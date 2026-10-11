@@ -594,13 +594,16 @@ await test("New post sends the exact /r payload once and preserves data if redir
   assert.equal(posted.bodyParams.fnop, "submit-page");
   assert.equal(posted.bodyParams.title, "Harmonic submits a story");
   assert.equal(posted.bodyParams.url, "https://example.com/harmonic");
-  await new Promise((resolve) => setTimeout(resolve, 1800));
+  // Verification makes bounded GET reads against the author's submitted list,
+  // so wait until the final outcome rather than observing the in-flight status.
+  await page.waitForFunction(() => /has not shown|did not confirm/i.test(
+    document.querySelector('.submit-status')?.textContent || ''), null, { timeout: 16000 });
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/r")).length, 1, "SEC-34: submit never retried");
   // The offline mock serves /newest HTML directly at /r rather than a real
-  // redirect; without a final /newest URL the app must keep the form open.
+  // redirect; without a new submission ID the app must keep the form open.
   assert.equal(await modal.count(), 1, "unconfirmed response keeps submission form");
   const status = await page.locator(".submit-status").textContent();
-  assert.ok(/did not confirm/i.test(status), "ambiguous response is not reported as success: " + status);
+  assert.match(status, /has not shown|did not confirm/i, "ambiguous response is not reported as success: " + status);
   assert.equal(await page.locator(".submit-title").inputValue(), "Harmonic submits a story", "title kept");
 });
 

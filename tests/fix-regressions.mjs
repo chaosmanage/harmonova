@@ -52,6 +52,7 @@ await ctx.route("**/*", async route => {
     }
     if (u.pathname === "/comment" && req.method() === "POST") {
       const fields = new URLSearchParams(req.postData() || "");
+      assert.match(req.headers()["content-type"] || "", /^application\/x-www-form-urlencoded(?:\s*;|$)/i);
       assert.equal(fields.get("parent"), String(storyId));
       assert.equal(fields.get("text"), postedText);
       posted = true;
