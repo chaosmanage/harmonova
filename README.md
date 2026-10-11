@@ -85,9 +85,9 @@ Sometimes I want the main points of an article before reading it. Other times th
 
 Both use [OpenRouter](https://openrouter.ai/) and are optional. Add your own API key in **Settings → AI** and select a model. Nothing is summarized unless you request it (unless you choose to enable automatic summaries in Settings). The text being summarized is sent to OpenRouter; not every article site allows automatic reading.
 
-![AI summary card in the discussion reader with demonstration-only output](docs/assets/ai-summary-demo.png)
+![AI summary of the Nanolathe Total Annihilation article in the discussion reader](docs/assets/ai-summary-demo.png)
 
-*AI interface demonstration. The example summary text is mocked, not a summary of the article shown.*
+*Example summary of the [Nanolathe article](https://nanolathe.gg/). The screenshot uses a prepared response for demonstration, not a live API request.*
 
 ## A couple of things to know
 

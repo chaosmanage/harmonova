@@ -42,7 +42,7 @@ harmonova/
 
 Generated material such as `dist/`, `node_modules/`, and `test-results/` is ignored by Git. Captured raw HN fixture data, traces, and any credentials must remain untracked. Documentation screenshots in `docs/assets/` are an intentional exception.
 
-To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot uses a deterministic **mock response**, not a real OpenRouter key or a summary of a real article. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured from the same live session.
+To refresh the screenshots in the README and feature guide, run `node scripts/capture-doc-screenshots.mjs`. This runs the actual extension in Chromium and captures its UI. The AI summary screenshot shows a deterministic **prepared summary of the linked Nanolathe article**, rather than calling OpenRouter with a real API key. The article and response are stubbed locally for repeatability. Never pass secrets to the screenshot tool. The main reader screenshot in `docs/assets/overview.png` is captured from the same live session.
 
 ## Test commands
 
