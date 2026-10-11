@@ -375,10 +375,57 @@
     normalizeQuotedParagraphs(target);
   };
 
+  // A reloaded/updated extension cannot service messages from an already-open tab.
+  // The old content-script context stays in the page until it is reloaded.
+  let extensionContextInvalidated = false;
+  const handleExtensionApiError = (error) => {
+    if (!/extension context invalidated/i.test(String(error?.message || error || ""))) return;
+    if (extensionContextInvalidated) return;
+    extensionContextInvalidated = true;
+    const showReloadNotice = () => {
+      if (document.getElementById("harmonova-context-reload")) return;
+      const notice = document.createElement("div");
+      notice.id = "harmonova-context-reload";
+      notice.setAttribute("role", "alert");
+      const message = document.createElement("span");
+      message.textContent = "HarmoNova was reloaded or updated. Refresh this tab to reconnect.";
+      const reload = document.createElement("button");
+      reload.type = "button";
+      reload.textContent = "Reload tab";
+      reload.addEventListener("click", () => location.reload());
+      notice.append(message, reload);
+      document.documentElement.appendChild(notice);
+    };
+    if (document.documentElement) showReloadNotice();
+    else document.addEventListener("DOMContentLoaded", showReloadNotice, { once: true });
+  };
+
+  // Chrome callback APIs throw synchronously after invalidation, rather than
+  // invoking their callbacks. Always settle callers instead of rejecting them.
+  const chromeCall = (invoke, onError) => new Promise((resolve) => {
+    const fail = (error) => {
+      handleExtensionApiError(error);
+      resolve(onError(error));
+    };
+    try {
+      invoke((response) => {
+        try {
+          const error = chrome.runtime.lastError;
+          if (error) return fail(error);
+          resolve(response);
+        } catch (error) { fail(error); }
+      });
+    } catch (error) { fail(error); }
+  });
+  const runtimeMessage = (message) => chromeCall(
+    (callback) => chrome.runtime.sendMessage(message, callback),
+    (error) => ({ ok: false, message: String(error?.message || error || "Unknown error") }),
+  ).then((response) => response || { ok: false });
+
   // Migrate pre-HarmoNova Chrome Sync names without overwriting new settings.
   const chromeSyncGet = async (keys) => {
     const older = keys.map((key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic"));
-    const values = await new Promise((resolve) => chrome.storage.sync.get([...keys, ...older], resolve));
+    const values = await chromeCall((callback) => chrome.storage.sync.get([...keys, ...older], callback), () => ({}));
     const update = {}, remove = [];
     const result = {};
     keys.forEach((key, i) => {
@@ -390,18 +437,12 @@
       }
     });
     if (Object.keys(update).length) {
-      await new Promise((resolve) => chrome.storage.sync.set(update, resolve));
-      await new Promise((resolve) => chrome.storage.sync.remove(remove, resolve));
+      await chromeCall((callback) => chrome.storage.sync.set(update, callback), () => undefined);
+      await chromeCall((callback) => chrome.storage.sync.remove(remove, callback), () => undefined);
     }
     return result;
   };
-  const chromeSyncSet = (value) => new Promise((resolve) => chrome.storage.sync.set(value, resolve));
-  const runtimeMessage = (message) => new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) return resolve({ ok: false, message: chrome.runtime.lastError.message });
-      resolve(response || { ok: false });
-    });
-  });
+  const chromeSyncSet = (value) => chromeCall((callback) => chrome.storage.sync.set(value, callback), () => undefined);
 
   function pageStorageGet(key) {
     try {
@@ -436,11 +477,8 @@
 
   async function isOriginalTab() {
     if (location.hash === ORIGINAL_HASH) return true;
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "HARMONOVA_TAB_MODE" }, (response) => {
-        resolve(Boolean(response?.original));
-      });
-    });
+    const response = await runtimeMessage({ type: "HARMONOVA_TAB_MODE" });
+    return Boolean(response?.original);
   }
 
   async function saveSettings() {
@@ -520,7 +558,7 @@
     if (cached?.failedUntil) state.previewById.delete(story.id);
     const timer = setTimeout(() => resolve({ image: null, tint: null, favicon: null }), 7000);
     const wantRich = state.settings.richPreviews !== false;
-    chrome.runtime.sendMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich }, (response) => {
+    runtimeMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich }).then((response) => {
       clearTimeout(timer);
       const value = response?.ok ? response : { image: null, tint: null, favicon: null };
       // Without rich facts the response stays uncached while the toggle is
@@ -1898,22 +1936,20 @@ function updateFeedVoteBadges() {
 // Drafts live in chrome.storage.session via the background worker (SEC-50):
 // keyed by acting username + parent item, ≤20 KB each, ≤50 entries, cleared on
 // logout and after a successful post. They never touch disk or sync.
-const draftGet = (parentId) =>
-  new Promise((resolve) => {
-    const session = window.HarmoNovaHN?.session?.();
-    chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_GET", parentId, username: session?.username || "" }, (response) => {
-      resolve(chrome.runtime.lastError ? "" : response?.ok ? response.text || "" : "");
-    });
-  });
+const draftGet = async (parentId) => {
+  const session = window.HarmoNovaHN?.session?.();
+  const response = await runtimeMessage({ type: "HARMONOVA_DRAFT_GET", parentId, username: session?.username || "" });
+  return response?.ok ? response.text || "" : "";
+};
 const draftSet = (parentId, text) => {
   const session = window.HarmoNovaHN?.session?.();
-  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_SET", parentId, username: session?.username || "", text }, () => {});
+  void runtimeMessage({ type: "HARMONOVA_DRAFT_SET", parentId, username: session?.username || "", text });
 };
 const draftClear = (parentId) => {
   const session = window.HarmoNovaHN?.session?.();
-  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR", parentId, username: session?.username || "" }, () => {});
+  void runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR", parentId, username: session?.username || "" });
 };
-const draftClearAll = () => chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL" }, () => {});
+const draftClearAll = () => { void runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL" }); };
 
 // SEC-36: destructive actions (delete comment) run only behind a real
 // confirmation dialog with a Cancel button.
@@ -2342,7 +2378,7 @@ function openFeedMenu(anchor) {
 
   function openOriginalHackerNews(path) {
     const url = "https://news.ycombinator.com" + path;
-    chrome.runtime.sendMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url }, (response) => {
+    runtimeMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url }).then((response) => {
       if (response?.ok) return;
       window.open(url + ORIGINAL_HASH, "_blank", "noopener");
     });
@@ -3764,7 +3800,15 @@ async function refreshFeed() {
     const storyId = Number(item.id);
     state.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
     updateSummarySurface(storyId);
-    const port = chrome.runtime.connect({ name: "harmonova-ai" });
+    let port;
+    try {
+      port = chrome.runtime.connect({ name: "harmonova-ai" });
+    } catch (error) {
+      handleExtensionApiError(error);
+      state.summaries.set(storyId, { status: "error", text: "", error: "Extension connection unavailable. Reload this tab." });
+      updateSummarySurface(storyId);
+      return;
+    }
     state.activeSummary = { storyId, port, source };
 
     port.onMessage.addListener((message) => {
@@ -3791,16 +3835,23 @@ async function refreshFeed() {
       state.summaries.set(storyId, { status: "error", text: "", error: "Summary connection closed. Try again." });
       updateSummarySurface(storyId);
     });
-    port.postMessage({
-      type: "summarize",
-      storyId,
-      url: item.url,
-      model: state.settings.aiModel,
-      systemPrompt: state.settings.aiSystemPrompt,
-      streamResponses: state.settings.aiStreamResponses,
-      source,
-      ...(source === "discussion" ? { discussionText } : {}),
-    });
+    try {
+      port.postMessage({
+        type: "summarize",
+        storyId,
+        url: item.url,
+        model: state.settings.aiModel,
+        systemPrompt: state.settings.aiSystemPrompt,
+        streamResponses: state.settings.aiStreamResponses,
+        source,
+        ...(source === "discussion" ? { discussionText } : {}),
+      });
+    } catch (error) {
+      handleExtensionApiError(error);
+      state.activeSummary = null;
+      state.summaries.set(storyId, { status: "error", text: "", error: "Extension connection unavailable. Reload this tab." });
+      updateSummarySurface(storyId);
+    }
   }
 
   function threadAction(iconName, label, action, options = {}) {
@@ -4609,21 +4660,29 @@ async function refreshFeed() {
     openSettings();
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== "HARMONOVA_OPEN_SETTINGS") return;
-    if (!app) {
-      sendResponse({ ok: false });
-      return;
-    }
-    openSettings();
-    sendResponse({ ok: true });
-  });
+  try {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== "HARMONOVA_OPEN_SETTINGS") return;
+      if (!app) {
+        sendResponse({ ok: false });
+        return;
+      }
+      openSettings();
+      sendResponse({ ok: true });
+    });
+  } catch (error) { handleExtensionApiError(error); }
 
   // Resolve bundled font URLs from Chrome's extension origin, not the HN page.
   function installRoundedFont() {
-    if (document.getElementById("harmonova-rounded-fonts")) return;
-    const normal = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-wght.ttf");
-    const italic = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-Italic-wght.ttf");
+    if (document.getElementById("harmonova-rounded-fonts")) return true;
+    let normal, italic;
+    try {
+      normal = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-wght.ttf");
+      italic = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-Italic-wght.ttf");
+    } catch (error) {
+      handleExtensionApiError(error);
+      return false;
+    }
     const sheet = document.createElement("style");
     sheet.id = "harmonova-rounded-fonts";
     sheet.textContent = `
@@ -4631,10 +4690,11 @@ async function refreshFeed() {
       @font-face {font-family:"Google Sans Flex Rounded";src:url("${italic}") format("truetype");font-style:italic;font-weight:100 900;font-display:swap;}
     `;
     (document.head || document.documentElement).appendChild(sheet);
+    return true;
   }
 
   function mount() {
-    installRoundedFont();
+    if (extensionContextInvalidated || !installRoundedFont()) return;
     document.body.className = "harmonova-body";
     document.body.replaceChildren();
     app = el("div", "harmonova-app");
@@ -4712,10 +4772,11 @@ async function refreshFeed() {
   if (!supported) return;
 
   (async () => {
-    if (await isOriginalTab()) return;
-    if (!(await loadEnabledPreference())) return;
+    if (await isOriginalTab() || extensionContextInvalidated) return;
+    if (!(await loadEnabledPreference()) || extensionContextInvalidated) return;
     document.documentElement.classList.add("harmonova-hn");
     await loadPersistentState();
+    if (extensionContextInvalidated) return;
     const start = () => {
       // Phase 0.4: harvest the original HN DOM (session state) before mount
       // replaces the body, then mount at DOMContentLoaded.
