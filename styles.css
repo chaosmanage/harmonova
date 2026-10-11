@@ -198,7 +198,7 @@ html.harmonova-hn *{box-sizing:border-box}
 .harmonova-app[data-tint="false"] .story-card{background:#14191e!important}
 .story-card:hover{filter:brightness(1.12)}
 .story-card.selected{filter:brightness(1.08);box-shadow:0 0 0 2px rgba(255,255,255,.10) inset,0 2px 8px rgba(0,0,0,.32)}
-.harmonova-app[data-dimread="true"] .story-card.is-read{opacity:.45}
+.harmonova-app[data-dimread="true"] .story-card.is-read{opacity:.25}
 .harmonova-app[data-dimread="false"] .story-card.is-read{opacity:1}
 .story-card-main{
   min-width:0;
