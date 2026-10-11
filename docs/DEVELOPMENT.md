@@ -116,8 +116,8 @@ Please don't add screenshot dumps, raw response captures, API credentials, or te
 Example maintainer command, **after** preparing and pushing the intended commit:
 
 ```bash
-gh release create v0.13.9 dist/harmonova-0.13.10.zip \
-  --title "HarmoNova for Hacker News v0.13.9" \
+gh release create v0.13.10 dist/harmonova-0.13.10.zip \
+  --title "HarmoNova for Hacker News v0.13.10" \
   --notes-file docs/RELEASE_NOTES.md
 ```
 

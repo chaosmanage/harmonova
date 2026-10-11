@@ -3,6 +3,9 @@
 - Made Google's official **Google Sans Flex Rounded** the default for new installations, while retaining System UI and Serif as options.
 - Bundled variable upright and italic font files locally, together with their SIL Open Font License 1.1; no remote font service is needed.
 - Preserved saved font preferences and updated packaging and documentation.
+- Made already-seen story cards easier to distinguish by reducing opacity to 25%.
+- Removed an invalid empty Chrome manifest entry.
+- Replaced the placeholder README AI example with a concise summary of the featured article.
 
 ## v0.13.9 — Supplied artwork and refreshed documentation
 
