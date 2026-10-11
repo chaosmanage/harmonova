@@ -843,20 +843,23 @@
     if (entry === "changed") return accountChangedOutcome();
     const body = { parent: entry.fields.parent, goto: entry.fields.goto, hmac: entry.fields.hmac, text };
     const page = await enqueue("/" + (entry.action || "comment"), { method: "POST", body }); // SEC-34: never retry a POST
-    // Some HN responses (and intercepting test servers) serve the item HTML
-    // directly at /comment rather than following the redirect. Verify once
-    // with a safe GET in that case; never send a second POST.
+    // A redirect can contain a cached item page. Read back the result safely
+    // instead of re-POSTing the comment or claiming it failed immediately.
     let verified = page;
-    if (page.classification === "ok" && !redirectedToItem(page)) {
-      try {
-        if (new URL(page.url).pathname === "/comment") {
-          verified = await enqueue("/item?id=" + entry.storyId);
-        }
-      } catch {}
+    let found = page.classification === "ok" && redirectedToItem(page)
+      ? findOwnComment(page.doc, entry.username, entry.knownIds, text) : null;
+    if (page.classification === "ok" && !found) {
+      for (let attempt = 0; attempt < 3 && !found; attempt++) {
+        try {
+          const refreshed = await enqueue("/item?id=" + entry.storyId);
+          if (refreshed.classification !== "ok" || !redirectedToItem(refreshed)) break;
+          verified = refreshed;
+          found = findOwnComment(refreshed.doc, entry.username, entry.knownIds, text);
+        } catch { break; }
+      }
     }
-    const found = findOwnComment(verified.doc, entry.username, entry.knownIds, text);
     const outcome = formOutcome(page, () => redirectedToItem(verified) && Boolean(found), {
-      indeterminate: "Hacker News did not confirm the comment. Your draft is kept; check the thread before posting again.",
+      indeterminate: "Hacker News has not shown your comment after a read-only verification check. Your draft is kept; check the thread before posting again.",
     });
     if (outcome.status === "success") {
       formHandles.delete(handle);
@@ -971,7 +974,14 @@
     if (currentSession.username !== username) return accountChangedOutcome();
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    formHandles.set(handle, { kind: "submit", action: form.action || "r", fields: { ...form.fields }, username: currentSession.username, createdAt: Date.now() });
+    // Capture the author's current submitted IDs to distinguish a newly
+    // accepted post from an older story with the same title (e.g. "test").
+    let previousIds = null;
+    try {
+      const list = await enqueue("/submitted?id=" + encodeURIComponent(username));
+      if (list.classification === "ok" && list.status === 200) previousIds = new Set(parseList(list.doc).ids);
+    } catch {}
+    formHandles.set(handle, { kind: "submit", action: form.action || "r", fields: { ...form.fields }, username: currentSession.username, previousIds, createdAt: Date.now() });
     return { status: "ok", handle };
   }
 
@@ -991,10 +1001,38 @@
       const id = Number(new URL(page.url).searchParams.get("id"));
       return { status: "alreadySubmitted", message: "Hacker News already has this story.", detail: String(Number.isInteger(id) ? id : ""), existingId: Number.isInteger(id) ? id : null };
     }
+    let confirmedId = null;
+    if (page.classification === "ok" && page.status >= 200 && page.status < 300 && entry.previousIds) {
+      // POST /r may return a 200 or a nonstandard redirect; check the user's
+      // submitted list for a matching *new* ID. This is GET-only confirmation.
+      const expectedTitle = cleanTitle.replace(/\s+/g, " ").trim();
+      for (let attempt = 0; attempt < 3 && !confirmedId; attempt++) {
+        try {
+          const list = await enqueue("/submitted?id=" + encodeURIComponent(entry.username));
+          if (list.classification !== "ok" || list.status !== 200) break;
+          for (const row of list.doc.querySelectorAll("tr.athing[id]")) {
+            const id = Number(row.id);
+            const titleNode = row.querySelector(".titleline > a, .titleline a");
+            if (!Number.isSafeInteger(id) || id <= 0 || entry.previousIds.has(id)) continue;
+            if ((titleNode?.textContent || "").replace(/\s+/g, " ").trim() !== expectedTitle) continue;
+            if (urlText) {
+              try {
+                if (new URL(titleNode.href, HN_ORIGIN).href !== new URL(String(urlText)).href) continue;
+              } catch { continue; }
+            }
+            confirmedId = id;
+            break;
+          }
+        } catch { break; }
+      }
+    }
     const outcome = formOutcome(page, (response) => {
-      try { return ["/newest", "/item"].includes(new URL(response.url).pathname); } catch { return false; }
-    }, { indeterminate: "Hacker News did not confirm the submission. Check /newest before posting again." });
-    if (outcome.status === "success") formHandles.delete(handle);
+      try { return confirmedId !== null || new URL(response.url).pathname === "/newest"; } catch { return false; }
+    }, { indeterminate: "Hacker News has not shown your new submission in your submitted list yet. Nothing was posted again. Check your submissions before retrying." });
+    if (outcome.status === "success") {
+      formHandles.delete(handle);
+      if (confirmedId) outcome.newStoryId = confirmedId;
+    }
     return outcome;
   }
 

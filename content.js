@@ -3682,12 +3682,32 @@ async function refreshFeed() {
     surface.dataset.status = current.status;
     const status = surface.querySelector(".story-summary-status");
     const body = surface.querySelector(".story-summary-body");
+    const heading = surface.querySelector(".story-summary-heading strong");
+    if (heading) heading.textContent = current.source === "discussion" ? "Discussion summary" : "Summary";
     if (current.status === "extracting") status.textContent = "Reading article…";
     else if (current.status === "generating") status.textContent = current.detail || "Summarizing…";
     else if (current.status === "error") status.textContent = "Summary failed";
     else status.textContent = "";
     if (current.status === "error") {
       body.replaceChildren(el("p", "story-summary-error", current.error || "Summary failed"));
+      if (current.errorCode === "ARTICLE_ACCESS_DENIED") {
+        const article = state.selectedStory?.url;
+        if (safeHref(article)) {
+          const link = el("a", "composer-hn-open", "Open article in browser");
+          link.href = safeHref(article);
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          body.appendChild(link);
+        }
+        if (discussionTextForSummary(state.thread, state.selectedStory)) {
+          const fallback = el("button", "composer-hn-open", "Summarize HN discussion instead");
+          fallback.type = "button";
+          fallback.addEventListener("click", () => {
+            if (state.selectedStory?.id === storyId) startStorySummary(state.selectedStory, { source: "discussion" });
+          });
+          body.appendChild(fallback);
+        }
+      }
     } else {
       renderSummaryMarkdown(body, current.text);
     }
@@ -3727,8 +3747,29 @@ async function refreshFeed() {
     updateSummarySurface(active.storyId);
   }
 
+  function discussionTextForSummary(thread, story) {
+    if (!thread || thread.id !== story?.id) return "";
+    const result = ["Hacker News discussion: " + String(story.title || thread.title || "").slice(0, 300)];
+    const comments = [];
+    const collect = (children) => {
+      for (const comment of children || []) {
+        if (comments.length >= 50) return;
+        if (comment.text && comment.author) {
+          const html = new DOMParser().parseFromString(String(comment.text), "text/html");
+          const text = (html.body?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 500);
+          if (text) comments.push(String(comment.author).slice(0, 80) + ": " + text);
+        }
+        collect(comment.children);
+      }
+    };
+    collect(thread.children);
+    if (!comments.length) return "";
+    return result.concat(comments).join("\n").slice(0, 15000);
+  }
+
   async function startStorySummary(item, options = {}) {
     const automatic = Boolean(options.automatic);
+    const source = options.source === "discussion" ? "discussion" : "article";
     if (state.activeSummary?.storyId === Number(item?.id)) {
       if (!automatic) stopActiveSummary();
       return;
@@ -3762,9 +3803,14 @@ async function refreshFeed() {
       return;
     }
 
+    const discussionText = source === "discussion" ? discussionTextForSummary(state.thread, item) : "";
+    if (source === "discussion" && !discussionText) {
+      if (!automatic) showToast("No public comments are available for a discussion summary");
+      return;
+    }
     stopActiveSummary();
     const storyId = Number(item.id);
-    state.summaries.set(storyId, { status: "extracting", text: "", error: "" });
+    state.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
     updateSummarySurface(storyId);
     const port = chrome.runtime.connect({ name: "harmonic-ai" });
     state.activeSummary = { storyId, port };
@@ -3775,13 +3821,13 @@ async function refreshFeed() {
         const current = summaryStateFor(storyId);
         state.summaries.set(storyId, { ...current, status: message.status, detail: String(message.detail || ""), error: "" });
       } else if (message.type === "progress") {
-        state.summaries.set(storyId, { status: "generating", text: String(message.text || ""), error: "" });
+        state.summaries.set(storyId, { status: "generating", source, text: String(message.text || ""), error: "" });
       } else if (message.type === "success") {
-        state.summaries.set(storyId, { status: "success", text: String(message.text || ""), error: "" });
+        state.summaries.set(storyId, { status: "success", source, text: String(message.text || ""), error: "" });
         if (state.activeSummary?.port === port) state.activeSummary = null;
         try { port.disconnect(); } catch {}
       } else if (message.type === "error") {
-        state.summaries.set(storyId, { status: "error", text: "", error: String(message.message || "Summary failed") });
+        state.summaries.set(storyId, { status: "error", source, text: "", errorCode: String(message.code || ""), error: String(message.message || "Summary failed") });
         if (state.activeSummary?.port === port) state.activeSummary = null;
         try { port.disconnect(); } catch {}
       }
@@ -3800,6 +3846,8 @@ async function refreshFeed() {
       model: state.settings.aiModel,
       systemPrompt: state.settings.aiSystemPrompt,
       streamResponses: state.settings.aiStreamResponses,
+      source,
+      ...(source === "discussion" ? { discussionText } : {}),
     });
   }
 

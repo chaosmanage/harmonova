@@ -96,34 +96,14 @@ try {
   assert.ok(await page.locator(".composer-format-help").isVisible());
   await page.locator(".composer-input").fill(postedText);
   await page.locator(".composer-input").press("Control+Enter");
-  await page.waitForFunction(() => document.querySelector(".composer-status")?.textContent?.includes("draft is kept"), null, { timeout: 12000 });
-  assert.equal(await page.locator(".composer").count(), 1, "Unconfirmed POST keeps its draft");
-  assert.equal(requests.filter(r => r.pathname === "/comment").length, 1);
-  console.log("ok - ambiguous redirected mock response preserves the draft");
-
-  // Playwright's fulfilled 302 does not follow the redirect as an actual HN
-  // server does; inject a confirmed module outcome in the extension's own
-  // isolated execution world to test the local insertion independently.
-  const cdp = await ctx.newCDPSession(page);
-  const contexts = new Map();
-  cdp.on("Runtime.executionContextCreated", e => contexts.set(e.context.id, e.context));
-  await cdp.send("Runtime.enable");
-  let isolated = null;
-  for (const id of contexts.keys()) {
-    const result = await cdp.send("Runtime.evaluate", { contextId: id, expression: "typeof HarmonicHN !== 'undefined'", returnByValue: true }).catch(() => null);
-    if (result?.result?.value === true) { isolated = id; break; }
-  }
-  assert.ok(isolated, "Extension isolated world available");
-  await cdp.send("Runtime.evaluate", {
-    contextId: isolated,
-    expression: 'HarmonicHN.postComment = async () => ({ status: "success", newComment: { id: ' + newId + ', parentId: ' + storyId + ', html: "<p>' + postedText + '</p>" } })',
-  });
-  await page.locator(".composer-submit").click();
+  // The POST is sent once. Read-only GET /item confirmation now detects the
+  // just-posted comment even when the POST redirected HTML was stale.
   await page.locator('.comment-row[data-comment-id="' + newId + '"]').waitFor({ state: "visible", timeout: 20000 });
+  console.log("ok - Chromium sends a single comment POST");
   assert.equal(requests.filter(r => r.pathname === "/comment").length, 1);
   assert.equal(await page.locator(".composer").count(), 0);
   assert.ok((await page.locator('.comment-row[data-comment-id="' + newId + '"]').innerText()).includes(postedText));
-  console.log("ok - Chromium inserts confirmed reply without waiting for Algolia");
+  console.log("ok - Chromium confirms via item fetch and inserts reply without waiting for Algolia");
 
   await page.locator(".thread-actions .thread-action[aria-label='More']").click();
   await page.locator(".harmonic-popup .popup-item", { hasText: "Sort comments" }).click();

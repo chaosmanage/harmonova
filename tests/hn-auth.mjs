@@ -38,6 +38,11 @@ function createHnMock() {
     bareSubmit: false,
     submitLoginPage: false,
     bareFavoriteResponse: false,
+    directCommentResponse: false,
+    commentReadLag: 0,
+    directSubmitResponse: false,
+    newSubmission: null,
+    suppressSubmittedIndex: false,
   };
   const requests = [];
 
@@ -78,7 +83,8 @@ function createHnMock() {
       }
       case "/item": {
         let html = state.loggedIn ? fixture("synthetic", "item-in.html") : fixture("synthetic", "item-out.html");
-        if (state.postedComment) {
+        if (state.postedComment && state.commentReadLag > 0) state.commentReadLag--;
+        else if (state.postedComment) {
           const escape = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
           const row = '<tr class="athing comtr" id="910099"><td colspan="3"><span class="comhead"><a class="hnuser">' + USER + '</a></span><div class="commtext">' + escape(state.postedComment) + '</div></td></tr>';
           html = html.replace('<table border="0" class="comment-tree"><tbody>', '<table border="0" class="comment-tree"><tbody>' + row);
@@ -91,6 +97,12 @@ function createHnMock() {
         return serveHtml(withUser(fixture("synthetic", "edit-in.html")));
       case "/delete-confirm":
         return serveHtml(withUser(fixture("synthetic", "delete-confirm-in.html")));
+      case "/submitted": {
+        const existing = '<tr class="athing" id="910090"><td><span class="titleline"><a href="item?id=910090">test</a></span></td></tr>';
+        const latest = state.newSubmission
+          ? '<tr class="athing" id="910101"><td><span class="titleline"><a href="' + (state.newSubmission.url || 'item?id=910101') + '">' + state.newSubmission.title + '</a></span></td></tr>' : '';
+        return serveHtml('<html><body><table id="hnmain">' + latest + existing + '</table></body></html>');
+      }
       case "/submit": {
         if (state.submitLoginPage) return serveHtml(fixture("login.html"));
         const html = withUser(fixture("synthetic", "submit-in.html"));
@@ -133,6 +145,10 @@ function createHnMock() {
     // Serve action responses as the redirect target's document directly:
     // Playwright-fulfilled 3xx responses are not re-intercepted, so a real
     // redirect's follow-up request would escape the mock and hit the network.
+    if (pathname === "/r" && method === "POST" && state.directSubmitResponse) {
+      if (!state.suppressSubmittedIndex) state.newSubmission = Object.fromEntries(new URLSearchParams(record.postData || ""));
+      return route.fulfill(serveHtml(withUser(fixture("synthetic", "news-in.html"))));
+    }
     if (["/vote", "/fave", "/hide", "/flag", "/r", "/xedit", "/xdelete"].includes(pathname)) {
       const goto = parsed.searchParams.get("goto");
       const id = parsed.searchParams.get("id");
@@ -153,7 +169,9 @@ function createHnMock() {
     if (pathname === "/comment") {
       const post = new URLSearchParams(record.postData || "");
       state.postedComment = post.get("text") || "";
-      return route.fulfill(redirect("/item?id=" + STORY_ID));
+      return route.fulfill(state.directCommentResponse
+        ? serveHtml(withUser(fixture("synthetic", "news-in.html")))
+        : redirect("/item?id=" + STORY_ID));
     }
     return route.fulfill(documentFor(pathname, parsed.search));
   }
@@ -524,9 +542,10 @@ await test("reply form opens through the queue and posts once (SEC-34)", async (
   assert.equal(opened.status, "ok", JSON.stringify(opened));
   assert.ok(hn.requests.some((request) => request.path.startsWith("/reply")), "reply form fetched");
   const posted = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'Test reply from the mocked suite')");
-  // A mock that does not supply a verifiable redirected item must never
-  // report posting success or discard the user's draft.
-  assert.equal(posted.status, "indeterminate", JSON.stringify(posted));
+  // The follow-up read-only item fetch can now confirm a post even when a
+  // mocked redirect is not followed by Playwright.
+  assert.equal(posted.status, "success", JSON.stringify(posted));
+  assert.equal(posted.newComment.id, 910099);
   const commentRequests = hn.requests.filter((request) => request.path.startsWith("/comment"));
   assert.equal(commentRequests.length, 1, "SEC-34: comment POST never retried");
   // HN protocol: the POST body must mirror the fetched form's hidden fields.
@@ -607,6 +626,57 @@ await test("Chromium bounds long right-click menus and hides job cards", async (
   await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display === 'none');
   await jobs.uncheck();
   await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display !== 'none');
+});
+
+await test("comment confirms via read-only item fetch after a stale POST response", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  const opened = await world.evaluate("HarmonicHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(opened.status, "ok", JSON.stringify(opened));
+  hn.state.directCommentResponse = true;
+  hn.state.commentReadLag = 1;
+  const result = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'fresh comment confirmation')");
+  assert.equal(result.status, "success", JSON.stringify(result));
+  assert.equal(result.newComment.id, 910099);
+  assert.equal(hn.requests.filter((r) => r.path === "/comment" && r.method === "POST").length, 1);
+  assert.ok(hn.requests.filter((r) => r.path.startsWith("/item")).length >= 2);
+});
+
+await test("submission confirms from new author-list ID and does not confuse older same-title posts", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.directSubmitResponse = true;
+  const opened = await world.evaluate("HarmonicHN.openSubmitForm()");
+  assert.equal(opened.status, "ok", JSON.stringify(opened));
+  const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'New post' })");
+  assert.equal(result.status, "success", JSON.stringify(result));
+  assert.equal(result.newStoryId, 910101);
+  assert.equal(hn.requests.filter((r) => r.path === "/r" && r.method === "POST").length, 1);
+  assert.ok(hn.requests.filter((r) => r.path.startsWith("/submitted")).length >= 2);
+});
+
+await test("unverifiable comment stays indeterminate without retrying POST", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  const opened = await world.evaluate("HarmonicHN.openReplyForm(" + SECOND_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(opened.status, "ok");
+  hn.state.directCommentResponse = true;
+  hn.state.commentReadLag = 100;
+  const result = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'unverified test comment')");
+  assert.equal(result.status, "indeterminate", JSON.stringify(result));
+  assert.equal(hn.requests.filter((r) => r.path === "/comment" && r.method === "POST").length, 1);
+});
+
+await test("matching older title cannot confirm a new unindexed submission", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.directSubmitResponse = true;
+  hn.state.suppressSubmittedIndex = true;
+  const opened = await world.evaluate("HarmonicHN.openSubmitForm()");
+  assert.equal(opened.status, "ok");
+  const result = await world.evaluate("HarmonicHN.submitStory(" + JSON.stringify(opened.handle) + ", { title: 'test', text: 'Unindexed' })");
+  assert.equal(result.status, "indeterminate", JSON.stringify(result));
+  assert.equal(hn.requests.filter((r) => r.path === "/r" && r.method === "POST").length, 1);
 });
 
 await browser.close();

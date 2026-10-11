@@ -126,3 +126,34 @@ test('empty streamed reasoning output retries once without streaming', async () 
   assert.equal(events.at(-1).text, 'Recovered summary');
   await worker.clearAiKey();
 });
+
+test('HTTP 403 gives a clear access restriction instead of a generic fetch error', async () => {
+  worker.fetch = async () => new Response('Forbidden', { status: 403, headers: { 'content-type': 'text/html' } });
+  await assert.rejects(worker.fetchArticleText('https://example.com/blocked'), (error) => {
+    assert.equal(error.code, 'ARTICLE_ACCESS_DENIED');
+    assert.match(error.message, /website does not allow Harmonic to read/i);
+    assert.match(error.message, /discussion instead/i);
+    return true;
+  });
+});
+
+test('opt-in discussion summary does not fetch blocked articles or mislabel source', async () => {
+  await worker.saveAiKey('private-discussion-key', 'session');
+  const requests = [];
+  worker.fetch = async (url, options) => {
+    requests.push({ url, body: options?.body });
+    if (!url.includes('openrouter.ai')) throw new Error('Article network request must not be made for discussion mode');
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Summary of commenters' } }] }), { headers: { 'content-type': 'application/json' } });
+  };
+  const messages = [];
+  await worker.summarizeWithOpenRouter({ postMessage: (value) => messages.push(value) }, {
+    storyId: 17, url: 'https://example.com/blocked', source: 'discussion', discussionText: 'HN discussion: browser extension usability, preferences, feedback and concerns.',
+    model: 'openrouter/free', systemPrompt: 'Summarize this article', streamResponses: false,
+  }, new AbortController());
+  assert.equal(requests.length, 1);
+  const body = JSON.parse(requests[0].body);
+  assert.match(body.messages[0].content, /NOT read the linked article/);
+  assert.match(body.messages[1].content, /extension usability/);
+  assert.equal(messages.at(-1).text, 'Summary of commenters');
+  await worker.clearAiKey();
+});

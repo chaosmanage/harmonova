@@ -500,7 +500,15 @@ async function fetchArticleText(url, signal) {
     signal,
     headers: { Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
   });
-  if (!response.ok) throw new Error("Article returned HTTP " + response.status);
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      const error = new Error("Article access denied (HTTP " + response.status + "). This website does not allow Harmonic to read the article automatically. You can open it in your browser or summarize the public Hacker News discussion instead.");
+      error.code = "ARTICLE_ACCESS_DENIED";
+      throw error;
+    }
+    if (response.status === 429) throw new Error("Article website is rate-limiting requests (HTTP 429). Please try later.");
+    throw new Error("Article website returned HTTP " + response.status);
+  }
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
   if (contentType && !contentType.includes("html") && !contentType.includes("text/plain") && !contentType.includes("xml")) {
     throw new Error("Article is not readable text");
@@ -665,7 +673,13 @@ async function summarizeWithOpenRouter(port, message, controller) {
   if (!key) throw new Error("OpenRouter API key is not configured");
 
   port.postMessage({ type: "status", storyId, status: "extracting" });
-  const articleText = await fetchArticleText(message.url, controller.signal);
+  const discussion = message.source === "discussion";
+  const articleText = discussion
+    ? String(message.discussionText || "").slice(0, MAX_ARTICLE_CHARACTERS)
+    : await fetchArticleText(message.url, controller.signal);
+  if (discussion && (articleText.length < 30 || !HarmonicUrlPolicy.isAllowedRemoteUrl(message.url))) {
+    throw new Error("Not enough public Hacker News discussion text to summarize.");
+  }
   port.postMessage({ type: "status", storyId, status: "generating", inputCharacters: articleText.length });
 
   const stream = message.streamResponses !== false;
@@ -674,7 +688,9 @@ async function summarizeWithOpenRouter(port, message, controller) {
     stream,
     max_tokens: 2200,
     messages: [
-      { role: "system", content: prompt },
+      { role: "system", content: discussion
+        ? "Summarize ONLY the public Hacker News discussion supplied. You have NOT read the linked article. Identify main points and disagreements without inventing article content."
+        : prompt },
       { role: "user", content: articleText },
     ],
   };
@@ -745,6 +761,7 @@ chrome.runtime.onConnect.addListener((port) => {
             type: "error",
             storyId: Number(message.storyId),
             message: error?.message || "Summary failed",
+            code: error?.code || "",
           });
         } catch {}
       })

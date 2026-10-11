@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.13.2] - 2026-10-11
+
+### Fixed
+- **Comment confirmation:** Read back a newly posted comment on its actual HN item page up to three times when the POST result is stale or ambiguous. Never resend a comment POST, and preserve drafts when no confirmation appears.
+- **Story submission:** Snapshot the user's submitted story IDs before posting; verify new entries by exact title and URL where applicable. Handle HN's nonstandard POST replies without mistaking older same-title posts for new submissions. Keep unverified drafts.
+- **403 article summaries:** Explain when article sites deny automatic reading. Offer a user-initiated, explicitly labeled *discussion summary* using public HN comments, without bypassing the site's access controls or claiming to have summarized the article.
+
+### Tested
+- Added mocked successful and unconfirmed posting cases, HTTP 403 and discussion-mode summary tests, and refreshed Chromium comment-confirmation coverage.
+
 ## [0.13.1] - 2026-10-11
 
 ### Fixed
