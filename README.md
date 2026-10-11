@@ -1,3 +1,5 @@
+<p align="center"><img src="icons/harmonova-logo.svg" alt="HarmoNova for Hacker News" width="660"></p>
+
 # HarmoNova for Hacker News — Chrome Browser Extension
 
 **A better place to read Hacker News on your browser.**
@@ -6,7 +8,6 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 
 **Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson.** This is an independent project, not affiliated with or endorsed by the original developer.
 
-<p align="center"><img src="icons/harmonova-logo.svg" alt="HarmoNova for Hacker News" width="660"></p>
 
 ![HarmoNova showing colorful stories on the left and a discussion on the right](docs/assets/overview.png)
 
