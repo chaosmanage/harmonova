@@ -6,5 +6,8 @@ ref/
 *.png
 .DS_Store
 test-results*/
+tests/fixtures/hn/raw/
+*.har
+trace*.zip
 
 !icons/*.png

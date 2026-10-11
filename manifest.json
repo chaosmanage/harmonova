@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Harmonic for Hacker News",
-  "version": "0.7.2",
+  "version": "0.13.6",
   "description": "Hacker News with the Harmonic reading experience.",
   "permissions": [
     "storage",
@@ -11,6 +11,7 @@
     "http://*/*",
     "https://*/*"
   ],
+  "externally_connectable": {},
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -35,6 +36,9 @@
         "https://news.ycombinator.com/*"
       ],
       "js": [
+        "url-policy.js",
+        "hn-session.js",
+        "hn-search.js",
         "content.js"
       ],
       "css": [

@@ -111,7 +111,19 @@ try {
   await page.locator(".thread-title").waitFor({ state: "visible", timeout: 15000 });
   assert.equal(new URL(page.url()).searchParams.get("id"), secondId, "comment button should select discussion");
 
-  await page.getByRole("button", { name: "More" }).last().click();
+  // Thread toolbar keeps its primary actions and exposes the two AI sources.
+  const threadLabels = await page.locator(".thread-actions button").evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute("aria-label")));
+  assert.equal(threadLabels.length, 5, "reply, vote, two summaries, and More should be the only toolbar buttons");
+  for (const label of ["Open author", "Comments", "Bookmark", "Share"]) {
+    assert.ok(!threadLabels.includes(label), "remove redundant toolbar control " + label);
+  }
+  assert.ok(threadLabels.includes("Add reply") && threadLabels.includes("Summarize discussion") && threadLabels.includes("Summarize article"));
+  assert.equal(await page.locator('.thread-actions [role="group"][aria-label="AI summaries"]').count(), 1, "source actions stay grouped in the toolbar");
+  // The thread More menu (comment rows also have per-comment "More" buttons).
+  const threadMore = page.locator(".thread-actions button.thread-action[aria-label='More']");
+  await threadMore.click();
+  assert.ok((await page.locator('.harmonic-popup').textContent()).includes('Bookmark story'), 'bookmarks move to More');
   await page.getByRole("button", { name: /Sort comments/ }).click();
   const sortLabels = await page.locator(".harmonic-popup .popup-item").allTextContents();
   for (const mode of ["Default", "Newest first", "Oldest first", "Reply count"]) {
@@ -119,7 +131,7 @@ try {
   }
   await page.getByRole("button", { name: /Newest first/ }).click();
   await page.waitForTimeout(300);
-  await page.getByRole("button", { name: "More" }).last().click();
+  await threadMore.click();
   assert.ok((await page.locator(".harmonic-popup").textContent()).includes("Sort comments · Newest first"), "selected sort mode should persist in the thread menu");
   await page.locator(".harmonic-popup").evaluate((e) => e.remove());
 
@@ -133,6 +145,12 @@ try {
     assert.ok(settingsText.includes(label), "settings should contain " + label);
   }
 
+  const openSettingsCategory = async (name) => {
+    const back = page.locator(".settings-back");
+    if (await back.isVisible()) await back.click();
+    await page.locator(".settings-category", { hasText: name }).click();
+  };
+  await openSettingsCategory("Stories");
   const zoomRow = page.locator(".setting-row").filter({ hasText: "Content zoom" });
   const zoomSlider = zoomRow.locator('input[type="range"]');
   assert.equal(await zoomSlider.inputValue(), "100", "default desktop content zoom should match Harmonic at 100%");
@@ -150,12 +168,14 @@ try {
   });
   assert.equal(backedUpZoom, 80, "settings should keep the unpacked-update backup on the Hacker News origin");
 
+  await openSettingsCategory("Comments");
   const commentSizeRow = page.locator(".setting-row").filter({ hasText: "Comment text size" });
   const commentSizeSlider = commentSizeRow.locator('input[type="range"]');
   await commentSizeSlider.fill("16");
   await page.waitForTimeout(150);
   assert.ok((await commentSizeRow.textContent()).includes("16 sp"), "comment text size should be adjustable");
 
+  await openSettingsCategory("AI");
   const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
   assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
 
@@ -185,8 +205,11 @@ try {
   assert.ok((await promptEditor.inputValue()).includes("summarizing articles"), "system prompt reset should restore Harmonic's default");
 
   // Restore Harmonic defaults before the visual regression screenshot.
+  await openSettingsCategory("Stories");
   await zoomSlider.fill("100");
+  await openSettingsCategory("Comments");
   await commentSizeSlider.fill("15");
+  await openSettingsCategory("Stories");
   const cardClickRow = page.locator(".setting-row").filter({ hasText: "Card click opens comments" });
   const cardClickInput = cardClickRow.locator('input[type="checkbox"]');
   await cardClickInput.check();
@@ -252,7 +275,7 @@ try {
     });
   });
 
-  await page.getByRole("button", { name: "Story tools" }).click();
+  await page.getByRole("button", { name: "Summarize article" }).click();
   await page.locator(".story-summary").waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "success", null, { timeout: 10000 });
   const summaryText = (await page.locator(".story-summary-body").textContent()) || "";
@@ -263,41 +286,51 @@ try {
   assert.ok(openRouterPayload?.messages?.[0]?.content?.includes("summarizing articles"), "summary request should use Harmonic's system prompt");
   assert.ok(openRouterPayload?.messages?.[1]?.content?.includes("Alpha finding about browser extensions"), "summary request should send extracted article text");
   assert.ok((openRouterPayload?.messages?.[1]?.content || "").length <= 15000, "article input should respect Harmonic's 15k character budget");
-  const regeneratedLabel = await page.locator('[data-summary-action-id="' + summaryStoryId + '"]').getAttribute("aria-label");
-  assert.equal(regeneratedLabel, "Regenerate summary", "Story tools should become a one-click regenerate action after success");
+  const regeneratedLabel = await page.locator('[data-summary-action-id="' + summaryStoryId + '"][data-summary-source="article"]').getAttribute("aria-label");
+  assert.equal(regeneratedLabel, "Regenerate article summary", "Article action should allow regeneration after success");
   assert.equal(await page.evaluate((secret) => document.documentElement.outerHTML.includes(secret), testApiKey), false, "key must not appear in the HN DOM");
+  if (await page.locator('.comment-row').count()) {
+    await page.getByRole("button", { name: "Summarize discussion" }).click();
+    await page.waitForFunction(() => document.querySelector('.story-summary')?.dataset.status === 'success');
+    assert.equal(await page.locator('.story-summary-heading strong').textContent(), 'Discussion summary');
+    assert.match(openRouterPayload.messages[0].content, /NOT read the linked article/);
+    assert.match(openRouterPayload.messages[1].content, /Hacker News discussion/);
+    assert.equal(await page.getByRole("button", { name: "Regenerate discussion summary" }).count(), 1);
+    await page.getByRole("button", { name: "Summarize article" }).click();
+    await page.waitForFunction(() => document.querySelector('.story-summary')?.dataset.status === 'success' && document.querySelector('.story-summary-heading strong')?.textContent === 'Summary');
+  }
 
   aiResponseMode = "error";
-  await page.getByRole("button", { name: "Regenerate summary" }).click();
+  await page.getByRole("button", { name: "Regenerate article summary" }).click();
   await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "error");
   assert.ok((await page.locator(".story-summary-body").textContent()).includes("Free model rate limit"), "provider errors should be actionable");
 
   aiResponseMode = "delayed";
-  await page.getByRole("button", { name: "Story tools" }).click();
-  await page.getByRole("button", { name: "Cancel summary" }).waitFor({ state: "visible" });
-  await page.getByRole("button", { name: "Cancel summary" }).click();
+  await page.getByRole("button", { name: "Summarize article" }).click();
+  await page.getByRole("button", { name: "Cancel article summary" }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Cancel article summary" }).click();
   await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "idle");
   await page.waitForTimeout(1100);
   assert.equal(await page.locator(".story-summary").getAttribute("data-status"), "idle", "cancelled chunks must not replace idle state");
 
   const requestsBeforeNavigation = aiRequests;
-  await page.getByRole("button", { name: "Story tools" }).click();
-  await page.getByRole("button", { name: "Cancel summary" }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Summarize article" }).click();
+  await page.getByRole("button", { name: "Cancel article summary" }).waitFor({ state: "visible" });
   await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "generating");
   await page.locator(".story-card").nth((summaryStoryIndex + 1) % count).locator(".story-comment-button").click();
   await page.locator(".thread-title").waitFor({ state: "visible" });
   await summaryStoryCard.locator(".story-comment-button").click();
-  await page.locator('[data-summary-action-id="' + summaryStoryId + '"]').waitFor({ state: "visible" });
+  await page.locator('[data-summary-action-id="' + summaryStoryId + '"][data-summary-source="article"]').waitFor({ state: "visible" });
   assert.equal(await page.locator(".story-summary").getAttribute("data-status"), "idle", "revisiting a cancelled story must allow a new summary");
   assert.ok(aiRequests > requestsBeforeNavigation, "navigation should cancel a real pending request");
   aiResponseMode = "stream";
-  await page.getByRole("button", { name: "Story tools" }).click();
+  await page.getByRole("button", { name: "Summarize article" }).click();
   await page.waitForFunction(() => document.querySelector(".story-summary")?.dataset.status === "success");
 
   if (process.env.OPENROUTER_TEST_KEY) {
     await extensionWorker.evaluate((key) => saveAiKey(key, "session"), process.env.OPENROUTER_TEST_KEY);
     aiResponseMode = "live";
-    await page.getByRole("button", { name: "Regenerate summary" }).click();
+    await page.getByRole("button", { name: "Regenerate article summary" }).click();
     await page.waitForFunction(() => ["success", "error"].includes(document.querySelector(".story-summary")?.dataset.status), null, { timeout: 125000 });
     const liveStatus = await page.locator(".story-summary").getAttribute("data-status");
     const liveText = await page.locator(".story-summary-body").textContent();
@@ -315,6 +348,7 @@ try {
     await page.locator(".feed-toolbar-actions .icon-button").last().click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.locator(".settings-overlay").waitFor({ state: "visible" });
+    await page.locator(".settings-category", { hasText: "AI" }).click();
   };
   await openAiSettings();
   assert.equal(await page.locator(".ai-settings-section textarea").inputValue(), openRouterPayload.messages[0].content, "AI settings should survive reload");
@@ -333,7 +367,7 @@ try {
   await credentialPage.locator("#clear").click();
   await credentialPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("cleared"));
   await credentialPage.close();
-  await page.getByRole("button", { name: "Regenerate summary" }).click();
+  await page.getByRole("button", { name: "Regenerate article summary" }).click();
   await page.locator(".settings-overlay").waitFor({ state: "visible" });
   assert.ok((await page.locator(".ai-key-status").textContent()).includes("Not set"), "missing key should direct users to setup");
   await page.locator(".settings-header .icon-button").click();
@@ -365,6 +399,7 @@ try {
   await page.locator(".feed-toolbar-actions .icon-button").last().click();
   await page.getByRole("button", { name: "Settings" }).click();
   await page.locator(".settings-overlay").waitFor({ state: "visible" });
+  await page.locator(".settings-category", { hasText: "Stories" }).click();
   await page.locator(".setting-row").filter({ hasText: "Card click opens comments" }).locator('input[type="checkbox"]').uncheck();
   await page.locator(".settings-header .icon-button").click();
   await page.locator(".settings-overlay").waitFor({ state: "detached" });
@@ -439,6 +474,38 @@ try {
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   assert.equal(await page.locator(".harmonic-app").count(), 1, "reloading after popup re-enable should restore Harmonic");
+
+  // Regression: long comment headings must not expand the popup to screen size.
+  await page.locator(".comment-card").first().waitFor({ state: "visible", timeout: 15000 });
+  await page.locator(".comment-card").first().click({ button: "right" });
+  const popupMetrics = await page.locator(".harmonic-popup").evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return { width: box.width, height: box.height, left: box.left, top: box.top,
+      viewportWidth: innerWidth, viewportHeight: innerHeight,
+      accent: getComputedStyle(node.querySelector('[data-icon="star"] .harmonic-icon')).color };
+  });
+  assert.ok(popupMetrics.width <= 310 && popupMetrics.height <= 540, "context menu should be compact and scrollable");
+  assert.ok(popupMetrics.left >= 0 && popupMetrics.top >= 0 && popupMetrics.left + popupMetrics.width <= popupMetrics.viewportWidth, "menu stays on screen");
+  assert.notEqual(popupMetrics.accent, "rgb(200, 198, 207)", "action icons use subtle theme accents");
+  await page.mouse.click(4, 4);
+
+  // Regression: setting hidden=true must beat .story-card display:grid.
+  await page.evaluate(() => {
+    const job = document.querySelector('.story-list .story-card').cloneNode(true);
+    job.dataset.storyId = '999999999';
+    job.dataset.type = 'job';
+    document.querySelector('.story-list').prepend(job);
+  });
+  await page.locator(".feed-toolbar-actions .icon-button").last().click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.locator(".settings-category", { hasText: "Stories" }).click();
+  const hideJobsInput = page.locator(".setting-row").filter({ hasText: "Hide jobs" }).locator('input[type="checkbox"]');
+  await hideJobsInput.check();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display === "none");
+  await hideJobsInput.uncheck();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display !== "none");
+  await page.locator(".settings-header .icon-button").click();
+  await page.locator('[data-story-id="999999999"]').evaluate((node) => node.remove());
 
   console.log(JSON.stringify({
     storyCards: count,

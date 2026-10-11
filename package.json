@@ -1,13 +1,27 @@
 {
   "name": "harmonic-hn-browser",
-  "version": "0.7.2",
+  "version": "0.13.6",
   "private": true,
   "type": "module",
   "scripts": {
     "test:reload": "node tests/reload.mjs",
     "test:ai": "node --test tests/ai-worker.mjs",
     "test:e2e": "node tests/e2e.mjs",
-    "package": "bash scripts/package.sh"
+    "test:security": "node --test tests/security.mjs",
+    "test:security:browser": "SECURITY_BROWSER_TESTS=1 EXTENSION_PATH=\"$PWD/dist/harmonic-hn-browser\" node tests/security.mjs",
+    "test:hn-parser": "node tests/hn-parser.mjs",
+    "test:hn-auth": "node tests/hn-auth.mjs",
+    "test:search": "node tests/search.mjs",
+    "test:voting": "node tests/voting.mjs",
+    "test:fix-regressions": "node tests/fix-regressions.mjs",
+    "test:comments": "node tests/comments.mjs",
+    "test:actions": "node tests/actions.mjs",
+    "test:profile": "node tests/profile.mjs",
+    "test:parity": "node tests/parity.mjs",
+    "test:live": "node tests/live.mjs",
+    "package": "bash scripts/package.sh",
+    "test:comment-parity": "node tests/comment-parity.mjs",
+    "test:links": "node tests/links.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.1"

@@ -22,8 +22,16 @@ const worker = vm.createContext({
       onMessage: { addListener(fn) { listeners.message = fn; } },
     },
   },
+  importScripts: (...files) => {
+    for (const file of files) {
+      vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), worker);
+    }
+  },
   URL, AbortController, AbortSignal, TextDecoder, setTimeout, clearTimeout,
+  crypto: { subtle: { digest: (algo, bytes) => crypto.subtle.digest(algo, bytes) } },
+  btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
   fetch: async () => { throw new Error('Unexpected network request'); },
+  Response, ReadableStream, OffscreenCanvas: class {}, createImageBitmap: async () => { throw new Error('no image'); },
 });
 vm.runInContext(fs.readFileSync(new URL('../background.js', import.meta.url), 'utf8'), worker);
 const stream = (chunks) => new Response(new ReadableStream({ start(controller) {
@@ -95,4 +103,57 @@ test('non-streaming request uses private credentials and the capped article', as
   assert.ok(!JSON.stringify(progress).includes('test-private-key'));
   await worker.clearAiKey();
   await assert.rejects(worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, url: 'https://example.com', model: 'openrouter/free', systemPrompt: 'Summarize' }, new AbortController()), /key is not configured/);
+});
+
+
+test('empty streamed reasoning output retries once without streaming', async () => {
+  await worker.saveAiKey('retry-test-key', 'session');
+  const requests = [];
+  worker.fetch = async (url, options) => {
+    if (!url.includes('openrouter.ai')) return new Response('Article content', { headers: { 'content-type': 'text/plain' } });
+    const request = JSON.parse(options.body);
+    requests.push(request);
+    if (request.stream) return stream(['data: {"choices":[{"delta":{"reasoning":"thinking"},"finish_reason":"length"}],"usage":{"completion_tokens":2200}}\n\n', 'data: [DONE]\n\n']);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Recovered summary' } }] }));
+  };
+  const events = [];
+  await worker.summarizeWithOpenRouter({ postMessage: (event) => events.push(event) }, { storyId: 77, url: 'https://example.com/story', model: 'example/reasoning', systemPrompt: 'Summarize', streamResponses: true }, new AbortController());
+  assert.equal(requests.length, 2, 'one recovery request only');
+  assert.equal(requests[0].max_tokens, 2200);
+  assert.equal(requests[1].max_tokens, 3500);
+  assert.equal(requests[1].stream, false);
+  assert.ok(events.some((event) => event.detail === 'Retrying without streaming…'));
+  assert.equal(events.at(-1).text, 'Recovered summary');
+  await worker.clearAiKey();
+});
+
+test('HTTP 403 gives a clear access restriction instead of a generic fetch error', async () => {
+  worker.fetch = async () => new Response('Forbidden', { status: 403, headers: { 'content-type': 'text/html' } });
+  await assert.rejects(worker.fetchArticleText('https://example.com/blocked'), (error) => {
+    assert.equal(error.code, 'ARTICLE_ACCESS_DENIED');
+    assert.match(error.message, /website does not allow Harmonic to read/i);
+    assert.match(error.message, /discussion instead/i);
+    return true;
+  });
+});
+
+test('opt-in discussion summary does not fetch blocked articles or mislabel source', async () => {
+  await worker.saveAiKey('private-discussion-key', 'session');
+  const requests = [];
+  worker.fetch = async (url, options) => {
+    requests.push({ url, body: options?.body });
+    if (!url.includes('openrouter.ai')) throw new Error('Article network request must not be made for discussion mode');
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Summary of commenters' } }] }), { headers: { 'content-type': 'application/json' } });
+  };
+  const messages = [];
+  await worker.summarizeWithOpenRouter({ postMessage: (value) => messages.push(value) }, {
+    storyId: 17, source: 'discussion', discussionText: 'HN discussion: browser extension usability, preferences, feedback and concerns.',
+    model: 'openrouter/free', systemPrompt: 'Summarize this article', streamResponses: false,
+  }, new AbortController());
+  assert.equal(requests.length, 1);
+  const body = JSON.parse(requests[0].body);
+  assert.match(body.messages[0].content, /NOT read the linked article/);
+  assert.match(body.messages[1].content, /extension usability/);
+  assert.equal(messages.at(-1).text, 'Summary of commenters');
+  await worker.clearAiKey();
 });
