@@ -77,7 +77,7 @@
     nitterRedirect: false,
     nitterInstance: "nitter.net",
     uiTheme: "amoled",
-    uiFont: "system",
+    uiFont: "rounded",
   };
 
   const ICONS = {
@@ -630,8 +630,8 @@
     const root = document.documentElement;
     const themes = ["amoled", "charcoal", "navy"];
     root.dataset.theme = themes.includes(state.settings.uiTheme) ? state.settings.uiTheme : "amoled";
-    const fonts = ["system", "serif"];
-    root.dataset.font = fonts.includes(state.settings.uiFont) ? state.settings.uiFont : "system";
+    const fonts = ["rounded", "system", "serif"];
+    root.dataset.font = fonts.includes(state.settings.uiFont) ? state.settings.uiFont : "rounded";
   }
 
   function showToast(message, options = {}) {
@@ -4391,7 +4391,7 @@ async function refreshFeed() {
     appearanceSection.append(
       el("h3", "", "Appearance"),
       settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
-      settingSelect("Font", "uiFont", [["system", "System UI"], ["serif", "Serif"]]),
+      settingSelect("Font", "uiFont", [["rounded", "Google Sans Flex Rounded"], ["system", "System UI"], ["serif", "Serif"]]),
       el("p", "settings-note", "Themes restyle HarmoNova's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
     );
 
@@ -4619,7 +4619,22 @@ async function refreshFeed() {
     sendResponse({ ok: true });
   });
 
+  // Resolve bundled font URLs from Chrome's extension origin, not the HN page.
+  function installRoundedFont() {
+    if (document.getElementById("harmonova-rounded-fonts")) return;
+    const normal = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-wght.ttf");
+    const italic = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-Italic-wght.ttf");
+    const sheet = document.createElement("style");
+    sheet.id = "harmonova-rounded-fonts";
+    sheet.textContent = `
+      @font-face {font-family:"Google Sans Flex Rounded";src:url("${normal}") format("truetype");font-style:normal;font-weight:100 900;font-display:swap;}
+      @font-face {font-family:"Google Sans Flex Rounded";src:url("${italic}") format("truetype");font-style:italic;font-weight:100 900;font-display:swap;}
+    `;
+    (document.head || document.documentElement).appendChild(sheet);
+  }
+
   function mount() {
+    installRoundedFont();
     document.body.className = "harmonova-body";
     document.body.replaceChildren();
     app = el("div", "harmonova-app");

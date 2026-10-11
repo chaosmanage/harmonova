@@ -1832,6 +1832,8 @@ html.harmonova-hn[data-theme="navy"]{
   --harmonova-surface:#141d31;
   --harmonova-surface-high:#263450;
 }
+html.harmonova-hn[data-font="rounded"]{--harmonova-font-stack:"Google Sans Flex Rounded",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+html.harmonova-hn[data-font="rounded"] .story-meta{font-family:inherit;font-variation-settings:normal;font-stretch:normal}
 html.harmonova-hn[data-font="system"]{--harmonova-font-stack:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
 html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New Roman",Times,serif}
 

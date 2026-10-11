@@ -103,6 +103,6 @@ You can always open **original Hacker News** from the menu or turn off HarmoNova
 
 **Credit:** HarmoNova was inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN), created by Simon Halvdansson. Thanks to Simon for publishing the original Android project under Apache License 2.0 and for the design inspiration.
 
-HarmoNova's icon and wordmark are independently designed, and the extension now uses browser/system fonts rather than the original project's rounded font. See [branding details](icons/README.md).
+HarmoNova uses its supplied icon and banner artwork. The default font is locally bundled Google Sans Flex Rounded (SIL Open Font License 1.1); System UI and Serif remain available. See [branding details](icons/README.md).
 
 HarmoNova is an independent project and is **not affiliated with or endorsed by** the Harmonic developer, Hacker News, or Y Combinator. This extension is licensed under [Apache License 2.0](LICENSE).

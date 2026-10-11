@@ -55,7 +55,7 @@ Open **Settings** from HarmoNova's menu or the extension toolbar popup.
 
 ![HarmoNova's settings panel organized by category](assets/settings.png)
 
-Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; adjust reading fonts, zoom and story display; change comment treatment; control preview images and favicons; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
+Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; use Google Sans Flex Rounded by default or switch to System UI or Serif; adjust zoom and story display; change comment treatment; control preview images and favicons; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
 
 | Appearance | Story settings |
 | --- | --- |
