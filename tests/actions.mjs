@@ -1,3 +1,5 @@
+import { hnRedirectFixture } from './helpers/network.mjs';
+import { launchExtension } from './helpers/extension.mjs';
 // HarmoNova Phase 4+5 UI suite: favorites, hide-with-undo, flag, bookmark bulk
 // favorite (SEC-37), and the story-submission modal — driven through the real
 // Chromium extension against fully mocked Hacker News documents. Companion to
@@ -5,7 +7,6 @@
 // asserts confirm-refetch favorites, undo toasts, confirmation-gated flagging
 // (SEC-36), serial cancellable bulk actions, and the exact POST /r submit
 // payload with every outcome branch.
-import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -13,7 +14,6 @@ import assert from "node:assert/strict";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
-const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
@@ -305,17 +305,8 @@ function createDataMocks() {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let harness;
+let browser;
 
 let passed = 0;
 let failed = 0;
@@ -336,16 +327,20 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 async function test(name, fn) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks();
-  await browser.route("**/*", async (route) => {
-    const parsed = new URL(route.request().url());
-    if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
-    if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
-  });
-  const page = await browser.newPage();
+  const hnServer = await hnRedirectFixture(hn.handle);
   try {
+    harness = await launchExtension({ destinations: new Map([['news.ycombinator.com:443', hnServer]]) });
+    browser = harness.context;
+    const dataMocks = createDataMocks();
+    await browser.route("**/*", async (route) => {
+      const parsed = new URL(route.request().url());
+      if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
+      if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
+      return route.fallback();
+    });
+    const page = await browser.newPage();
     await fn({ page, hn });
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -353,7 +348,7 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    try { await harness?.close(); } finally { await hnServer.close(); }
   }
 }
 
@@ -366,8 +361,8 @@ const openThreadFully = async (page) => {
   await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').click();
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
   await page.waitForFunction(
-    () => document.querySelector("[data-thread-vote]")?.classList.contains("active"),
-    { timeout: 20000 }
+    id => document.querySelector('.comment-row[data-comment-id="' + id + '"] [data-comment-vote-mark]')?.hidden === false,
+    VOTED_COMMENT, { timeout: 20000 }
   );
 };
 
@@ -660,7 +655,7 @@ await test("validationRequired on POST keeps the values and hands off to HN's st
   await page.locator(".submit-hn-open").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await page.locator(".submit-title").inputValue()), "Verification wall story", "values kept");
   // HN's stock form opens in a new original-mode tab (never auto-filled).
-  const hnTabPromise = page.context().waitForEvent("page");
+  const hnTabPromise = page.context().waitForEvent("page", { timeout: 15000 });
   await page.locator(".submit-hn-open").click();
   const hnTab = await hnTabPromise;
   // A native HN handoff succeeds once navigation commits; the public login
@@ -704,7 +699,7 @@ await test("untrusted scripted clicks never favorite, hide, flag, or open submit
   assert.equal(await page.locator(".harmonova-submit").count(), 0, "no submit modal from scripted clicks");
 });
 
-await browser.close();
+
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

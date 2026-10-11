@@ -1,8 +1,9 @@
+import { hnRedirectFixture } from './helpers/network.mjs';
+import { launchExtension } from './helpers/extension.mjs';
 // HarmoNova mocked account e2e suite (Phase 0.5.2 harness; extended per phase).
 // Fully mocks Hacker News documents and actions with fixtures so account flows
 // can be exercised without credentials. Every HN request is recorded and can be
 // asserted for exact method, path, and parameters.
-import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -10,7 +11,6 @@ import assert from "node:assert/strict";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
-const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
@@ -361,37 +361,43 @@ async function assertNoTokenLeakage(page, consoleMessages) {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let harness;
+let browser;
 
 let passed = 0;
 let failed = 0;
 const failures = [];
 
 async function test(name, fn) {
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks([910001, 910002, 910003]);
-  await browser.route("**/*", async (route) => {
-    const parsed = new URL(route.request().url());
-    if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
-    if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
-  });
-  const page = await browser.newPage();
-  const consoleMessages = [];
-  page.on("console", (message) => consoleMessages.push(message.text()));
-  page.on("pageerror", (error) => consoleMessages.push("pageerror: " + error.message));
+  const hnServer = await hnRedirectFixture(hn.handle);
   try {
+    harness = await launchExtension({ destinations: new Map([['news.ycombinator.com:443', hnServer]]) });
+    browser = harness.context;
+    const dataMocks = createDataMocks([910001, 910002, 910003]);
+    await browser.route("**/*", async (route) => {
+      const parsed = new URL(route.request().url());
+      if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
+      if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
+      return route.fallback();
+    });
+    await browser.route('https://example.test/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Offline article</title><p>Fixture</p>' }));
+    // Observe completion of the app's automatic item-state update. Initial
+    // optimistic vote buttons are built detached and do not trigger this observer.
+    await browser.addInitScript(() => {
+      window.__initialHnStateApplied = false;
+      new MutationObserver(records => {
+        if (records.some(r => r.type === 'attributes' && r.attributeName === 'title' && r.target.matches?.('[data-thread-vote]')))
+          window.__initialHnStateApplied = true;
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ['title'] });
+    });
+    const page = await browser.newPage();
+    const consoleMessages = [];
+    page.on("console", (message) => consoleMessages.push(message.text()));
+    page.on("pageerror", (error) => consoleMessages.push("pageerror: " + error.message));
     await fn({ page, hn, consoleMessages });
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -399,13 +405,14 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    try { await harness?.close(); } finally { await hnServer.close(); }
   }
 }
 
 const gotoFeed = async (page) => {
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
+  await page.waitForFunction(() => window.__initialHnStateApplied);
 };
 
 await test("session harvests from a logged-in fixture document", async ({ page, hn, consoleMessages }) => {
@@ -834,7 +841,7 @@ await test("HN delete cannot be reported successful when readbacks lack a delete
   assert.equal(hn.requests.filter((r) => r.method === 'POST').length, 1);
 });
 
-await browser.close();
+
 console.log(`\nhn-auth: ${passed} passed, ${failed} failed`);
 if (failed) {
   for (const failure of failures) console.error(failure.stack || failure.message);

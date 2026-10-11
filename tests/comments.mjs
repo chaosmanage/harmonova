@@ -1,3 +1,5 @@
+import { hnRedirectFixture } from './helpers/network.mjs';
+import { launchExtension } from './helpers/extension.mjs';
 // HarmoNova Phase 3 UI suite: commenting, replies, edits, deletes, and drafts,
 // driven through the real Chromium extension against fully mocked Hacker News
 // documents. Companion to tests/hn-auth.mjs (module flows) and tests/voting.mjs
@@ -5,7 +7,6 @@
 // and restore, the exact POST /comment payload, no-retry POSTs, native
 // Hacker News edit/delete handoffs (without mutations), and trusted-click
 // gating (SEC-30).
-import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -13,7 +14,6 @@ import assert from "node:assert/strict";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
-const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
@@ -255,17 +255,8 @@ function createDataMocks() {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let harness;
+let browser;
 
 let passed = 0;
 let failed = 0;
@@ -286,16 +277,20 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 async function test(name, fn) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks();
-  await browser.route("**/*", async (route) => {
-    const parsed = new URL(route.request().url());
-    if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
-    if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
-  });
-  const page = await browser.newPage();
+  const hnServer = await hnRedirectFixture(hn.handle);
   try {
+    harness = await launchExtension({ destinations: new Map([['news.ycombinator.com:443', hnServer]]) });
+    browser = harness.context;
+    const dataMocks = createDataMocks();
+    await browser.route("**/*", async (route) => {
+      const parsed = new URL(route.request().url());
+      if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
+      if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
+      return route.fallback();
+    });
+    const page = await browser.newPage();
     await fn({ page, hn });
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -303,7 +298,7 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    try { await harness?.close(); } finally { await hnServer.close(); }
   }
 }
 
@@ -687,7 +682,7 @@ await test("signed out, replying asks for sign-in and opens no HN forms", async 
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/reply")).length, 0, "no /reply traffic signed out");
 });
 
-await browser.close();
+
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

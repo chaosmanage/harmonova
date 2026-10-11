@@ -21,7 +21,8 @@
     "test:live": "node tests/live.mjs",
     "package": "bash scripts/package.sh",
     "test:comment-parity": "node tests/comment-parity.mjs",
-    "test:links": "node tests/links.mjs"
+    "test:links": "node tests/links.mjs",
+    "test:harness": "node --test tests/harness.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.1"
