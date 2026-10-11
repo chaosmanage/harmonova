@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Harmonic for Hacker News",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "description": "Hacker News with the Harmonic reading experience.",
   "permissions": [
     "storage",

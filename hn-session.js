@@ -927,7 +927,10 @@
     if (page.classification === "ok" && !edited) {
       for (let attempt = 0; attempt < 3 && !edited; attempt++) {
         try {
-          const fresh = await enqueue("/item?id=" + entry.storyId);
+          // A comment may be absent from the story's first page because HN
+          // paginates large threads; check its permalink before the thread.
+          const path = attempt === 0 ? "/item?id=" + entry.commentId : "/item?id=" + entry.storyId;
+          const fresh = await enqueue(path);
           if (fresh.classification !== "ok" || !redirectedToItem(fresh)) break;
           verified = fresh;
           edited = findOwnComment(fresh.doc, entry.username, null, text, entry.commentId);
@@ -939,41 +942,79 @@
     return outcome;
   }
 
+  function parseDeleteForm(doc) {
+    return parseFormByPredicate(doc, (element) => {
+      const action = (element.getAttribute("action") || "").replace(/^\//, "");
+      if (!["xdelete", "r"].includes(action) ||
+          (element.getAttribute("method") || "GET").toUpperCase() !== "POST") return false;
+      if (action === "r" && !/delete/i.test(element.querySelector('input[name="fnop"]')?.value || "")) return false;
+      return true;
+    });
+  }
+
   async function openDeleteForm(commentId, options = {}) {
     if (!currentSession) return { status: "loginRequired", message: "Sign in to delete" };
+    if (!Number.isSafeInteger(commentId) || commentId <= 0) return { status: "failure", message: "Invalid comment ID" };
+    const username = currentSession.username;
     const goto = options.goto || gotoForItem(options.storyId);
     const page = await enqueue("/delete-confirm?" + new URLSearchParams({ id: String(commentId), ...(goto ? { goto } : {}) }).toString());
-    if (page.classification === "loginPage") { setSession(null, null); return { status: "loginRequired", message: "Sign in to delete" }; }
+    if (page.classification === "loginPage") {
+      return { status: "loginRequired", message: "Hacker News requires you to sign in before deleting. Open the comment on Hacker News." };
+    }
     if (page.classification !== "ok") return { status: "failure", message: "Hacker News did not offer a delete form for this comment.", detail: page.classification };
-    const form = parseFormByPredicate(page.doc, (f) => true) // the page hosts exactly one form
-      || parseFormByPredicate(page.doc, (f) => f.querySelector('input[type="submit"]'));
-    if (!form || Number(form.fields.id) !== commentId) return { status: "failure", message: "Hacker News delete form did not match this comment. Delete on Hacker News instead.", detail: "" };
+    const form = parseDeleteForm(page.doc);
+    const hasHmac = Boolean(form && HEX40.test(form.fields.hmac || "") && Number(form.fields.id) === commentId);
+    const hasFnid = Boolean(form && FNID.test(form.fields.fnid || "") &&
+      /delete/i.test(form.fields.fnop || "") &&
+      (form.fields.id === undefined || Number(form.fields.id) === commentId));
+    // The modern one-time fnid already identifies the comment on HN's server.
+    // Old-style hmac requests still require an explicit matching item ID.
+    if (!form || (!hasHmac && !hasFnid) ||
+        (form.fields.id !== undefined && Number(form.fields.id) !== commentId)) {
+      return { status: "failure", message: "Hacker News did not provide a matching delete confirmation form. Open the comment on Hacker News to check whether deletion is still available.", detail: "deleteFormUnavailable" };
+    }
     refreshSessionFromDoc(page.doc);
-    if (!currentSession) return { status: "loginRequired", message: "Sign in to delete" };
+    if (currentSession?.username !== username) return accountChangedOutcome();
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    formHandles.set(handle, { kind: "delete", action: form.action || "xdelete", fields: { ...form.fields }, username: currentSession.username, commentId, storyId: options.storyId || commentId, createdAt: Date.now() });
+    formHandles.set(handle, { kind: "delete", action: form.action.replace(/^\//, ""), fields: { ...form.fields }, username, commentId, storyId: options.storyId || commentId, createdAt: Date.now() });
     return { status: "ok", handle };
+  }
+
+  function isDeletedComment(doc, commentId) {
+    const row = doc.querySelector('tr.comtr[id="' + commentId + '"]');
+    if (!row) return false; // Absence can be pagination, never proof of deletion.
+    const body = row.querySelector(".commtext");
+    const text = (body?.textContent || "").replace(/\s+/g, " ").trim();
+    const wholeRow = (row.textContent || "").replace(/\s+/g, " ").trim();
+    return /^\[deleted\]$/i.test(text) ||
+      (!row.querySelector(".hnuser") && /\[deleted\]/i.test(wholeRow));
   }
 
   async function deleteComment(handle) {
     const entry = getHandle(handle, "delete");
     if (entry === null) return { status: "failure", message: "This delete form is no longer valid. Refresh and try again." };
     if (entry === "changed") return accountChangedOutcome();
-    const page = await enqueue("/" + (entry.action || "xdelete"), { method: "POST", body: { ...entry.fields } });
+    const page = await enqueue("/" + entry.action, { method: "POST", body: { ...entry.fields } });
     let verified = page;
-    if (page.classification === "ok" && !redirectedToItem(page)) {
-      try {
-        if (new URL(page.url).pathname === "/xdelete") verified = await enqueue("/item?id=" + entry.storyId);
-      } catch {}
+    let deleted = page.classification === "ok" && redirectedToItem(page)
+      ? isDeletedComment(page.doc, entry.commentId) : false;
+    // HN may redirect through /r, serve a stale thread, or paginate comments.
+    // Only independent GET reads can confirm deletion; never retry the POST.
+    if (page.classification === "ok" && !deleted) {
+      for (let attempt = 0; attempt < 3 && !deleted; attempt++) {
+        try {
+          const path = attempt === 0 ? "/item?id=" + entry.commentId : "/item?id=" + entry.storyId;
+          const fresh = await enqueue(path);
+          if (fresh.classification !== "ok" || !redirectedToItem(fresh)) break;
+          verified = fresh;
+          deleted = isDeletedComment(fresh.doc, entry.commentId);
+        } catch { break; }
+      }
     }
-    const target = verified.doc.getElementById(String(entry.commentId));
-    const knownBefore = itemKnownComments.get(entry.storyId)?.has(entry.commentId);
-    const deleted = Boolean(knownBefore) && (!target || /^\[deleted\]$/i.test(target.querySelector(".commtext")?.textContent?.trim() || ""));
-    const outcome = formOutcome(page, () => {
-      try { return ["/item", "/news"].includes(new URL(verified.url).pathname) && deleted; }
-      catch { return false; }
-    }, { indeterminate: "Hacker News did not confirm the delete. Check the comment before retrying." });
+    const outcome = formOutcome(page, () => redirectedToItem(verified) && deleted, {
+      indeterminate: "Hacker News has not confirmed the deletion. The action was sent only once; check the original comment before trying again.",
+    });
     if (outcome.status === "success") formHandles.delete(handle);
     return outcome;
   }

@@ -24,7 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.13.4**.
+The current extension version is **0.13.5**.
+
+Version 0.13.5 improves **comment editing and deletion** by reading back each comment permalink when its thread is paginated, accepting HN delete confirmation forms with server-bound `fnid`/`fnop` tokens (without assuming a hidden ID), and checking for explicit `[deleted]` markers before reporting success. Neither edit nor delete requests are automatically repeated. If HN cannot confirm the result, Harmonic provides a direct link to inspect the comment.
 
 Version 0.13.4 repairs **comment editing** against both HN edit-form variants (including one-time `fnid`/`fnop` forms without an explicit ID), verifies edits against the refreshed thread, and changes **story submission** to fetch the one-use HN form *after* checking the session and existing submissions. Unconfirmed posts retain the draft and offer native HN submission and history links.
 

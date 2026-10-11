@@ -47,6 +47,10 @@ function createHnMock() {
     editFnidForm: false,
     editWrongId: false,
     editedText: null,
+    deleteFnidForm: false,
+    deleteWrongId: false,
+    deletedComment: false,
+    deleteReadLag: 0,
   };
   const requests = [];
 
@@ -87,6 +91,11 @@ function createHnMock() {
       }
       case "/item": {
         let html = state.loggedIn ? fixture("synthetic", "item-in.html") : fixture("synthetic", "item-out.html");
+        if (state.deletedComment && state.deleteReadLag > 0) state.deleteReadLag--;
+        else if (state.deletedComment) {
+          const row = '<tr class="athing comtr" id="' + EDIT_COMMENT + '"><td><span class="comhead">[deleted]</span><div class="commtext">[deleted]</div></td></tr>';
+          html = html.replace('<table border="0" class="comment-tree"><tbody>', '<table border="0" class="comment-tree"><tbody>' + row);
+        }
         if (state.editedText !== null) {
           const escape = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
           const row = '<tr class="athing comtr" id="' + EDIT_COMMENT + '"><td><span class="comhead"><a class="hnuser">' + USER + '</a></span><div class="commtext">' + escape(state.editedText) + '</div></td></tr>';
@@ -112,8 +121,16 @@ function createHnMock() {
         }
         return serveHtml(withUser(html));
       }
-      case "/delete-confirm":
-        return serveHtml(withUser(fixture("synthetic", "delete-confirm-in.html")));
+      case "/delete-confirm": {
+        let html = fixture("synthetic", "delete-confirm-in.html");
+        if (state.deleteFnidForm) {
+          html = html.replace('action="xdelete"', 'action="r"')
+            .replace(/<input type="hidden" name="hmac" value="[^"]+">/, '<input type="hidden" name="fnid" value="AbCdEf123456Zz"><input type="hidden" name="fnop" value="delete-comment">')
+            .replace(/<input type="hidden" name="id" value="[^"]+">/,
+              state.deleteWrongId ? '<input type="hidden" name="id" value="99999999">' : '');
+        }
+        return serveHtml(withUser(html));
+      }
       case "/submitted": {
         const existing = '<tr class="athing" id="910090"><td><span class="titleline"><a href="item?id=910090">test</a></span></td></tr>';
         const latest = state.newSubmission
@@ -171,6 +188,10 @@ function createHnMock() {
     // Serve action responses as the redirect target's document directly:
     // Playwright-fulfilled 3xx responses are not re-intercepted, so a real
     // redirect's follow-up request would escape the mock and hit the network.
+    if (pathname === "/r" && method === "POST" && record.bodyParams.fnop === "delete-comment") {
+      state.deletedComment = true;
+      return route.fulfill(serveHtml(withUser(fixture("synthetic", "news-in.html"))));
+    }
     if (pathname === "/r" && method === "POST" && record.bodyParams.fnop === "edit-comment") {
       state.editedText = record.bodyParams.text;
       return route.fulfill(serveHtml(withUser(fixture("synthetic", "news-in.html"))));
@@ -771,6 +792,45 @@ await test("HN submit form is fetched last before using the one-time token", asy
   const postIndex = hn.requests.findIndex((request) => request.path === "/r" && request.method === "POST");
   assert.equal(hn.requests[postIndex - 1].path, "/submit", "do not make GET requests between fnid and POST");
   assert.equal(hn.requests.filter((request) => request.path === "/r" && request.method === "POST").length, 1);
+});
+
+await test("HN delete form accepts a server-bound fnid without hidden ID and confirms read-only", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.deleteFnidForm = true;
+  hn.state.deleteReadLag = 1;
+  const opened = await world.evaluate("HarmonicHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(opened.status, "ok", JSON.stringify(opened));
+  const result = await world.evaluate("HarmonicHN.deleteComment(" + JSON.stringify(opened.handle) + ")");
+  assert.equal(result.status, "success", JSON.stringify(result));
+  const posts = hn.requests.filter((r) => r.method === 'POST' && r.path === '/r');
+  assert.equal(posts.length, 1, "send deletion exactly once");
+  assert.equal(posts[0].bodyParams.fnid, 'AbCdEf123456Zz');
+  assert.equal(posts[0].bodyParams.fnop, 'delete-comment');
+  assert.match(posts[0].contentType, /^application\/x-www-form-urlencoded/);
+  assert.ok(hn.requests.some((r) => r.path === '/item?id=' + EDIT_COMMENT), 'check direct permalink after POST');
+});
+
+await test("HN delete confirmation with an explicit wrong ID never mutates", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.deleteFnidForm = true;
+  hn.state.deleteWrongId = true;
+  const result = await world.evaluate("HarmonicHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(result.status, "failure", JSON.stringify(result));
+  assert.equal(hn.requests.filter((r) => r.method === 'POST').length, 0);
+});
+
+await test("HN delete cannot be reported successful when readbacks lack a deleted marker", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.deleteFnidForm = true;
+  hn.state.deleteReadLag = 100;
+  const opened = await world.evaluate("HarmonicHN.openDeleteForm(" + EDIT_COMMENT + ", { storyId: " + STORY_ID + " })");
+  assert.equal(opened.status, "ok", JSON.stringify(opened));
+  const result = await world.evaluate("HarmonicHN.deleteComment(" + JSON.stringify(opened.handle) + ")");
+  assert.equal(result.status, "indeterminate", JSON.stringify(result));
+  assert.equal(hn.requests.filter((r) => r.method === 'POST').length, 1);
 });
 
 await browser.close();

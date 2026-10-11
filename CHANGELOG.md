@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.13.5] - 2026-10-11
+
+### Fixed
+- **Deleting comments:** Accept HN's one-use `r`/`fnid`/`fnop` confirmation forms as well as older `xdelete` forms, while requiring a valid authorization token and enforcing any explicit comment ID. Read back the comment's permalink and thread up to three times, only confirming deletion when HN visibly marks it deleted.
+- **Editing comments:** Check the individual comment permalink first when the parent thread is paginated or the edit response is stale. Never retry mutation requests automatically.
+- **Action recovery:** Preserve ambiguous results and offer a direct link to the original HN comment so users can check the result before retrying.
+
+### Tested
+- Added browser-mocked token-based delete confirmation, mismatched-ID rejection, delayed delete confirmation, and unconfirmed deletion safety cases. Existing edit and delete interaction tests remain covered.
+
 ## [0.13.4] - 2026-10-11
 
 ### Fixed

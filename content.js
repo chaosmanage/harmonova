@@ -3390,7 +3390,11 @@ async function refreshFeed() {
           try {
             const opened = await window.HarmonicHN.openDeleteForm(comment.id, { storyId: state.selectedId || comment.id });
             if (opened.status !== "ok") {
-              showToast(opened.message || "Hacker News did not offer a delete form for this comment.");
+              showToast(opened.message || "Hacker News did not offer a delete form for this comment.", {
+                actionLabel: "Check on HN",
+                onAction: () => openOriginalHackerNews("/item?id=" + comment.id),
+                duration: 9000,
+              });
               return;
             }
             const outcome = await window.HarmonicHN.deleteComment(opened.handle);
@@ -3409,7 +3413,11 @@ async function refreshFeed() {
               if (existing && model) existing.replaceWith(renderComment(model, depth));
               showToast("Comment deleted");
             } else {
-              showToast(outcome.message || "The delete did not go through");
+              showToast(outcome.message || "The delete did not go through", {
+                actionLabel: "Check on HN",
+                onAction: () => openOriginalHackerNews("/item?id=" + comment.id),
+                duration: 9000,
+              });
             }
           } finally {
             deleteButton.disabled = false;
