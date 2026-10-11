@@ -455,6 +455,38 @@ try {
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
   assert.equal(await page.locator(".harmonic-app").count(), 1, "reloading after popup re-enable should restore Harmonic");
 
+  // Regression: long comment headings must not expand the popup to screen size.
+  await page.locator(".comment-card").first().waitFor({ state: "visible", timeout: 15000 });
+  await page.locator(".comment-card").first().click({ button: "right" });
+  const popupMetrics = await page.locator(".harmonic-popup").evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return { width: box.width, height: box.height, left: box.left, top: box.top,
+      viewportWidth: innerWidth, viewportHeight: innerHeight,
+      accent: getComputedStyle(node.querySelector('[data-icon="star"] .harmonic-icon')).color };
+  });
+  assert.ok(popupMetrics.width <= 310 && popupMetrics.height <= 540, "context menu should be compact and scrollable");
+  assert.ok(popupMetrics.left >= 0 && popupMetrics.top >= 0 && popupMetrics.left + popupMetrics.width <= popupMetrics.viewportWidth, "menu stays on screen");
+  assert.notEqual(popupMetrics.accent, "rgb(200, 198, 207)", "action icons use subtle theme accents");
+  await page.mouse.click(4, 4);
+
+  // Regression: setting hidden=true must beat .story-card display:grid.
+  await page.evaluate(() => {
+    const job = document.querySelector('.story-list .story-card').cloneNode(true);
+    job.dataset.storyId = '999999999';
+    job.dataset.type = 'job';
+    document.querySelector('.story-list').prepend(job);
+  });
+  await page.locator(".feed-toolbar-actions .icon-button").last().click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.locator(".settings-category", { hasText: "Stories" }).click();
+  const hideJobsInput = page.locator(".setting-row").filter({ hasText: "Hide jobs" }).locator('input[type="checkbox"]');
+  await hideJobsInput.check();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display === "none");
+  await hideJobsInput.uncheck();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display !== "none");
+  await page.locator(".settings-header .icon-button").click();
+  await page.locator('[data-story-id="999999999"]').evaluate((node) => node.remove());
+
   console.log(JSON.stringify({
     storyCards: count,
     fontLoaded,

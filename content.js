@@ -806,7 +806,7 @@
     return searchPanel;
   }
 
-  function openPopup(anchor, items) {
+  function openPopup(anchor, items, pointer = null) {
     document.querySelector(".harmonic-popup")?.remove();
     const popup = el("div", "harmonic-popup");
     for (const item of items) {
@@ -816,7 +816,10 @@
       }
       const row = el("button", "popup-item");
       row.type = "button";
-      if (item.icon) row.appendChild(svg(item.icon));
+      if (item.icon) {
+        row.dataset.icon = item.icon;
+        row.appendChild(svg(item.icon));
+      }
       row.appendChild(el("span", "", item.label));
       row.addEventListener("click", (event) => {
         if (!event.isTrusted) return; // SEC-30: scripted menu clicks never act
@@ -827,8 +830,13 @@
     }
     document.body.appendChild(popup);
     const rect = anchor.getBoundingClientRect();
-    popup.style.top = Math.min(window.innerHeight - popup.offsetHeight - 10, rect.bottom + 8) + "px";
-    popup.style.left = Math.max(10, rect.right - popup.offsetWidth) + "px";
+    const margin = 8;
+    const width = popup.offsetWidth;
+    const height = popup.offsetHeight;
+    const targetX = pointer ? pointer.x : rect.right - width;
+    const targetY = pointer ? pointer.y : rect.bottom + margin;
+    popup.style.left = Math.max(margin, Math.min(targetX, window.innerWidth - width - margin)) + "px";
+    popup.style.top = Math.max(margin, Math.min(targetY, window.innerHeight - height - margin)) + "px";
     setTimeout(() => {
       const close = (e) => {
         if (!popup.contains(e.target)) {
@@ -1461,11 +1469,17 @@ function openSubmitModal() {
     titleCount.textContent = titleInput.value.length + "/80";
   });
 
-  const fail = (message) => {
+  const fail = (message, handoff = false) => {
     submit.disabled = false;
     status.hidden = false;
-    status.textContent = message;
+    status.replaceChildren(document.createTextNode(message));
     status.classList.add("error");
+    if (handoff) {
+      const open = el("button", "submit-hn-open", "Continue on Hacker News");
+      open.type = "button";
+      open.addEventListener("click", () => openOriginalHackerNews("/submit"));
+      status.appendChild(open);
+    }
   };
 
   submit.addEventListener("click", (event) => {
@@ -1501,7 +1515,7 @@ function openSubmitModal() {
         const opened = await window.HarmonicHN.openSubmitForm();
         if (opened.status !== "ok") {
           if (opened.status === "loginRequired") updateAccountChip();
-          fail(opened.message || "Could not open the Hacker News submit form. Open it on Hacker News instead.");
+          fail(opened.message || "Could not open the Hacker News submit form. Open it on Hacker News instead.", true);
           return;
         }
         status.textContent = "Posting your story…";
@@ -2459,7 +2473,7 @@ function openFeedMenu(anchor) {
     const q = searchInput.value.trim().toLowerCase();
     const domains = parseListSetting(state.settings.hiddenDomains);
     const keywords = parseListSetting(state.settings.hiddenKeywords);
-    const hideJobs = state.settings.hideJobs && state.feed !== "jobs";
+    const hideJobs = state.settings.hideJobs;
     const hideRead = state.settings.hideRead;
     document.querySelectorAll(".story-card").forEach((card) => {
       const hay = (card.dataset.search || "").toLowerCase();
@@ -2769,12 +2783,21 @@ function openFeedMenu(anchor) {
     showToast("Hiding " + domain);
   }
 
+  function isJobStory(story) {
+    if (story.type === "job") return true;
+    // Some HN lists expose hiring submissions as regular stories.
+    // Match explicit hiring announcements, not general articles about employment.
+    return /\b(?:is hiring|we(?:'|’)?re hiring|we are hiring|hiring for)\b/i.test(story.title || "")
+      && (/\bYC\s*[A-Z]\d{2}\b/i.test(story.title || "")
+        || /\b(?:jobs?\.|jobs?\/|careers?\.|careers?\/|ashbyhq\.|greenhouse\.|lever\.)/i.test(story.url || ""));
+  }
+
   function createStoryCard(story, index) {
     const card = el("article", "story-card");
     card.dataset.storyId = String(story.id);
     card.dataset.search = (story.title || "") + " " + domainOf(story.url);
     card.dataset.domain = domainOf(story.url);
-    card.dataset.type = story.type || "story";
+    card.dataset.type = isJobStory(story) ? "job" : (story.type || "story");
     card.style.setProperty("--fallback-tint", hashTint(domainOf(story.url)));
     if (state.readIds.has(story.id)) card.classList.add("is-read");
     if (state.selectedId === story.id) card.classList.add("selected");
@@ -2813,7 +2836,7 @@ function openFeedMenu(anchor) {
         ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => hideDomain(story) }] : []),
         { label: state.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => toggleBookmark(story.id) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
-      ]);
+      ], event.type === "contextmenu" || event.type === "pointerdown" ? { x: event.clientX, y: event.clientY } : null);
     };
     card.addEventListener("contextmenu", showStoryActions);
     let cardHoldTimer;
@@ -3479,7 +3502,7 @@ async function refreshFeed() {
         ...(state.itemState?.comments?.[comment.id]?.flagAvailable
           ? [{ label: "Flag comment", icon: "flag", action: (popupEvent) => confirmFlagItem(popupEvent, comment.id, "comment") }]
           : []),
-      ]);
+      ], event.type === "contextmenu" || event.type === "pointerdown" ? { x: event.clientX, y: event.clientY } : null);
     };
     moreButton.addEventListener("click", showCommentActions);
     meta.appendChild(moreButton);
@@ -3660,7 +3683,7 @@ async function refreshFeed() {
     const status = surface.querySelector(".story-summary-status");
     const body = surface.querySelector(".story-summary-body");
     if (current.status === "extracting") status.textContent = "Reading article…";
-    else if (current.status === "generating") status.textContent = "Summarizing…";
+    else if (current.status === "generating") status.textContent = current.detail || "Summarizing…";
     else if (current.status === "error") status.textContent = "Summary failed";
     else status.textContent = "";
     if (current.status === "error") {
@@ -3750,7 +3773,7 @@ async function refreshFeed() {
       if (state.activeSummary?.port !== port || Number(message?.storyId) !== storyId) return;
       if (message.type === "status") {
         const current = summaryStateFor(storyId);
-        state.summaries.set(storyId, { ...current, status: message.status, error: "" });
+        state.summaries.set(storyId, { ...current, status: message.status, detail: String(message.detail || ""), error: "" });
       } else if (message.type === "progress") {
         state.summaries.set(storyId, { status: "generating", text: String(message.text || ""), error: "" });
       } else if (message.type === "success") {

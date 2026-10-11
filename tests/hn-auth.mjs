@@ -34,6 +34,10 @@ function createHnMock() {
     errorScript: [],
     loginUsername: USER,
     postedComment: null,
+    bareNews: false,
+    bareSubmit: false,
+    submitLoginPage: false,
+    bareFavoriteResponse: false,
   };
   const requests = [];
 
@@ -45,6 +49,8 @@ function createHnMock() {
   };
 
   const withUser = (html) => (state.loginUsername === USER ? html : html.split(USER).join(state.loginUsername));
+  const withoutAccountLinks = (html) => html.replace(/<span class="pagetop">[\s\S]*?<\/span>/g,
+    (span) => span.includes('id="logout"') ? '<span class="pagetop">Action page</span>' : span);
 
   const serveHtml = (html) => ({ status: 200, contentType: "text/html; charset=utf-8", body: html });
   const redirect = (location) => ({ status: 302, headers: { location }, body: "" });
@@ -65,8 +71,11 @@ function createHnMock() {
     const params = new URLSearchParams(search);
     switch (pathname) {
       case "/news":
-      case "/":
-        return serveHtml(withUser(state.loggedIn ? fixture("synthetic", "news-in.html") : fixture("news.html")));
+      case "/newest":
+      case "/": {
+        const html = withUser(state.loggedIn ? fixture("synthetic", "news-in.html") : fixture("news.html"));
+        return serveHtml(state.bareNews ? withoutAccountLinks(html) : html);
+      }
       case "/item": {
         let html = state.loggedIn ? fixture("synthetic", "item-in.html") : fixture("synthetic", "item-out.html");
         if (state.postedComment) {
@@ -82,8 +91,11 @@ function createHnMock() {
         return serveHtml(withUser(fixture("synthetic", "edit-in.html")));
       case "/delete-confirm":
         return serveHtml(withUser(fixture("synthetic", "delete-confirm-in.html")));
-      case "/submit":
-        return serveHtml(withUser(fixture("synthetic", "submit-in.html")));
+      case "/submit": {
+        if (state.submitLoginPage) return serveHtml(fixture("login.html"));
+        const html = withUser(fixture("synthetic", "submit-in.html"));
+        return serveHtml(state.bareSubmit ? withoutAccountLinks(html) : html);
+      }
       case "/login":
         return serveHtml(fixture("login.html"));
       default:
@@ -128,7 +140,11 @@ function createHnMock() {
       const qIndex = target.indexOf("?");
       const targetPath = qIndex === -1 ? target : target.slice(0, qIndex);
       const targetSearch = qIndex === -1 ? "" : target.slice(qIndex + 1);
-      return route.fulfill(documentFor(targetPath, targetSearch));
+      const result = documentFor(targetPath, targetSearch);
+      if (pathname === "/fave" && state.bareFavoriteResponse) {
+        return route.fulfill(serveHtml(withoutAccountLinks(result.body)));
+      }
+      return route.fulfill(result);
     }
     if (pathname === "/logout") {
       // HN invalidates the session on logout; serve a logged-out document.
@@ -520,6 +536,77 @@ await test("reply form opens through the queue and posts once (SEC-34)", async (
   assert.equal(commentRequests[0].params.hmac, formHmac);
   assert.equal(commentRequests[0].method, "POST");
   await assertNoTokenLeakage(page, consoleMessages);
+});
+
+await test("partial HN navigation bars do not sign out a confirmed account", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.bareNews = true;
+  const list = await world.evaluate("HarmonicHN.fetchListPage('/newest')");
+  assert.equal(list.status, "ok", JSON.stringify(list));
+  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  hn.state.bareNews = false;
+  hn.state.bareSubmit = true;
+  const submit = await world.evaluate("HarmonicHN.openSubmitForm()");
+  assert.equal(submit.status, "ok", JSON.stringify(submit));
+  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.ok(hn.requests.filter((request) => request.path === "/news").length >= 2, "submission re-verifies the account");
+  assert.equal(hn.requests.filter((request) => request.method === "POST").length, 0, "opening a submit form never posts");
+});
+
+await test("HN login gate on submit does not clear an otherwise active account", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.submitLoginPage = true;
+  const submit = await world.evaluate("HarmonicHN.openSubmitForm()");
+  assert.equal(submit.status, "failure", JSON.stringify(submit));
+  assert.match(submit.message, /active session/);
+  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.equal(hn.requests.filter((request) => request.method === "POST").length, 0);
+});
+
+await test("favorite response without account links preserves the session", async ({ page, hn }) => {
+  await gotoFeed(page);
+  const world = await attachIsolatedWorld(page);
+  hn.state.bareFavoriteResponse = true;
+  const result = await world.evaluate("HarmonicHN.setFavorite(" + STORY_ID + ", true)");
+  assert.equal(result.status, "success", JSON.stringify(result));
+  assert.equal((await world.evaluate("HarmonicHN.session()"))?.username, USER);
+  assert.equal(hn.requests.filter((request) => request.path.startsWith("/logout")).length, 0);
+});
+
+await test("Chromium bounds long right-click menus and hides job cards", async ({ page }) => {
+  await gotoFeed(page);
+  await page.locator('.story-card .story-comment-button').first().click();
+  const comment = page.locator('.comment-card').first();
+  await comment.waitFor({ state: 'visible', timeout: 15000 });
+  await comment.locator('.comment-body').evaluate((node) => { node.textContent = 'very long excerpt '.repeat(100); });
+  await comment.click({ button: 'right' });
+  const popup = await page.locator('.harmonic-popup').evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, left: rect.left, top: rect.top,
+      viewportWidth: innerWidth, viewportHeight: innerHeight,
+      color: getComputedStyle(node.querySelector('[data-icon="star"] .harmonic-icon')).color };
+  });
+  assert.ok(popup.width <= 310 && popup.height <= 540, JSON.stringify(popup));
+  assert.ok(popup.left >= 0 && popup.top >= 0 && popup.left + popup.width <= popup.viewportWidth
+    && popup.top + popup.height <= popup.viewportHeight, JSON.stringify(popup));
+  assert.notEqual(popup.color, 'rgb(200, 198, 207)', 'bookmark icon uses Harmonic accent');
+  await page.mouse.click(3, 3);
+  await page.evaluate(() => {
+    const job = document.querySelector('.story-list .story-card').cloneNode(true);
+    job.dataset.storyId = '999999999';
+    job.dataset.type = 'job';
+    document.querySelector('.story-list').prepend(job);
+  });
+  await page.locator('.feed-toolbar-actions .icon-button').last().click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('.settings-category', { hasText: 'Stories' }).click();
+  const jobs = page.locator('.setting-row').filter({ hasText: 'Hide jobs' }).locator('input[type="checkbox"]');
+  await jobs.check();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display === 'none');
+  await jobs.uncheck();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-story-id="999999999"]')).display !== 'none');
 });
 
 await browser.close();

@@ -576,12 +576,27 @@ function openRouterContent(value) {
   }).join("");
 }
 
+function emptySummaryError(reason = "", usage = null) {
+  const cause = reason === "length"
+    ? "The model ran out of output tokens before producing visible text (possibly spent on reasoning)."
+    : reason === "content_filter"
+      ? "The model or provider filtered the output."
+      : "The model returned no visible content.";
+  const tokens = Number(usage?.completion_tokens);
+  const detail = Number.isFinite(tokens) && tokens > 0 ? " Completion tokens used: " + tokens + "." : "";
+  const error = new Error("OpenRouter returned an empty summary. " + cause + detail + " Try a different or non-reasoning model in AI settings.");
+  error.code = "EMPTY_SUMMARY";
+  return error;
+}
+
 async function streamOpenRouter(response, onProgress) {
   if (!response.body) throw new Error("OpenRouter returned no response body");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let summary = "";
+  let finishReason = "";
+  let usage = null;
 
   const consumeEvent = (event) => {
     const data = event.split("\n")
@@ -594,6 +609,8 @@ async function streamOpenRouter(response, onProgress) {
     catch { throw new Error("OpenRouter returned invalid streaming data"); }
     if (parsed?.choices?.[0]?.finish_reason === "error" && !parsed.error) throw new Error("OpenRouter stream failed");
     if (parsed?.error) throw new Error(parsed.error.message || "OpenRouter request failed");
+    if (parsed?.choices?.[0]?.finish_reason) finishReason = parsed.choices[0].finish_reason;
+    if (parsed?.usage) usage = parsed.usage;
     const chunk = openRouterContent(parsed?.choices?.[0]?.delta?.content);
     if (chunk) {
       if (summary.length + chunk.length > MAX_SUMMARY_CHARACTERS) throw new Error("Summary exceeded size limit");
@@ -614,7 +631,7 @@ async function streamOpenRouter(response, onProgress) {
       buffer = buffer.slice(boundary + 2);
       if (consumeEvent(event)) {
         await reader.cancel();
-        if (!summary) throw new Error("OpenRouter returned an empty summary");
+        if (!summary.trim()) throw emptySummaryError(finishReason, usage);
         return summary;
       }
     }
@@ -622,7 +639,17 @@ async function streamOpenRouter(response, onProgress) {
   }
   buffer += decoder.decode();
   if (buffer.trim()) consumeEvent(buffer);
-  if (!summary) throw new Error("OpenRouter returned an empty summary");
+  if (!summary.trim()) throw emptySummaryError(finishReason, usage);
+  return summary;
+}
+
+async function jsonOpenRouterSummary(response) {
+  const json = JSON.parse(await readResponseTextLimited(response, MAX_SUMMARY_CHARACTERS * 2));
+  if (json?.error) throw new Error(json.error.message || "OpenRouter request failed");
+  const choice = json?.choices?.[0];
+  const summary = openRouterContent(choice?.message?.content).trim();
+  if (!summary) throw emptySummaryError(choice?.finish_reason, json?.usage);
+  if (summary.length > MAX_SUMMARY_CHARACTERS) throw new Error("Summary exceeded size limit");
   return summary;
 }
 
@@ -642,6 +669,15 @@ async function summarizeWithOpenRouter(port, message, controller) {
   port.postMessage({ type: "status", storyId, status: "generating", inputCharacters: articleText.length });
 
   const stream = message.streamResponses !== false;
+  const requestPayload = {
+    model,
+    stream,
+    max_tokens: 2200,
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: articleText },
+    ],
+  };
   const response = await fetch(OPENROUTER_CHAT_URL, {
     method: "POST",
     signal: controller.signal,
@@ -652,15 +688,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
       "Accept": stream ? "text/event-stream" : "application/json",
       "X-Title": "Harmonic for Hacker News",
     },
-    body: JSON.stringify({
-      model,
-      stream,
-      max_tokens: 1000,
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: articleText },
-      ],
-    }),
+    body: JSON.stringify(requestPayload),
   });
   if (!response.ok) {
     const body = await readResponseTextLimited(response, 16_000).catch(() => "");
@@ -669,15 +697,28 @@ async function summarizeWithOpenRouter(port, message, controller) {
 
   let summary;
   if (stream) {
-    summary = await streamOpenRouter(response, (text) => {
-      port.postMessage({ type: "progress", storyId, text });
-    });
+    try {
+      summary = await streamOpenRouter(response, (text) => {
+        port.postMessage({ type: "progress", storyId, text });
+      });
+    } catch (error) {
+      if (error?.code !== "EMPTY_SUMMARY" || controller.signal.aborted) throw error;
+      // Reasoning-heavy models sometimes exhaust the first budget without text.
+      // Make at most one non-streaming recovery attempt with a larger budget.
+      port.postMessage({ type: "status", storyId, status: "generating", detail: "Retrying without streaming…" });
+      const retry = await fetch(OPENROUTER_CHAT_URL, {
+        method: "POST", signal: controller.signal, credentials: "omit",
+        headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", "X-Title": "Harmonic for Hacker News" },
+        body: JSON.stringify({ ...requestPayload, stream: false, max_tokens: 3500 }),
+      });
+      if (!retry.ok) {
+        const body = await readResponseTextLimited(retry, 16_000).catch(() => "");
+        throw new Error("Empty summary retry failed (HTTP " + retry.status + "): " + openRouterError(body, "Provider rejected the retry"));
+      }
+      summary = await jsonOpenRouterSummary(retry);
+    }
   } else {
-    const json = JSON.parse(await readResponseTextLimited(response, MAX_SUMMARY_CHARACTERS * 2));
-    if (json?.error) throw new Error(json.error.message || "OpenRouter request failed");
-    summary = openRouterContent(json?.choices?.[0]?.message?.content).trim();
-    if (!summary) throw new Error("OpenRouter returned an empty summary");
-    if (summary.length > MAX_SUMMARY_CHARACTERS) throw new Error("Summary exceeded size limit");
+    summary = await jsonOpenRouterSummary(response);
   }
   port.postMessage({ type: "success", storyId, text: summary });
 }

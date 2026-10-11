@@ -6,8 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
-- Nothing yet.
+### Fixed
+- **Context menus:** Keep comment and story right-click actions compact, viewport-bounded, scrollable, and readable even for very long comment excerpts; tint icons subtly to match the Harmonic themes.
+- **HN account actions:** Do not mistake partial HN navigation bars or submit-only login gates for an actual sign-out. Verify the active account before issuing submission forms, preserve draft contents, and offer an original-HN handoff when submission requires verification.
+- **Hide jobs:** Honor the setting in every feed, correctly hide grid-layout cards, and detect YC hiring announcements that the HN API classifies as regular stories.
+- **AI summaries:** Explain empty or filtered model responses using provider finish reasons, increase the output budget, and retry a reasoning-only empty stream once without streaming.
+
+### Tested
+- Added mock HN session/favorite/submit regression cases, AI streaming recovery coverage, and Chromium popup/job-visibility checks.
 
 ## [0.13.0] - 2026-10-11
 

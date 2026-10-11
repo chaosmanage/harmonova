@@ -104,3 +104,25 @@ test('non-streaming request uses private credentials and the capped article', as
   await worker.clearAiKey();
   await assert.rejects(worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, url: 'https://example.com', model: 'openrouter/free', systemPrompt: 'Summarize' }, new AbortController()), /key is not configured/);
 });
+
+
+test('empty streamed reasoning output retries once without streaming', async () => {
+  await worker.saveAiKey('retry-test-key', 'session');
+  const requests = [];
+  worker.fetch = async (url, options) => {
+    if (!url.includes('openrouter.ai')) return new Response('Article content', { headers: { 'content-type': 'text/plain' } });
+    const request = JSON.parse(options.body);
+    requests.push(request);
+    if (request.stream) return stream(['data: {"choices":[{"delta":{"reasoning":"thinking"},"finish_reason":"length"}],"usage":{"completion_tokens":2200}}\n\n', 'data: [DONE]\n\n']);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Recovered summary' } }] }));
+  };
+  const events = [];
+  await worker.summarizeWithOpenRouter({ postMessage: (event) => events.push(event) }, { storyId: 77, url: 'https://example.com/story', model: 'example/reasoning', systemPrompt: 'Summarize', streamResponses: true }, new AbortController());
+  assert.equal(requests.length, 2, 'one recovery request only');
+  assert.equal(requests[0].max_tokens, 2200);
+  assert.equal(requests[1].max_tokens, 3500);
+  assert.equal(requests[1].stream, false);
+  assert.ok(events.some((event) => event.detail === 'Retrying without streaming…'));
+  assert.equal(events.at(-1).text, 'Recovered summary');
+  await worker.clearAiKey();
+});

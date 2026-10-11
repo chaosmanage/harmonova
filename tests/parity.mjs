@@ -408,7 +408,7 @@ await test("keyword filter hides matching titles case-insensitively", async ({ p
   assert.ok(!(await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').evaluate((node) => node.hidden)), "non-matching card visible");
 });
 
-await test("hide jobs filters job stories everywhere except the Jobs feed", async ({ page }) => {
+await test("hide jobs filters job stories in every feed, including Jobs", async ({ page }) => {
   await gotoFeed(page);
   assert.equal(await page.locator('.story-card[data-story-id="' + JOB_ID + '"]').count(), 1, "job card initially visible");
   const panel = await settingsPath(page);
@@ -419,12 +419,13 @@ await test("hide jobs filters job stories everywhere except the Jobs feed", asyn
     JOB_ID,
     { timeout: 10000 }
   );
-  // The dedicated Jobs feed keeps its job stories.
+  // The setting applies to every feed, even the dedicated Jobs feed.
+  assert.equal(await page.locator('.story-card[data-story-id="' + JOB_ID + '"]').evaluate((card) => getComputedStyle(card).display), "none");
   await feedMenu(page, "Jobs");
   await page.waitForFunction(
     (id) => {
       const card = document.querySelector('.story-card[data-story-id="' + id + '"]');
-      return card && !card.hidden;
+      return card && card.hidden && getComputedStyle(card).display === "none";
     },
     JOB_ID,
     { timeout: 20000 }

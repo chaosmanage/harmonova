@@ -223,10 +223,16 @@
     const right = pagetops[pagetops.length - 1];
     if (!right) return { username: null, karma: null, definitive: false };
     const logoutLink = right.querySelector('a#logout, a[href^="logout?"]');
-    if (!logoutLink) return { username: null, karma: null, definitive: true };
+    // Some HN action/form pages have a navigation bar but no account links.
+    // Absence of a logout link is NOT evidence of sign-out: only an explicit
+    // login link (or a verified login form) proves the server is logged out.
+    if (!logoutLink) {
+      const loginLink = right.querySelector('a[href^="login?"], a[href="login"], a[href^="/login?"]');
+      return { username: null, karma: null, definitive: Boolean(loginLink) };
+    }
     const meLink = right.querySelector('a#me, a[href^="user?id="]');
     const username = (meLink?.textContent || "").replace(/\(\d+\)/g, "").trim();
-    if (!username) return { username: null, karma: null, definitive: true };
+    if (!username) return { username: null, karma: null, definitive: false };
     const karmaText = doc.querySelector("#karma")?.textContent
       || right.textContent.match(/\((\d+)\)/)?.[1]
       || "";
@@ -935,15 +941,34 @@
 
   async function openSubmitForm() {
     if (!currentSession) return { status: "loginRequired", message: "Sign in to submit" };
+    const username = currentSession.username;
     const page = await enqueue("/submit");
-    if (page.classification === "loginPage") { setSession(null, null); return { status: "loginRequired", message: "Sign in to submit" }; }
+    if (page.classification === "loginPage") {
+      // /submit can gate an action even while /news still recognizes the user.
+      // Confirm the session before changing the account chip or clearing tokens.
+      const check = await enqueue("/news");
+      if (check.classification === "ok") refreshSessionFromDoc(check.doc);
+      if (currentSession?.username === username && parseTopBar(check.doc).username === username) {
+        return { status: "failure", message: "Hacker News is requesting sign-in for submission despite your active session. Open the original Hacker News submit page to complete any verification." };
+      }
+      return currentSession?.username && currentSession.username !== username
+        ? accountChangedOutcome()
+        : { status: "loginRequired", message: "Hacker News requires you to sign in again before submitting." };
+    }
     if (page.classification !== "ok") return { status: "failure", message: "Could not open the Hacker News submit form.", detail: page.classification };
     const form = parseFnidForm(page.doc);
     if (!form || !FNID.test(form.fields.fnid || "")) {
       return { status: "failure", message: "Hacker News submit form could not be read. Submit on Hacker News instead.", detail: "" };
     }
-    refreshSessionFromDoc(page.doc);
-    if (!currentSession) return { status: "loginRequired", message: "Sign in to submit" };
+    // Verify the acting account on a canonical page immediately before giving
+    // out a submit handle. Action-only pages may omit account UI altogether.
+    const verification = await enqueue("/news");
+    if (verification.classification !== "ok" || !parseTopBar(verification.doc).definitive) {
+      return { status: "failure", message: "Could not verify your Hacker News session. Nothing was posted; retry in a moment." };
+    }
+    refreshSessionFromDoc(verification.doc);
+    if (!currentSession) return { status: "loginRequired", message: "Hacker News requires you to sign in again before submitting." };
+    if (currentSession.username !== username) return accountChangedOutcome();
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
     formHandles.set(handle, { kind: "submit", action: form.action || "r", fields: { ...form.fields }, username: currentSession.username, createdAt: Date.now() });
