@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="280" viewBox="0 0 1080 280" role="img" aria-label="HarmoNova for Hacker News">
-<g transform="translate(12 12)"><rect x="10" y="10" width="236" height="236" rx="54" fill="#FBE3D5"/><g fill="#40200F"><rect x="64" y="70" width="34" height="120" rx="17"/><rect x="158" y="70" width="34" height="120" rx="17"/></g>
-<path d="M81 135 C103 111 120 110 138 130 S168 157 175 136" fill="none" stroke="#FBE3D5" stroke-width="31" stroke-linecap="round"/>
-<path d="M81 135 C103 111 120 110 138 130 S168 157 175 136" fill="none" stroke="#40200F" stroke-width="19" stroke-linecap="round"/>
-<path d="M82 148 C105 126 124 130 141 148 S166 166 175 152" fill="none" stroke="#C98060" stroke-width="10" stroke-linecap="round"/>
-</g>
-<text x="300" y="139" font-family="Arial,Helvetica,sans-serif" font-size="101" font-weight="700" letter-spacing="-3" fill="#40200F">HarmoNova</text>
-<text x="304" y="207" font-family="Arial,Helvetica,sans-serif" font-size="47" letter-spacing="2" fill="#C98060">for Hacker News</text>
-</svg>

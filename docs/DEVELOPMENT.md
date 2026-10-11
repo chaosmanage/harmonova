@@ -86,7 +86,7 @@ The script reads the version from `manifest.json` and creates:
 ```text
 dist/
 ├── harmonova/                 ready for Load unpacked
-└── harmonova-0.13.8.zip      ZIP containing that folder
+└── harmonova-0.13.9.zip      ZIP containing that folder
 ```
 
 The folder name inside the ZIP is deliberately **stable**, even though the ZIP filename contains the version. When updating an unpacked installation, keeping the extracted path stable reduces the chance of Chrome treating it as a different extension.
@@ -115,8 +115,8 @@ Please don't add screenshot dumps, raw response captures, API credentials, or te
 Example maintainer command, **after** preparing and pushing the intended commit:
 
 ```bash
-gh release create v0.13.8 dist/harmonova-0.13.8.zip \
-  --title "HarmoNova for Hacker News v0.13.8" \
+gh release create v0.13.9 dist/harmonova-0.13.9.zip \
+  --title "HarmoNova for Hacker News v0.13.9" \
   --notes-file docs/RELEASE_NOTES.md
 ```
 

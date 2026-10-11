@@ -39,7 +39,7 @@ try {
   await page.screenshot({ path: path.join(output, 'feeds.png'), clip: clipLeft });
   await page.keyboard.press('Escape');
   await page.locator('.feed-toolbar-actions [aria-label="Search"]').click();
-  await page.locator('.hn-search-mode[data-mode="global"]').click();
+  await page.locator('.hn-search-panel').waitFor({ state: 'visible' });
   await page.screenshot({ path: path.join(output, 'search.png'), clip: clipLeft });
   await page.locator('.feed-toolbar-actions [aria-label="Search"]').click();
 

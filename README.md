@@ -1,4 +1,4 @@
-<p align="center"><img src="icons/harmonova-logo.svg" alt="HarmoNova for Hacker News" width="660"></p>
+<p align="center"><img src="docs/assets/harmonova-banner.png" alt="HarmoNova for Hacker News" width="980"></p>
 
 # HarmoNova for Hacker News — Chrome Browser Extension
 
@@ -10,16 +10,6 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 
 
 ![HarmoNova showing colorful stories on the left and a discussion on the right](docs/assets/overview.png)
-
-## Why I made this
-
-I really enjoy using [**Harmonic for Hacker News on Android**](https://github.com/SimonHalvdansson/Harmonic-HN). Compared with Harmonic, the regular Hacker News website never felt particularly appealing or intuitive to me. I wanted to bring that same reading experience to my computer.
-
-I even tried running the Android app in an emulator. It worked as an experiment, but it wasn't how I wanted to use Hacker News every day. A **Chrome extension** turned out to be the better solution: open Hacker News in a normal browser tab, and get the Harmonic-inspired interface right there.
-
-**A huge thank-you to [Simon Halvdansson](https://github.com/SimonHalvdansson/Harmonic-HN) for the original Harmonic Android app.** Its design, thoughtful approach to reading, and open-source code are the reason this project exists. I've taken a lot of inspiration from it, including the story cards, colors, typography, and comment layout. This is an independent browser adaptation, not an official Harmonic desktop app.
-
-If you've never used Harmonic on Android, that's fine. All you need to know is that this extension makes Hacker News more comfortable to read on a desktop.
 
 ## Install in Chrome
 
@@ -45,6 +35,16 @@ git clone https://github.com/chaosmanage/harmonova.git
 Then follow **steps 3–6 above**, selecting the downloaded or cloned **repository folder** (the folder with `manifest.json`). **You still don't need to build anything.**
 
 To update an unpacked installation, keep the same folder location, replace its contents (or run `git pull`), click **Reload** on `chrome://extensions`, and refresh Hacker News. [Having trouble?](docs/TROUBLESHOOTING.md)
+
+## Why I made this
+
+I really enjoy using [**Harmonic for Hacker News on Android**](https://github.com/SimonHalvdansson/Harmonic-HN). Compared with Harmonic, the regular Hacker News website never felt particularly appealing or intuitive to me. I wanted to bring that same reading experience to my computer.
+
+I even tried running the Android app in an emulator. It worked as an experiment, but it wasn't how I wanted to use Hacker News every day. A **Chrome extension** turned out to be the better solution: open Hacker News in a normal browser tab, and get the Harmonic-inspired interface right there.
+
+**A huge thank-you to [Simon Halvdansson](https://github.com/SimonHalvdansson/Harmonic-HN) for the original Harmonic Android app.** Its design, thoughtful approach to reading, and open-source code are the reason this project exists. I've taken a lot of inspiration from it, including the story cards, colors, typography, and comment layout. This is an independent browser adaptation, not an official Harmonic desktop app.
+
+If you've never used Harmonic on Android, that's fine. All you need to know is that this extension makes Hacker News more comfortable to read on a desktop.
 
 ## What can it do?
 

@@ -1,3 +1,9 @@
+## v0.13.9 — Supplied artwork and refreshed documentation
+
+- Replaced hand-drawn logo SVGs and extension icons with raster artwork derived from the supplied HarmoNova monogram image.
+- Updated README branding to the supplied cream banner, and moved the Chrome installation guide above the background story.
+- Refreshed extension screenshots against the latest build and repackaged the Chrome extension.
+
 ## v0.13.8 — HarmoNova rebrand
 
 - Renamed the independent browser extension to **HarmoNova for Hacker News**.
