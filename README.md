@@ -1,4 +1,4 @@
-# Harmonic for Hacker News
+# Harmonic for Hacker News - Chrome Browser Extension
 
 **A better place to read Hacker News on your desktop.**
 
