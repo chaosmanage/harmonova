@@ -135,6 +135,12 @@ try {
     assert.ok(settingsText.includes(label), "settings should contain " + label);
   }
 
+  const openSettingsCategory = async (name) => {
+    const back = page.locator(".settings-back");
+    if (await back.isVisible()) await back.click();
+    await page.locator(".settings-category", { hasText: name }).click();
+  };
+  await openSettingsCategory("Stories");
   const zoomRow = page.locator(".setting-row").filter({ hasText: "Content zoom" });
   const zoomSlider = zoomRow.locator('input[type="range"]');
   assert.equal(await zoomSlider.inputValue(), "100", "default desktop content zoom should match Harmonic at 100%");
@@ -152,12 +158,14 @@ try {
   });
   assert.equal(backedUpZoom, 80, "settings should keep the unpacked-update backup on the Hacker News origin");
 
+  await openSettingsCategory("Comments");
   const commentSizeRow = page.locator(".setting-row").filter({ hasText: "Comment text size" });
   const commentSizeSlider = commentSizeRow.locator('input[type="range"]');
   await commentSizeSlider.fill("16");
   await page.waitForTimeout(150);
   assert.ok((await commentSizeRow.textContent()).includes("16 sp"), "comment text size should be adjustable");
 
+  await openSettingsCategory("AI");
   const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
   assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
 
@@ -187,8 +195,11 @@ try {
   assert.ok((await promptEditor.inputValue()).includes("summarizing articles"), "system prompt reset should restore Harmonic's default");
 
   // Restore Harmonic defaults before the visual regression screenshot.
+  await openSettingsCategory("Stories");
   await zoomSlider.fill("100");
+  await openSettingsCategory("Comments");
   await commentSizeSlider.fill("15");
+  await openSettingsCategory("Stories");
   const cardClickRow = page.locator(".setting-row").filter({ hasText: "Card click opens comments" });
   const cardClickInput = cardClickRow.locator('input[type="checkbox"]');
   await cardClickInput.check();
@@ -317,6 +328,7 @@ try {
     await page.locator(".feed-toolbar-actions .icon-button").last().click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.locator(".settings-overlay").waitFor({ state: "visible" });
+    await page.locator(".settings-category", { hasText: "AI" }).click();
   };
   await openAiSettings();
   assert.equal(await page.locator(".ai-settings-section textarea").inputValue(), openRouterPayload.messages[0].content, "AI settings should survive reload");
@@ -367,6 +379,7 @@ try {
   await page.locator(".feed-toolbar-actions .icon-button").last().click();
   await page.getByRole("button", { name: "Settings" }).click();
   await page.locator(".settings-overlay").waitFor({ state: "visible" });
+  await page.locator(".settings-category", { hasText: "Stories" }).click();
   await page.locator(".setting-row").filter({ hasText: "Card click opens comments" }).locator('input[type="checkbox"]').uncheck();
   await page.locator(".settings-header .icon-button").click();
   await page.locator(".settings-overlay").waitFor({ state: "detached" });

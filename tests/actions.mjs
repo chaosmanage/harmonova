@@ -334,6 +334,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
+  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -370,6 +371,14 @@ const openThreadFully = async (page) => {
   );
 };
 
+const storyMenuAction = async (page, label) => {
+  await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
+  await page.locator('.harmonic-popup .popup-item', { hasText: label }).click();
+};
+const newPost = async (page) => {
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonic-popup .popup-item', { hasText: "New post" }).click();
+};
 const toastText = async (page) =>
   page.waitForFunction(() => {
     const toast = document.querySelector(".harmonic-toast");
@@ -383,11 +392,7 @@ const toastText = async (page) =>
 await test("favorite toggles through HN's token with a confirmation re-fetch", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  const favoriteButton = page.locator("[data-thread-favorite]");
-  assert.ok(await favoriteButton.isVisible(), "favorite control visible when HN offers the link");
-  assert.ok(!(await favoriteButton.evaluate((node) => node.classList.contains("active"))), "not favorited in fixture");
-
-  await favoriteButton.click();
+  await storyMenuAction(page, "Favorite");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/fave")), 20000, 150, "GET /fave");
   const fave = hn.requests.find((request) => request.path.startsWith("/fave"));
   assert.equal(fave.params.id, String(STORY_ID));
@@ -396,16 +401,18 @@ await test("favorite toggles through HN's token with a confirmation re-fetch", a
   await new Promise((resolve) => setTimeout(resolve, 1800));
   const itemFetches = hn.requests.filter((request) => request.path.startsWith("/item")).length;
   assert.ok(itemFetches >= 2, "confirmRefetch re-reads the item document after the favorite");
-  assert.ok(await favoriteButton.evaluate((node) => node.classList.contains("active")), "favorite button active after success");
+  await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
+  assert.ok(await page.locator('.harmonic-popup .popup-item', { hasText: "Unfavorite" }).count(), "menu reflects favorite state");
   const toast = await toastText(page);
   assert.ok(toast.includes("Favorited"), "favorite toast: " + toast);
 
-  await favoriteButton.click();
+  await page.locator('.harmonic-popup .popup-item', { hasText: "Unfavorite" }).click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 2, 20000, 150, "unfavorite");
   const unfave = hn.requests.filter((request) => request.path.startsWith("/fave"))[1];
   assert.equal(unfave.params.un, "t", "unfavorite sends un=t");
   await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.ok(!(await favoriteButton.evaluate((node) => node.classList.contains("active"))), "favorite inactive after unfavorite");
+  await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
+  assert.ok(await page.locator('.harmonic-popup .popup-item', { hasText: "Favorite" }).count(), "menu reverts to favorite");
   const toast2 = await toastText(page);
   assert.ok(toast2.includes("Removed from favorites"), "unfavorite toast: " + toast2);
 });
@@ -423,9 +430,7 @@ await test("favorite control is hidden when the item document offers no favorite
 await test("hide from the thread offers undo; undo unhides with un=t", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  const hideButton = page.locator("[data-thread-hide]");
-  assert.ok(await hideButton.isVisible(), "hide control visible when HN offers the link");
-  await hideButton.click();
+  await storyMenuAction(page, "Hide");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/hide")), 20000, 150, "GET /hide");
   const hide = hn.requests.find((request) => request.path.startsWith("/hide"));
   assert.equal(hide.params.id, String(STORY_ID));
@@ -458,7 +463,7 @@ await test("hide control is hidden when the item document offers no hide link", 
 await test("card menu hide removes the card and undo restores it", async ({ page, hn }) => {
   await gotoFeed(page);
   const card = page.locator('.story-card[data-story-id="' + STORY_2 + '"]');
-  await card.locator(".story-card-more").click();
+  await card.click({ button: "right" });
   await page.locator(".harmonic-popup .popup-item", { hasText: "Hide story" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/hide")), 25000, 200, "card hide request");
   const hide = hn.requests.find((request) => request.path.startsWith("/hide"));
@@ -510,7 +515,7 @@ await test("comment flag appears only when HN offers the link and cancels safely
   await gotoFeed(page);
   await openThreadFully(page);
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
-  await row.locator("button[aria-label='More comment actions']").click();
+  await row.locator(":scope > .comment-card").click({ button: "right" });
   assert.equal(
     await page.locator(".harmonic-popup .popup-item", { hasText: "Flag comment" }).count(),
     0,
@@ -525,7 +530,7 @@ await test("comment flag appears only when HN offers the link and cancels safely
   await waitFor(() => hn.requests.some((request) => request.path === "/item?id=" + STORY_ID), 20000, 200, "item state fetch");
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const row2 = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
-  await row2.locator("button[aria-label='More comment actions']").click();
+  await row2.locator(":scope > .comment-card").click({ button: "right" });
   await page.locator(".harmonic-popup .popup-item", { hasText: "Flag comment" }).click();
   await page.locator(".harmonic-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".harmonic-confirm-cancel").click();
@@ -542,7 +547,7 @@ await test("bookmarks bulk-favorite runs serially with progress and is cancellab
   // Bookmark all three feed stories via their card menus.
   for (const id of [STORY_ID, STORY_2, STORY_3]) {
     const card = page.locator('.story-card[data-story-id="' + id + '"]');
-    await card.locator(".story-card-more").click();
+    await card.click({ button: "right" });
     await page.locator(".harmonic-popup .popup-item", { hasText: "Bookmark" }).click();
   }
   await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
@@ -572,9 +577,9 @@ await test("bookmarks bulk-favorite runs serially with progress and is cancellab
 // Phase 5: submit modal
 // ---------------------------------------------------------------------------
 
-await test("New post opens the modal and posts the exact /r payload once", async ({ page, hn }) => {
+await test("New post sends the exact /r payload once and preserves data if redirect is unconfirmed", async ({ page, hn }) => {
   await gotoFeed(page);
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='New post']").click();
+  await newPost(page);
   const modal = page.locator(".harmonic-submit");
   await modal.waitFor({ state: "visible", timeout: 5000 });
   assert.ok((await page.locator(".submit-as").textContent()).includes(USER), "modal names the acting account");
@@ -591,14 +596,17 @@ await test("New post opens the modal and posts the exact /r payload once", async
   assert.equal(posted.bodyParams.url, "https://example.com/harmonic");
   await new Promise((resolve) => setTimeout(resolve, 1800));
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/r")).length, 1, "SEC-34: submit never retried");
-  assert.equal(await modal.count(), 0, "modal closes after success");
-  const toast = await toastText(page);
-  assert.ok(toast.includes("Story submitted"), "submit toast: " + toast);
+  // The offline mock serves /newest HTML directly at /r rather than a real
+  // redirect; without a final /newest URL the app must keep the form open.
+  assert.equal(await modal.count(), 1, "unconfirmed response keeps submission form");
+  const status = await page.locator(".submit-status").textContent();
+  assert.ok(/did not confirm/i.test(status), "ambiguous response is not reported as success: " + status);
+  assert.equal(await page.locator(".submit-title").inputValue(), "Harmonic submits a story", "title kept");
 });
 
 await test("submit validation refuses empty posts and unsafe URLs locally", async ({ page, hn }) => {
   await gotoFeed(page);
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='New post']").click();
+  await newPost(page);
   await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("Only a title");
   await page.locator(".submit-go").click();
@@ -616,7 +624,7 @@ await test("submit validation refuses empty posts and unsafe URLs locally", asyn
 await test("already-submitted redirect opens the existing discussion", async ({ page, hn }) => {
   hn.state.submitMode = "already";
   await gotoFeed(page);
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='New post']").click();
+  await newPost(page);
   await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("A duplicate story");
   await page.locator(".submit-url").fill("https://example.com/dup");
@@ -639,7 +647,7 @@ await test("already-submitted redirect opens the existing discussion", async ({ 
 await test("validationRequired on POST keeps the values and hands off to HN's stock form", async ({ page, hn }) => {
   hn.state.errorScript.push({ pathPattern: "/r", classification: "validationRequired" });
   await gotoFeed(page);
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='New post']").click();
+  await newPost(page);
   await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("Verification wall story");
   await page.locator(".submit-url").fill("https://example.com/verify");
@@ -659,7 +667,7 @@ await test("validationRequired on POST keeps the values and hands off to HN's st
 await test("too-fast submit keeps the modal and never retries", async ({ page, hn }) => {
   hn.state.errorScript.push({ pathPattern: "/r", classification: "tooFast" });
   await gotoFeed(page);
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='New post']").click();
+  await newPost(page);
   await page.locator(".harmonic-submit").waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".submit-title").fill("Too fast story");
   await page.locator(".submit-url").fill("https://example.com/fast");

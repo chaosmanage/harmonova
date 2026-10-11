@@ -211,6 +211,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
+  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -224,9 +225,19 @@ async function test(name, fn) {
   try {
     // Reset synced settings + page storage so tests never leak into each other.
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
-    if (sw) await sw.evaluate(() => chrome.storage.sync.clear()).catch(() => {});
+    if (sw) await sw.evaluate(async () => {
+      await chrome.storage.sync.clear();
+      await chrome.storage.sync.set({ harmonicSettings: { feedHidden: [], feedOrder: [] } });
+    }).catch(() => {});
     await page.addInitScript(() => {
-      try { localStorage.clear(); } catch {}
+      if (sessionStorage.getItem("harmonicParityInit")) return;
+      sessionStorage.setItem("harmonicParityInit", "1");
+      try {
+        localStorage.clear();
+        // Parity list suites intentionally enable the optional lists that
+        // are hidden by default in the 0.7.2-style feed picker.
+        localStorage.setItem("harmonic:settings:v1", JSON.stringify({ feedHidden: [] }));
+      } catch {}
     });
     await fn({ page, hn });
     assert.equal(hn.state.userPageRequests || 0, 0, "SEC-05: the /user HTML page was never requested");
@@ -261,6 +272,7 @@ const settingsPath = async (page, sectionLabel) => {
   await page.locator(".harmonic-popup .popup-item", { hasText: "Settings" }).click();
   const panel = page.locator(".settings-panel");
   await panel.waitFor({ state: "visible", timeout: 5000 });
+  await panel.locator(".settings-category", { hasText: "Stories" }).click();
   return panel;
 };
 
@@ -373,7 +385,7 @@ await test("hidden-domain filter removes matching cards and the card menu adds d
 
   // Card menu entry hides a domain for good.
   const card = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
-  await card.locator(".story-card-more").click();
+  await card.click({ button: "right" });
   await page.locator(".harmonic-popup .popup-item", { hasText: "Hide this domain" }).click();
   await page.waitForFunction(
     (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
@@ -438,6 +450,13 @@ await test("compact points drops the unit and hotness colors the score", async (
   await gotoFeed(page);
   const hotPoints = page.locator('.story-card[data-story-id="' + STORY_ID + '"] .meta-points');
   const coolPoints = page.locator('.story-card[data-story-id="' + STORY_2 + '"] .meta-points');
+  assert.ok(!(await hotPoints.evaluate((node) => node.classList.contains("hotness-hot"))),
+    "hotness is off by default, preserving Harmonic's visual parity");
+  const hotnessPanel = await settingsPath(page);
+  await settingRow(hotnessPanel, "Hotness colors", "input").click();
+  await hotnessPanel.locator(".settings-header .icon-button").first().click();
+  await page.locator(".feed-toolbar-actions .icon-button[aria-label='Refresh']").click();
+  await hotPoints.waitFor({ state: "visible", timeout: 20000 });
   assert.ok(await hotPoints.evaluate((node) => node.classList.contains("hotness-hot")), "fast high-score story is hot");
   assert.ok(await coolPoints.evaluate((node) => node.classList.contains("hotness-cool")), "slow low-score story is cool");
   assert.ok((await hotPoints.textContent()).includes("points"), "points carry the unit by default");

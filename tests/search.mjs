@@ -145,6 +145,11 @@ runUnit("validateHit: story and comment hits map to safe shapes", () => {
     id: 42, kind: "story", title: "A story", url: "https://example.test/a",
     author: "pg", points: 100, numComments: 7, created_at_i: 1700000000,
   });
+  const modernStory = HarmonicSearch.validateHit({
+    objectID: "27016630", story_id: 27016630, _tags: ["story", "author_pg"],
+    title: "SQLite WAL", author: "pg", comment_text: null, points: 42,
+  });
+  assert.equal(modernStory.kind, "story", "Algolia story_id must not turn stories into comments");
   const comment = HarmonicSearch.validateHit({
     objectID: "99", author: "pg", story_id: 42, story_title: "A story",
     comment_text: "hello", points: 5, created_at_i: 1700000001,
@@ -423,6 +428,7 @@ await runBrowser("browser: site search renders story and comment hits with safe 
   await page.locator(".feed-toolbar-actions button").first().click();
   await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("sqlite wal");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results").waitFor({ state: "visible", timeout: 10000 });
 
   const header = await page.locator(".hn-search-header strong").textContent();
@@ -490,6 +496,7 @@ await runBrowser("browser: filters, paging, empty and error states work", async 
   await page.locator(".hn-search-select").first().selectOption("week");
   await page.locator(".hn-search-number").fill("10");
   await page.locator(".feed-search-input").fill("sqlite wal");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results").waitFor({ state: "visible", timeout: 10000 });
   const lastRequest = algolia.requests[algolia.requests.length - 1];
   assert.ok(lastRequest.params.numericFilters.includes("created_at_i>"), "date range becomes created_at_i filter");
@@ -516,10 +523,12 @@ await runBrowser("browser: filters, paging, empty and error states work", async 
 
   // Empty state.
   await page.locator(".feed-search-input").fill("empty");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-empty").waitFor({ state: "visible", timeout: 10000 });
 
   // Error state; retry re-issues the request.
   await page.locator(".feed-search-input").fill("fail");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".harmonic-error").waitFor({ state: "visible", timeout: 10000 });
   const requestsBeforeRetry = algolia.requests.length;
   await page.locator(".hn-search-retry").click();
@@ -529,6 +538,7 @@ await runBrowser("browser: filters, paging, empty and error states work", async 
   // Author filter with a hostile value is skipped (and hinted). A searchable
   // query must be in place for results — and therefore the hint — to render.
   await page.locator(".feed-search-input").fill("sqlite wal");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-text").fill("bad name!");
   await page.locator(".hn-search-results .story-card").first().waitFor({ state: "visible", timeout: 10000 });
   await page.locator(".hn-search-hint").waitFor({ state: "visible", timeout: 10000 });
@@ -575,10 +585,12 @@ await runBrowser("browser: stale in-flight searches are cancelled (AbortControll
   await page.locator(".feed-toolbar-actions button").first().click();
   await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("slow");
+  await page.locator(".feed-search-input").press("Enter");
   await page.getByText("Searching Hacker News…").waitFor({ state: "visible", timeout: 10000 });
   // Fire a second search while the first is still pending. The stale
   // response never arrives at all — its result must never render.
   await page.locator(".feed-search-input").fill("sqlite wal");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results .story-card").first().waitFor({ state: "visible", timeout: 10000 });
   await page.waitForTimeout(400);
   const titles = await page.locator(".hn-search-results .story-card-title").allTextContents();
@@ -620,6 +632,7 @@ await runBrowser("browser: comment hits open the thread and scroll to the commen
   await page.locator(".feed-toolbar-actions button").first().click();
   await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("sqlite wal");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results .story-card").first().waitFor({ state: "visible", timeout: 10000 });
   await page.locator('.hn-search-chip[data-tag="comment"]').click();
   await page.locator(".comment-hit").waitFor({ state: "visible", timeout: 10000 });
@@ -663,6 +676,7 @@ await runBrowser("browser: recent searches are offered and memory-only", async (
   await page.locator(".feed-toolbar-actions button").first().click();
   await page.locator('.hn-search-mode[data-mode="global"]').click();
   await page.locator(".feed-search-input").fill("sqlite wal");
+  await page.locator(".feed-search-input").press("Enter");
   await page.locator(".hn-search-results .story-card").first().waitFor({ state: "visible", timeout: 10000 });
   // Clear the input: recents should appear.
   await page.locator(".feed-search-input").fill("");

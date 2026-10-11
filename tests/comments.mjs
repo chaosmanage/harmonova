@@ -41,6 +41,9 @@ function createHnMock() {
     errorScript: [],
     loginUsername: USER,
     votes: new Map(),
+    postedText: null,
+    deleted: false,
+    editedText: null,
   };
   const requests = [];
 
@@ -70,11 +73,43 @@ function createHnMock() {
   }
 
   function itemDoc(id) {
-    return serveHtml(withUser(applyVotes(fixture("synthetic", "item-in.html"))));
+    let html = applyVotes(fixture("synthetic", "item-in.html"));
+    if (state.postedText) {
+      const escape = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const row = '<tr class="athing comtr" id="990010"><td colspan="3"><span class="comhead"><a class="hnuser">' +
+        USER + '</a></span><div class="commtext">' + escape(state.postedText) + '</div></td></tr>';
+      html = html.replace('<table border="0" class="comment-tree"><tbody>', '<table border="0" class="comment-tree"><tbody>' + row);
+    }
+    if (state.editedText || state.deleted) {
+      // A faithful HN item read-back for the comment being edited/deleted.
+      const start = html.indexOf('<tr class="athing comtr" id="' + OWN_COMMENT + '">');
+      const end = html.indexOf('<tr class="athing comtr"', start + 1);
+      if (start >= 0) {
+        const stop = end < 0 ? html.length : end;
+        let row = html.slice(start, stop).replace('class="hnuser">FeepingCreature</a>', 'class="hnuser">' + USER + '</a>');
+        const bodyStart = row.indexOf('<div class="commtext c00">');
+        if (bodyStart >= 0) {
+          const textStart = bodyStart + '<div class="commtext c00">'.length;
+          const replyStart = row.indexOf('<div class="reply">', textStart);
+          if (replyStart > textStart) {
+            const originalEnd = row.lastIndexOf('</div>', replyStart);
+            if (originalEnd > textStart) {
+              const escaped = String(state.editedText || '[deleted]').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              row = row.slice(0, textStart) + escaped + row.slice(originalEnd);
+            }
+          }
+        }
+        html = html.slice(0, start) + row + html.slice(stop);
+      }
+    }
+    return serveHtml(withUser(html));
   }
 
   function formDoc(name) {
-    return serveHtml(withUser(state.loggedIn ? fixture("synthetic", name) : fixture("login.html")));
+    let html = state.loggedIn ? fixture("synthetic", name) : fixture("login.html");
+    if (["edit-in.html", "delete-confirm-in.html"].includes(name))
+      html = html.replaceAll("50033557", String(OWN_COMMENT));
+    return serveHtml(withUser(html));
   }
 
   function documentFor(pathname, search) {
@@ -130,6 +165,9 @@ function createHnMock() {
     // Comment POSTs: serve the redirect target's item document directly
     // (fulfilled 3xx responses are not re-intercepted by Playwright).
     if (method === "POST" && ["/comment", "/xedit", "/xdelete"].includes(pathname)) {
+      if (pathname === "/comment") state.postedText = record.bodyParams?.text || null;
+      if (pathname === "/xedit") state.editedText = record.bodyParams?.text || null;
+      if (pathname === "/xdelete") state.deleted = true;
       return route.fulfill(itemDoc(STORY_ID));
     }
     if (pathname === "/vote") {
@@ -246,6 +284,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
+  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -302,6 +341,18 @@ const swDrafts = async () => {
 };
 
 const composer = (page) => page.locator(".composer");
+const openStoryReply = async (page) => {
+  await page.locator('.thread-actions .thread-action[aria-label="More"]').click();
+  await page.locator('.harmonic-popup .popup-item', { hasText: "Reply to story" }).click();
+  if (await page.locator(".composer").count()) {
+    await page.waitForFunction(() => !document.querySelector(".composer-submit")?.disabled ||
+      document.querySelector(".composer-status")?.classList.contains("error"), { timeout: 15000 });
+  }
+};
+const openCommentAction = async (page, row, label) => {
+  await row.locator(":scope > .comment-card").click({ button: "right" });
+  await page.locator(".harmonic-popup .popup-item", { hasText: label }).click();
+};
 const typeInto = async (page, text) => {
   const box = page.locator(".composer .composer-input");
   await box.click();
@@ -316,7 +367,7 @@ const typeInto = async (page, text) => {
 await test("Reply to post opens the composer; Ctrl+Enter posts HN's exact payload once", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   assert.equal(
     (await page.locator(".composer .composer-identity").textContent()).trim(),
@@ -331,15 +382,14 @@ await test("Reply to post opens the composer; Ctrl+Enter posts HN's exact payloa
   );
 
   await page.locator(".composer .composer-input").press("Control+Enter");
-  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/reply") && request.method === "GET"), 20000, 150, "GET /reply");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/comment")), 20000, 150, "POST /comment");
-  const opened = hn.requests.find((request) => request.path.startsWith("/reply"));
-  assert.ok(opened.path.includes("id=" + STORY_ID), "reply form opened for the story id: " + opened.path);
+  assert.equal(hn.requests.filter((request) => request.path.startsWith("/reply")).length, 0,
+    "top-level comment uses the existing item form, not GET /reply");
 
   const posted = hn.requests.find((request) => request.path.startsWith("/comment"));
-  assert.equal(posted.bodyParams.parent, FORM_PARENT, "parent comes from HN's own form");
-  assert.equal(posted.bodyParams.goto, FORM_GOTO, "goto comes from HN's own form");
-  assert.equal(posted.bodyParams.hmac, TOKEN_A, "hmac comes from HN's own form");
+  assert.equal(posted.bodyParams.parent, String(STORY_ID), "parent comes from HN's item form");
+  assert.equal(posted.bodyParams.goto, "item?id=" + STORY_ID, "goto comes from HN's item form");
+  assert.equal(posted.bodyParams.hmac, TOKEN_B, "hmac comes from HN's item form");
   assert.equal(posted.bodyParams.text, "Reply from Harmonic");
 
   await new Promise((resolve) => setTimeout(resolve, 1800)); // let the outcome land
@@ -347,13 +397,14 @@ await test("Reply to post opens the composer; Ctrl+Enter posts HN's exact payloa
   assert.equal(await composer(page).count(), 0, "composer closes after success");
   const toast = await toastText(page);
   assert.ok(toast.includes("Reply posted"), "success toast: " + toast);
-  assert.ok(hn.requests.filter((request) => request.path.startsWith("/item")).length >= 2, "thread reloaded after posting");
+  assert.ok(await page.locator('.comment-row[data-comment-id="990010"].just-posted').count(),
+    "confirmed comment appears immediately without reloading Algolia");
 });
 
 await test("empty submits are blocked locally without touching HN", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await page.locator(".composer .composer-submit").click();
   assert.ok(
@@ -361,13 +412,13 @@ await test("empty submits are blocked locally without touching HN", async ({ pag
     "local validation message"
   );
   await new Promise((resolve) => setTimeout(resolve, 800));
-  assert.equal(hn.requests.filter((request) => request.path.startsWith("/reply")).length, 0, "no HN traffic for empty submit");
+  assert.equal(hn.requests.filter((request) => request.path.startsWith("/comment")).length, 0, "empty text never sends a POST");
 });
 
 await test("preview toggle renders the draft text; Write returns to the textarea", async ({ page }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Preview me");
   await page.locator(".composer .composer-secondary", { hasText: "Preview" }).first().click();
@@ -385,7 +436,7 @@ await test("preview toggle renders the draft text; Write returns to the textarea
 await test("drafts autosave into the background store, restore on reopen, and Discard wipes them", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Persistent draft");
   await new Promise((resolve) => setTimeout(resolve, 1100)); // autosave debounce (500ms)
@@ -396,7 +447,7 @@ await test("drafts autosave into the background store, restore on reopen, and Di
 
   await page.locator(".composer .composer-close").click();
   await new Promise((resolve) => setTimeout(resolve, 400));
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => {
     const status = document.querySelector(".composer .composer-status");
@@ -419,7 +470,7 @@ await test("drafts autosave into the background store, restore on reopen, and Di
 await test("Esc closes the composer, keeps the draft, and toasts", async ({ page }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Escape hatch draft");
   await page.locator(".composer .composer-input").press("Escape");
@@ -427,7 +478,7 @@ await test("Esc closes the composer, keeps the draft, and toasts", async ({ page
   assert.equal(await composer(page).count(), 0, "composer removed on Esc");
   const toast = await toastText(page);
   assert.ok(toast.includes("Draft saved"), "Esc toast: " + toast);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => {
     const status = document.querySelector(".composer .composer-status");
@@ -438,14 +489,15 @@ await test("Esc closes the composer, keeps the draft, and toasts", async ({ page
 await test("drafts are cleared on logout", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Doomed draft");
   await new Promise((resolve) => setTimeout(resolve, 1100));
   assert.ok(Object.values(await swDrafts()).length > 0, "draft exists before logout");
 
   hn.state.loggedIn = false; // HN invalidates the session on logout
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonic-popup .popup-item').first().click();
   await page.locator(".harmonic-popup .popup-item", { hasText: "Log out" }).click();
   await page.waitForFunction(
     () => document.querySelector("#harmonic-account-chip")?.textContent.trim() === "Log in",
@@ -467,13 +519,17 @@ await test("inline reply on a comment opens under it and posts HN's form payload
   await gotoFeed(page);
   await openThreadFully(page);
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
-  await row.locator("[aria-label='Reply']").click();
+  await openCommentAction(page, row, "Reply");
   await row.locator(".composer").waitFor({ state: "visible", timeout: 10000 });
   assert.ok(
     (await page.locator(".composer .composer-identity").textContent()).includes("Replying to"),
     "inline composer labels the reply target"
   );
   await typeInto(page, "Inline reply body");
+  await page.waitForFunction(() => document.querySelector(".composer-submit")?.disabled === false
+    || document.querySelector(".composer-status")?.classList.contains("error"), { timeout: 12000 });
+  const statusBeforePost = await page.locator(".composer-status").textContent();
+  if (await page.locator(".composer-submit").isDisabled()) throw new Error("Form unavailable: " + statusBeforePost);
   await page.locator(".composer .composer-input").press("Control+Enter");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/reply") && request.method === "GET"), 20000, 150, "GET /reply");
   assert.ok(hn.requests.find((request) => request.path.startsWith("/reply")).path.includes("id=" + PLAIN_COMMENT), "reply form opened for the comment id");
@@ -488,15 +544,15 @@ await test("inline reply on a comment opens under it and posts HN's form payload
 await test("validationRequired on open keeps the draft and offers the HN escape hatch", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
-  await composer(page).waitFor({ state: "visible", timeout: 10000 });
-  await typeInto(page, "Kept while HN verifies");
   hn.state.errorScript.push({ pathPattern: "/reply", classification: "validationRequired" });
-  await page.locator(".composer .composer-input").press("Control+Enter");
+  const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
+  await openCommentAction(page, row, "Reply");
+  await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => {
     const status = document.querySelector(".composer .composer-status");
     return status && !status.hidden && status.textContent.includes("asks for verification");
   }, { timeout: 20000 });
+  await typeInto(page, "Kept while HN verifies");
   assert.ok(
     await page.locator(".composer .composer-hn-open").isVisible(),
     "'Open this reply on Hacker News' button appears"
@@ -510,7 +566,7 @@ await test("validationRequired on open keeps the draft and offers the HN escape 
 await test("tooFast on post keeps the draft and never retries the POST", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Too fast draft");
   hn.state.errorScript.push({ pathPattern: "/comment", classification: "tooFast" });
@@ -523,7 +579,7 @@ await test("tooFast on post keeps the draft and never retries the POST", async (
   assert.equal(await composer(page).count(), 1, "composer stays open so the user can retry");
   await page.locator(".composer .composer-input").press("Escape");
   await new Promise((resolve) => setTimeout(resolve, 400));
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => {
     const status = document.querySelector(".composer .composer-status");
@@ -540,11 +596,10 @@ await test("Edit shows only on own comments, prefills HN's current text, and pos
   await openThreadFully(page);
   const ownRow = page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]');
   const otherRow = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
-  assert.ok(await ownRow.locator("[aria-label='Edit comment']").isVisible(), "Edit visible on own comment");
-  assert.ok(!(await otherRow.locator("[aria-label='Edit comment']").isVisible()), "Edit hidden on other comments");
-  assert.ok(!(await otherRow.locator("[aria-label='Delete comment']").isVisible()), "Delete hidden on other comments");
-
-  await ownRow.locator("[aria-label='Edit comment']").click();
+  await otherRow.locator(":scope > .comment-card").click({ button: "right" });
+  assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
+  assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
+  await openCommentAction(page, ownRow, "Edit");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/edit") && request.method === "GET"), 20000, 150, "GET /edit");
   const editPage = composer(page);
   await editPage.waitFor({ state: "visible", timeout: 10000 });
@@ -566,7 +621,7 @@ await test("Edit shows only on own comments, prefills HN's current text, and pos
   await page.locator(".composer .composer-submit").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/xedit")), 20000, 150, "POST /xedit");
   const posted = hn.requests.find((request) => request.path.startsWith("/xedit"));
-  assert.equal(posted.bodyParams.id, "50033557", "edit id comes from HN's form");
+  assert.equal(posted.bodyParams.id, String(OWN_COMMENT), "edit id comes from HN's form");
   assert.equal(posted.bodyParams.hmac, TOKEN_B, "edit hmac comes from HN's form");
   assert.equal(posted.bodyParams.text, "Edited from Harmonic");
   await new Promise((resolve) => setTimeout(resolve, 1800));
@@ -579,7 +634,7 @@ await test("Delete requires confirmation: Cancel sends nothing, Confirm deletes 
   await gotoFeed(page);
   await openThreadFully(page);
   const ownRow = page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]');
-  await ownRow.locator("[aria-label='Delete comment']").click();
+  await openCommentAction(page, ownRow, "Delete");
   const overlay = page.locator(".harmonic-confirm-overlay");
   await overlay.waitFor({ state: "visible", timeout: 5000 });
   assert.ok(
@@ -592,18 +647,18 @@ await test("Delete requires confirmation: Cancel sends nothing, Confirm deletes 
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/delete-confirm")).length, 0, "SEC-36: cancel fetches nothing");
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/xdelete")).length, 0, "SEC-36: cancel deletes nothing");
 
-  await ownRow.locator("[aria-label='Delete comment']").click();
+  await openCommentAction(page, ownRow, "Delete");
   await overlay.waitFor({ state: "visible", timeout: 5000 });
   await page.locator(".harmonic-confirm-confirm").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/delete-confirm") && request.method === "GET"), 20000, 150, "GET /delete-confirm");
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/xdelete")), 20000, 150, "POST /xdelete");
   const posted = hn.requests.find((request) => request.path.startsWith("/xdelete"));
-  assert.equal(posted.bodyParams.id, "50033557", "delete id comes from HN's form");
+  assert.equal(posted.bodyParams.id, String(OWN_COMMENT), "delete id comes from HN's form");
   assert.equal(posted.bodyParams.hmac, TOKEN_A, "delete hmac comes from HN's form");
   await new Promise((resolve) => setTimeout(resolve, 1800));
   const toast = await toastText(page);
   assert.ok(toast.includes("Comment deleted"), "delete toast: " + toast);
-  assert.ok(hn.requests.filter((request) => request.path.startsWith("/item")).length >= 2, "thread reloaded after delete");
+  assert.ok(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"] .comment-body').getByText('[deleted]').isVisible(), "deleted content updated locally");
 });
 
 // ---------------------------------------------------------------------------
@@ -614,10 +669,9 @@ await test("untrusted scripted clicks never open the composer or hit /reply (SEC
   await gotoFeed(page);
   await openThreadFully(page);
   await page.evaluate((ids) => {
-    document.querySelector(".thread-actions button.thread-action[aria-label='Reply to post']").click();
-    document.querySelector('.comment-row[data-comment-id="' + ids[0] + '"] [aria-label="Reply"]')?.click();
-    document.querySelector('.comment-row[data-comment-id="' + ids[1] + '"] [aria-label="Edit comment"]')?.click();
-    document.querySelector('.comment-row[data-comment-id="' + ids[1] + '"] [aria-label="Delete comment"]')?.click();
+    document.querySelector('.thread-actions button.thread-action[aria-label="More"]')?.click();
+    document.querySelector('.comment-row[data-comment-id="' + ids[0] + '"] .comment-card')?.click();
+    document.querySelector('.comment-row[data-comment-id="' + ids[1] + '"] .comment-card')?.click();
   }, [PLAIN_COMMENT, OWN_COMMENT]);
   await new Promise((resolve) => setTimeout(resolve, 2500));
   assert.equal(await composer(page).count(), 0, "no composer opens from scripted clicks");
@@ -633,7 +687,7 @@ await test("signed out, replying asks for sign-in and opens no HN forms", async 
   await page.goto("https://news.ycombinator.com/item?id=" + STORY_ID, { waitUntil: "domcontentloaded" });
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
   assert.equal((await page.locator("#harmonic-account-chip").textContent()).trim(), "Log in");
-  await page.locator(".thread-actions button.thread-action[aria-label='Reply to post']").click();
+  await openStoryReply(page);
   const toast = await toastText(page);
   assert.ok(toast.includes("Sign in to reply"), "sign-in toast: " + toast);
   await new Promise((resolve) => setTimeout(resolve, 600));

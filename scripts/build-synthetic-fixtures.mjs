@@ -44,15 +44,18 @@ function injectAuth(html) {
     .replace(/(hide\?id=(\d+))&amp;goto=/g, `$1&amp;auth=${TB}&amp;goto=`);
 }
 
-// Turn one item's up-vote anchor into the voted state (un link, filled arrow).
-// page.content() serializes attributes with double quotes.
+// HN renders the unvote link inside the unv_ID span beside the score;
+// it never puts an arrow inside un_ID (the old fixtures invented one).
 function markVoted(html, itemId, direction = "up") {
   const upPattern = new RegExp(
     `<a id="up_${itemId}" href="vote\\?id=${itemId}&amp;how=up&amp;auth=${TA}&amp;goto=([^"]*)"><div class="votearrow" title="upvote"><\\/div><\\/a>`
   );
-  if (!upPattern.test(html)) return html;
-  return html.replace(upPattern, (match, goto) =>
-    `<a id="un_${itemId}" class="nosee" href="vote?id=${itemId}&amp;how=un&amp;auth=${TA}&amp;goto=${goto}"><div class="votearrow" title="${direction === "down" ? "downvote" : "upvote"}"></div></a>`);
+  const match = html.match(upPattern);
+  if (!match) return html;
+  const goto = match[1];
+  html = html.replace(upPattern, `<a id="up_${itemId}" class="nosee" href="vote?id=${itemId}&amp;how=up&amp;auth=${TA}&amp;goto=${goto}"><div class="votearrow" title="upvote"></div></a>`);
+  const unvote = `<span id="unv_${itemId}"> | <a id="un_${itemId}" class="clicky" href="vote?id=${itemId}&amp;how=un&amp;auth=${TA}&amp;goto=${goto}">${direction === "down" ? "undown" : "unvote"}</a></span>`;
+  return html.replace(`<span id="unv_${itemId}"></span>`, unvote);
 }
 
 // ---------------------------------------------------------------------------
@@ -80,8 +83,8 @@ itemIn = injectAuth(itemIn);
 // with tokens even when logged out — verified against the live capture).
 itemIn = markVoted(itemIn, STORY_ID, "up");
 itemIn = itemIn.replace(
-  new RegExp(`(id="unv_${STORY_ID}"></span> \\| <a href="hide\\?id=${STORY_ID}&amp;auth=${TB}&amp;goto=item%3Fid%3D${STORY_ID}">hide</a> \\| )`),
-  `$1<a href="flag?id=${STORY_ID}&amp;auth=${TB}">flag</a> | `
+  `<a href="hide?id=${STORY_ID}&amp;auth=${TB}&amp;goto=item%3Fid%3D${STORY_ID}">hide</a>`,
+  `<a href="hide?id=${STORY_ID}&amp;auth=${TB}&amp;goto=item%3Fid%3D${STORY_ID}">hide</a> | <a href="flag?id=${STORY_ID}&amp;auth=${TB}">flag</a>`
 );
 
 // Comments: give every comment navs a favorite + reply link; first comment

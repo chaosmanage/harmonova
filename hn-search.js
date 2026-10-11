@@ -95,10 +95,16 @@
     if (!Number.isInteger(id) || id <= 0) return null;
     const out = { id };
 
-    // Comment hits carry story_id; story hits never do.
-    const isComment = Number.isInteger(hit.story_id) && hit.story_id > 0;
-    // A hit that carries comment text without a numeric story_id is malformed.
-    if (!isComment && !isMissing(hit.comment_text)) return null;
+    // Algolia includes story_id on stories as well as comments.
+    const tags = Array.isArray(hit._tags) ? hit._tags : [];
+    const taggedComment = tags.includes("comment");
+    const taggedStory = tags.some((tag) => ["story", "poll", "job"].includes(tag));
+    if (taggedComment && taggedStory) return null;
+    const hasCommentText = !isMissing(hit.comment_text);
+    if (taggedStory && hasCommentText) return null;
+    if (taggedComment && !hasCommentText) return null;
+    const isComment = taggedComment || (!taggedStory && hasCommentText);
+    if (isComment && !(Number.isInteger(hit.story_id) && hit.story_id > 0)) return null;
     out.kind = isComment ? "comment" : "story";
 
     for (const [key, type] of [
@@ -178,6 +184,33 @@
 
   function buildHighlightSegments(value) {
     const text = typeof value === "string" ? value : "";
+    // Algolia highlights contain paragraph, link and emphasis markup.
+    // Parse in an inert document and copy text nodes, never live HTML.
+    if (typeof DOMParser !== "undefined") {
+      const doc = new DOMParser().parseFromString(text, "text/html");
+      const segments = [];
+      const add = (value, highlighted) => {
+        if (!value) return;
+        const last = segments[segments.length - 1];
+        if (last && last.highlighted === highlighted) last.text += value;
+        else segments.push({ text: value, highlighted });
+      };
+      const walk = (node, marked = false) => {
+        if (node.nodeType === 3) return add(node.nodeValue || "", marked);
+        if (node.nodeType !== 1) return;
+        const tag = node.localName.toLowerCase();
+        if (["script", "style", "template", "svg", "iframe"].includes(tag)) return;
+        if (tag === "br" || tag === "p" && segments.length) add("\n", false);
+        for (const child of node.childNodes) walk(child, marked || tag === "em");
+        if (tag === "p") add("\n", false);
+      };
+      for (const child of doc.body.childNodes) walk(child);
+      if (segments[0]?.text === "\n") segments.shift();
+      if (segments[segments.length - 1]?.text === "\n") segments.pop();
+      return segments;
+    }
+    // DOMParser is absent in the Node VM tests; browser rendering always uses
+    // the inert parser above.
     const segments = [];
     let plain = "";
     let highlighted = "";

@@ -145,6 +145,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
+  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -210,18 +211,19 @@ const openThreadFully = async (page) => {
 const rowFor = (page, author) =>
   page.locator('.comments > .comment-row[data-author="' + author + '"]').first();
 
-const openSettings = async (page) => {
+const openSettings = async (page, category = "Comments") => {
   await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
   await page.locator(".harmonic-popup .popup-item", { hasText: "Settings" }).click();
   const panel = page.locator(".settings-panel");
   await panel.waitFor({ state: "visible", timeout: 5000 });
+  await panel.locator(".settings-category", { hasText: category }).click();
   return panel;
 };
 
 // The comment menu can lose a race with late thread re-renders, so retry.
 const openCommentMenu = async (page, author, itemText) => {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await rowFor(page, author).locator("button[aria-label='More comment actions']").click();
+    await rowFor(page, author).locator(":scope > .comment-card").click({ button: "right" });
     try {
       const item = page.locator(".harmonic-popup .popup-item", { hasText: itemText });
       await item.waitFor({ state: "visible", timeout: 4000 });
@@ -242,7 +244,7 @@ await test("OP comments are highlighted with a badge and a row class", async ({ 
   await openThreadFully(page);
   const opRow = rowFor(page, OP_USER);
   assert.ok(await opRow.evaluate((node) => node.classList.contains("by-op")), "OP row carries by-op");
-  assert.ok((await opRow.locator(".op-badge").textContent()) === "OP", "OP badge rendered");
+  assert.ok((await opRow.locator(".op-badge").textContent()) === "(OP)", "OP attribution rendered");
   const otherRow = rowFor(page, OTHER);
   assert.equal(await otherRow.locator(".op-badge").count(), 0, "non-OP rows carry no badge");
 });
@@ -250,8 +252,12 @@ await test("OP comments are highlighted with a badge and a row class", async ({ 
 await test("generated avatars are deterministic and local", async ({ page }) => {
   await gotoFeed(page);
   await openThreadFully(page);
+  assert.equal(await page.locator(".comment-avatar").count(), 0, "avatars are off by default");
+  const panel = await openSettings(page);
+  await panel.locator(".setting-row", { hasText: "Comment avatars" }).locator("input").first().click();
+  await panel.locator(".settings-header .icon-button").first().click();
   const avatars = page.locator(".comment-avatar");
-  assert.ok((await avatars.count()) >= 4, "every authored comment has an avatar");
+  assert.ok((await avatars.count()) >= 4, "enabling avatars renders local initials");
   const first = await avatars.first().textContent();
   assert.ok(/^[A-Z]$/.test(first), "avatar shows the author initial: " + first);
   const author1 = await rowFor(page, OTHER).locator(".comment-avatar").getAttribute("style");
@@ -265,7 +271,7 @@ await test("new comments get a marker that clears on the next visit", async ({ p
   await openThreadFully(page);
   const freshRow = rowFor(page, FRESH);
   assert.ok(await freshRow.evaluate((node) => node.classList.contains("is-new")), "fresh comment marked as new");
-  assert.ok((await freshRow.locator(".new-badge").textContent()) === "new", "new badge rendered");
+  assert.equal(await freshRow.locator(".new-badge").count(), 0, "newness uses a thin rail instead of a badge");
   const oldRow = rowFor(page, OTHER);
   assert.ok(!(await oldRow.evaluate((node) => node.classList.contains("is-new"))), "older comments not marked");
 
@@ -298,6 +304,8 @@ await test("hide [delayed] toggle controls placeholder visibility", async ({ pag
 await test("in-thread filter keeps matching branches with a match count", async ({ page }) => {
   await gotoFeed(page);
   await openThreadFully(page);
+  await page.locator(".thread-actions .thread-action[aria-label='More']").click();
+  await page.locator(".harmonic-popup .popup-item", { hasText: "Search in comments" }).click();
   const searchBox = page.locator(".comment-search");
   await searchBox.fill("seabass");
   await page.waitForFunction(
@@ -379,7 +387,7 @@ await test("user data export produces a valid JSON file", async ({ page }) => {
   await page.locator(".tag-save").click();
   await page.waitForFunction(() => document.querySelector('.comment-row[data-author="seabass"] .comment-tag'), null, { timeout: 10000 });
 
-  const panel = await openSettings(page);
+  const panel = await openSettings(page, "Data");
   const downloadPromise = page.waitForEvent("download", { timeout: 15000 });
   await panel.locator(".setting-button", { hasText: "Export user data" }).click();
   const download = await downloadPromise;
@@ -397,7 +405,7 @@ await test("user data export produces a valid JSON file", async ({ page }) => {
 await test("user data import merges valid files and refuses bad schemas", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  const panel = await openSettings(page);
+  const panel = await openSettings(page, "Data");
   const goodFile = path.join(os.tmpdir(), "harmonic-good-" + Date.now() + ".json");
   fs.writeFileSync(goodFile, JSON.stringify({
     version: 1,

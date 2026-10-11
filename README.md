@@ -24,9 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.12.2**.
+The current extension version is **0.13.0**.
 
-Version 0.12.2 is links and appearance, part three of Phase 7: **rich inline previews for GitHub repositories, Wikipedia articles, and arXiv papers** fetched from their public APIs through the background worker, an opt-in **Nitter redirect** for Twitter/X links with a configurable instance, a **View on archive** shortcut through the Wayback Machine on every story menu, three new themes (**Charcoal**, **Deep navy** alongside AMOLED black), and a font choice (Harmonic stack, System UI, or Serif). It builds on the comment parity of 0.12.1, the parity feeds of 0.12.0, and the profiles and lists of 0.11.0. See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Version 0.13.0 fixes real Hacker News account-action protocol mismatches, confirms comments against redirected item pages before clearing drafts, preserves locally confirmed comments during Algolia indexing delays, restores story/comment search, and returns the reading interface to compact Harmonic defaults. Account and post actions now live in More/context menus, Settings has a category index, and comment voting uses a contextual overlay. **Live authenticated verification remains pending** because Hacker News served a validation wall from the VPS. See [`CHANGELOG.md`](CHANGELOG.md) for details.
 
 ## Account actions and voting
 

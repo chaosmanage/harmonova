@@ -33,6 +33,7 @@ function createHnMock() {
     // Error script: consumed in order, one entry per matching request.
     errorScript: [],
     loginUsername: USER,
+    postedComment: null,
   };
   const requests = [];
 
@@ -66,10 +67,15 @@ function createHnMock() {
       case "/news":
       case "/":
         return serveHtml(withUser(state.loggedIn ? fixture("synthetic", "news-in.html") : fixture("news.html")));
-      case "/item":
-        return serveHtml(withUser(state.loggedIn
-          ? fixture("synthetic", "item-in.html")
-          : fixture("synthetic", "item-out.html")));
+      case "/item": {
+        let html = state.loggedIn ? fixture("synthetic", "item-in.html") : fixture("synthetic", "item-out.html");
+        if (state.postedComment) {
+          const escape = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const row = '<tr class="athing comtr" id="910099"><td colspan="3"><span class="comhead"><a class="hnuser">' + USER + '</a></span><div class="commtext">' + escape(state.postedComment) + '</div></td></tr>';
+          html = html.replace('<table border="0" class="comment-tree"><tbody>', '<table border="0" class="comment-tree"><tbody>' + row);
+        }
+        return serveHtml(withUser(html));
+      }
       case "/reply":
         return serveHtml(withUser(fixture("synthetic", "reply-in.html")));
       case "/edit":
@@ -107,6 +113,11 @@ function createHnMock() {
     const error = consumeError(pathname);
     if (error) return route.fulfill(serveHtml(errorPage(error)));
 
+    // HN's js=t votes return an empty 200 body; no redirect HTML is provided.
+    if (pathname === "/vote" && parsed.searchParams.get("js") === "t") {
+      return route.fulfill({ status: 200, contentType: "text/plain", body: "" });
+    }
+
     // Serve action responses as the redirect target's document directly:
     // Playwright-fulfilled 3xx responses are not re-intercepted, so a real
     // redirect's follow-up request would escape the mock and hit the network.
@@ -125,8 +136,8 @@ function createHnMock() {
     }
     if (pathname === "/comment") {
       const post = new URLSearchParams(record.postData || "");
-      const parent = post.get("parent") || String(STORY_ID);
-      return route.fulfill(documentFor("/item", "id=" + parent));
+      state.postedComment = post.get("text") || "";
+      return route.fulfill(redirect("/item?id=" + STORY_ID));
     }
     return route.fulfill(documentFor(pathname, parsed.search));
   }
@@ -497,7 +508,9 @@ await test("reply form opens through the queue and posts once (SEC-34)", async (
   assert.equal(opened.status, "ok", JSON.stringify(opened));
   assert.ok(hn.requests.some((request) => request.path.startsWith("/reply")), "reply form fetched");
   const posted = await world.evaluate("HarmonicHN.postComment(" + JSON.stringify(opened.handle) + ", 'Test reply from the mocked suite')");
-  assert.equal(posted.status, "success", JSON.stringify(posted));
+  // A mock that does not supply a verifiable redirected item must never
+  // report posting success or discard the user's draft.
+  assert.equal(posted.status, "indeterminate", JSON.stringify(posted));
   const commentRequests = hn.requests.filter((request) => request.path.startsWith("/comment"));
   assert.equal(commentRequests.length, 1, "SEC-34: comment POST never retried");
   // HN protocol: the POST body must mirror the fetched form's hidden fields.

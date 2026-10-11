@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Nothing yet.
 
+## [0.13.0] - 2026-10-11
+
+### Fixed
+- **HN vote protocol:** Accept successful empty `js=t` responses, parse `unv_ID` and `undown` correctly, keep per-item vote tokens for 30 minutes, confirm ambiguous votes via a read-only item fetch, and preserve already-voted feed/thread states.
+- **Comment integrity:** Preload real HN reply forms; post once; find the submitted comment in the redirected item document before clearing the draft; insert confirmed replies immediately; keep edits and deletes locally while Algolia catches up. Ambiguous results retain drafts and never claim success.
+- **Search:** Classify Algolia results by `_tags`, decode highlights in an inert document, use a local filter until Enter triggers a site-wide search, support keyboard navigation, prevent duplicate preview storms, and restore feed scroll position.
+- **Harmonic reading interface:** Restore compact toolbar and seven thread actions, contextual story/comment menus, avatars and hotness colors off by default, categorized settings, floating comment navigation, account side sheet, and safe SVG click propagation.
+
+### Added
+- Sanitized headed-browser HN capture workflow (`scripts/capture-hn-fixtures.mjs`); credentials are never entered by this script or written into fixtures.
+- Realistic synthetic `unv_ID` markup, blank vote-response tests, delayed-index comment regression coverage, and Chromium regression suite (`npm run test:fix-regressions`).
+
+### Verification notes
+- Authenticated tests run in Chromium against local HN and Algolia mocks. A live sign-in smoke test from this VPS hit Hacker News's "Validation required" anti-automation page, so a browser test using a permitted interactive session is still required before claiming live-account verification.
+- The optional structural split of `content.js` (fix plan F6) is deferred to a separate no-behavior-change change.
+
 ## [0.12.2] - 2026-10-10
 
 The links-and-appearance release, part three of Phase 7: Harmonic now makes offsite links smarter and the reading surface yours. GitHub repositories, Wikipedia articles, and arXiv papers get rich inline previews fetched directly from their public APIs; every external story link can redirect to a Nitter instance for a lighter Twitter/X experience; every story offers a one-click "View on archive" shortcut through the Wayback Machine; and the whole UI follows three new themes (AMOLED black, charcoal, deep navy) plus a choice of font stack.

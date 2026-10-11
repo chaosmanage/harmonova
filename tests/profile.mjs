@@ -288,6 +288,7 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 };
 
 async function test(name, fn) {
+  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -326,7 +327,8 @@ const openThreadFully = async (page) => {
 };
 
 const chipMenu = async (page, label) => {
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator(".harmonic-popup .popup-item").first().click();
   await page.locator(".harmonic-popup .popup-item", { hasText: label }).click();
 };
 
@@ -548,7 +550,7 @@ await test("user panel links open public lists for another user", async ({ page,
   await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
   await page.waitForFunction(() => document.querySelector(".user-karma")?.textContent?.includes("karma"), { timeout: 10000 });
 
-  await page.locator(".user-links button", { hasText: "Submissions" }).click();
+  await page.locator(".user-tabs .user-tab", { hasText: "Submissions" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/submitted?id=" + OTHER_USER)), 20000, 150, "GET /submitted?id=alice_2");
   assert.equal((await page.locator(".list-view-header h2").textContent()), OTHER_USER + "'s submissions", "public list title names the user");
   await page.waitForFunction(
@@ -559,7 +561,7 @@ await test("user panel links open public lists for another user", async ({ page,
   // Comments list for the other user: comment rows via Algolia.
   await page.locator('.comment-card .comment-author[href*="user?id=' + OTHER_USER + '"]').first().click();
   await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
-  await page.locator(".user-links button", { hasText: "Comments" }).click();
+  await page.locator(".user-tabs .user-tab", { hasText: "Comments" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/comments?id=" + OTHER_USER)), 20000, 150, "GET /comments?id=alice_2");
   await page.waitForFunction(
     () => document.querySelectorAll(".list-view-body .thread-list-item").length === 1,
@@ -569,7 +571,7 @@ await test("user panel links open public lists for another user", async ({ page,
   // Favorites list for the other user.
   await page.locator('.comment-card .comment-author[href*="user?id=' + OTHER_USER + '"]').first().click();
   await page.locator(".harmonic-user").waitFor({ state: "visible", timeout: 10000 });
-  await page.locator(".user-links button", { hasText: "Favorites" }).click();
+  await page.locator(".user-tabs .user-tab", { hasText: "Favorites" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/favorites?id=" + OTHER_USER)), 20000, 150, "GET /favorites?id=alice_2");
   await page.waitForFunction(
     () => document.querySelectorAll(".list-view-body .story-card").length === 1,

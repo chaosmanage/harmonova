@@ -386,7 +386,7 @@ await test("View on archive opens the Wayback URL from the thread menu", { story
 await test("View on archive opens the Wayback URL from the card menu", { storyUrl: "https://github.com/octocat/harmonic", providers: GITHUB_GOOD() }, async ({ page }) => {
   await gotoFeed(page);
   const popupPromise = openWayback(page);
-  await page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-card-more').click();
+  await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').click({ button: "right" });
   await page.locator(".harmonic-popup .popup-item", { hasText: "View on archive" }).click();
   const popup = await popupPromise;
   await popup.waitForURL("https://web.archive.org/web/2/https://github.com/octocat/harmonic", { timeout: 15000 });

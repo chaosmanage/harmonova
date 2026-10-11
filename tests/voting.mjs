@@ -58,10 +58,18 @@ function createHnMock() {
 
   function applyVotes(html) {
     for (const [id, vote] of state.votes) {
-      const anchor = anchorFor(id, vote.kind, vote.title);
-      const pattern = new RegExp('<a id="(?:up|down|un)_' + id + '"[\\s\\S]*?</a>');
-      if (pattern.test(html)) html = html.replace(pattern, anchor);
-      else html = html.replace('"votelinks"><center>', '"votelinks"><center>' + anchor);
+      const unv = new RegExp('<span id="unv_' + id + '">[\\s\\S]*?</span>');
+      if (vote.kind === "un") {
+        const unvote = '<span id="unv_' + id + '"> | <a id="un_' + id +
+          '" class="clicky" href="vote?id=' + id + '&amp;how=un&amp;auth=' +
+          TOKEN_A + '&amp;goto=item%3Fid%3D' + STORY_ID + '">' +
+          (vote.title === "downvote" ? "undown" : "unvote") + '</a></span>';
+        html = html.replace(unv, unvote);
+        html = html.replace('id="up_' + id + '" href=', 'id="up_' + id + '" class="nosee" href=');
+      } else {
+        html = html.replace(unv, '<span id="unv_' + id + '"></span>');
+        html = html.replace('id="up_' + id + '" class="nosee" href=', 'id="up_' + id + '" href=');
+      }
     }
     return html;
   }
@@ -136,6 +144,10 @@ function createHnMock() {
       let targetPath = qIndex === -1 ? goto : goto.slice(0, qIndex);
       if (!targetPath.startsWith("/")) targetPath = "/" + targetPath; // HN gotos are relative ("item?id=1")
       const targetSearch = qIndex === -1 ? "id=" + id : goto.slice(qIndex + 1);
+      // HN returns a blank successful response for js=t votes.
+      if (parsed.searchParams.get("js") === "t") {
+        return route.fulfill({ status: 200, contentType: "text/plain", body: "" });
+      }
       return route.fulfill(documentFor(targetPath, targetSearch));
     }
     if (pathname === "/logout") {
@@ -245,6 +257,7 @@ const waitFor = async (fn, timeout = 30000, step = 200, label = "condition") => 
 };
 
 async function test(name, fn) {
+  if (process.env.HARMONIC_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONIC_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
@@ -307,7 +320,8 @@ await test("account chip offers Log in when signed out", async ({ page, hn }) =>
   hn.state.loggedIn = false;
   await gotoFeed(page);
   assert.equal((await chipText(page)).trim(), "Log in");
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator(".harmonic-popup .popup-item").first().click();
   await page.locator(".harmonic-popup").waitFor({ state: "visible" });
   const labels = await page.locator(".harmonic-popup .popup-item span").allTextContents();
   assert.deepEqual(labels.map((label) => label.trim()), ["Log in", "Create account"]);
@@ -316,7 +330,8 @@ await test("account chip offers Log in when signed out", async ({ page, hn }) =>
 await test("login hand-off uses an allowlisted goto and never reflects query input", async ({ page, hn }) => {
   hn.state.loggedIn = false;
   await gotoFeed(page, "?q=EVIL_REFLECTION");
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator(".harmonic-popup .popup-item").first().click();
   await page.locator(".harmonic-popup .popup-item", { hasText: "Log in" }).first().click();
   await page.waitForURL(/\/login/, { timeout: 15000 });
   const url1 = page.url();
@@ -327,7 +342,8 @@ await test("login hand-off uses an allowlisted goto and never reflects query inp
 // directly while signed out so the chip offers Log in.
   await page.goto("https://news.ycombinator.com/item?id=" + STORY_ID, { waitUntil: "domcontentloaded" });
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator(".harmonic-popup .popup-item").first().click();
   await page.locator(".harmonic-popup .popup-item", { hasText: "Log in" }).first().click();
   await page.waitForURL(/\/login/, { timeout: 15000 });
   assert.equal(page.url(), "https://news.ycombinator.com/login?goto=item%3Fid%3D" + STORY_ID);
@@ -335,7 +351,8 @@ await test("login hand-off uses an allowlisted goto and never reflects query inp
 
 await test("signed-in account menu lists profile destinations and logout", async ({ page }) => {
   await gotoFeed(page);
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator(".harmonic-popup .popup-item").first().click();
   await page.locator(".harmonic-popup").waitFor({ state: "visible" });
   const heading = await page.locator(".harmonic-popup .popup-heading").textContent();
   assert.ok(heading.includes(USER) && heading.includes("512"), "heading shows user + karma: " + heading);
@@ -349,7 +366,8 @@ await test("logout through the chip fetches, never navigates to /logout, and rel
   await gotoFeed(page);
   // Simulate HN invalidating the session on logout.
   hn.state.loggedIn = false;
-  await page.locator("#harmonic-account-chip").click();
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator(".harmonic-popup .popup-item").first().click();
   await page.locator(".harmonic-popup .popup-item", { hasText: "Log out" }).click();
   await page.waitForFunction(() => {
     const chip = document.querySelector("#harmonic-account-chip");
@@ -424,62 +442,36 @@ await test("story upvote reflects fixture state; unvote sends the exact request 
   assert.equal(await page.locator("[data-thread-points] span").last().textContent(), "55");
 });
 
-await test("comment vote buttons send exact requests and update active state", async ({ page, hn }) => {
+await test("fast click waits for existing vote state before deciding direction", async ({ page, hn }) => {
+  await gotoFeed(page);
+  await page.locator(".story-card").first().click();
+  const button = page.locator("[data-thread-vote]");
+  await button.waitFor({ state: "visible", timeout: 20000 });
+  await button.click();
+  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/vote")),
+    20000, 150, "vote request");
+  const vote = hn.requests.find((request) => request.path.startsWith("/vote"));
+  assert.equal(vote.params.how, "un", "early click unvotes a pre-voted story");
+  assert.equal(vote.params.js, "t");
+});
+
+await test("comment overlay sends exact upvote and unvote requests", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThread(page);
   const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
-  await row.locator("[data-comment-vote]").click();
+  await row.locator(":scope > .comment-card").click({ button: "right" });
+  await page.locator(".harmonic-popup .popup-item", { hasText: "Vote up" }).click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/vote")), 20000, 150, "comment vote request");
   const vote = hn.requests.find((request) => request.path.startsWith("/vote"));
   assert.equal(vote.params.id, String(PLAIN_COMMENT));
   assert.equal(vote.params.how, "up");
   assert.equal(vote.params.auth, TOKEN_A);
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.ok(await row.locator("[data-comment-vote]").evaluate((node) => node.classList.contains("active")), "comment active after upvote");
-  // The already-voted comment shows an active button on load.
-  const votedRow = page.locator('.comment-row[data-comment-id="' + VOTED_COMMENT + '"]');
-  assert.ok(await votedRow.locator("[data-comment-vote]").evaluate((node) => node.classList.contains("active")));
-  // Unvote the plain comment again.
-  await row.locator("[data-comment-vote]").click();
-  await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/vote")).length >= 2, 20000, 150, "unvote request");
-  const votes = hn.requests.filter((request) => request.path.startsWith("/vote"));
-  assert.equal(votes.length, 2);
-  assert.equal(votes[1].params.how, "un");
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.ok(await row.locator("[data-comment-vote]").evaluate((node) => !node.classList.contains("active")), "comment inactive after unvote");
-});
-
-await test("downvote appears only when HN offers it and sends how=down", async ({ page, hn }) => {
-  hn.state.withDownvote = true;
-  await gotoFeed(page);
-  await openThread(page);
-  const downButton = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"] [data-comment-vote-down]');
-  assert.ok(await downButton.isVisible(), "downvote visible when the fixture offers it");
-  const otherDown = page.locator('.comment-row[data-comment-id="' + UNLISTED_COMMENT + '"] [data-comment-vote-down]');
-  assert.ok(await otherDown.isHidden(), "downvote hidden when HN offers no down link");
-  await downButton.click();
-  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/vote")), 20000, 150, "downvote request");
-  const vote = hn.requests.find((request) => request.path.startsWith("/vote"));
-  assert.equal(vote.params.how, "down");
-  assert.equal(vote.params.id, String(PLAIN_COMMENT));
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.ok(await downButton.evaluate((node) => node.classList.contains("active")), "downvote active after voting");
-  // Undown: unvote via the same button.
-  await downButton.click();
-  await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/vote")).length >= 2, 20000, 150, "undown request");
-  const votes = hn.requests.filter((request) => request.path.startsWith("/vote"));
-  assert.equal(votes[1].params.how, "un");
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.ok(await downButton.evaluate((node) => !node.classList.contains("active")), "downvote inactive after undown");
-});
-
-await test("downvote stays hidden without a down link in the document", async ({ page }) => {
-  await gotoFeed(page);
-  await openThread(page);
-  const hidden = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("[data-comment-vote-down]")).every((node) => node.hidden)
-  );
-  assert.ok(hidden, "all downvote buttons hidden when the fixture has no down anchors");
+  await page.waitForFunction(id => document.querySelector('.comment-row[data-comment-id="' + id + '"] .comment-vote-mark')?.hidden === false, PLAIN_COMMENT);
+  await row.locator(":scope > .comment-card").click({ button: "right" });
+  await page.locator(".harmonic-popup .popup-item", { hasText: "Unvote" }).click();
+  await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/vote")).length === 2, 20000);
+  assert.equal(hn.requests.filter((request) => request.path.startsWith("/vote"))[1].params.how, "un");
+  await page.waitForFunction(id => document.querySelector('.comment-row[data-comment-id="' + id + '"] .comment-vote-mark')?.hidden === true, PLAIN_COMMENT);
 });
 
 await test("scripted clicks never send votes (SEC-30)", async ({ page, hn }) => {
@@ -529,7 +521,7 @@ await test("feed card menu upvote uses the harvested token and badges the card",
   await gotoFeed(page);
   const card = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
   assert.ok(!(await card.evaluate((node) => node.classList.contains("voted"))), "card not badged before voting");
-  await card.locator(".story-card-more").click();
+  await card.click({ button: "right" });
   await page.locator(".harmonic-popup .popup-item", { hasText: "Upvote" }).click();
   await page.waitForFunction(
     (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.classList.contains("voted"),
@@ -543,7 +535,7 @@ await test("feed card menu upvote uses the harvested token and badges the card",
   const toast = await toastText(page);
   assert.ok(toast.includes("Upvoted"), "confirmation toast: " + toast);
   // Menu now offers Unvote; clicking it clears the badge.
-  await card.locator(".story-card-more").click();
+  await card.click({ button: "right" });
   await page.locator(".harmonic-popup .popup-item", { hasText: "Unvote" }).click();
   await page.waitForFunction(
     (id) => !document.querySelector('.story-card[data-story-id="' + id + '"]')?.classList.contains("voted"),
@@ -588,6 +580,30 @@ await test("tokens never leak into the UI, storage, or console", async ({ page, 
   for (const token of PLACEHOLDER_TOKENS) assert.ok(!storage.includes(token), "token must not enter page storage");
   const consoleText = consoleMessages.join("\n");
   for (const token of PLACEHOLDER_TOKENS) assert.ok(!consoleText.includes(token), "token must not be logged");
+});
+
+await test("comment overlay downvotes only with an offered HN token", async ({ page, hn }) => {
+  hn.state.withDownvote = true;
+  await gotoFeed(page);
+  await openThread(page);
+  const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
+  await row.locator(":scope > .comment-card").click({ button: "right" });
+  await page.locator(".harmonic-popup .popup-item", { hasText: "Vote down" }).click();
+  await waitFor(() => hn.requests.some(request => request.path.startsWith("/vote")), 20000);
+  assert.equal(hn.requests.find(request => request.path.startsWith("/vote")).params.how, "down");
+  await page.waitForFunction(id => document.querySelector('.comment-row[data-comment-id="' + id + '"] .comment-vote-mark')?.textContent === "↓", PLAIN_COMMENT, { timeout: 20000 });
+  await row.locator(":scope > .comment-card").click({ button: "right" });
+  await page.locator(".harmonic-popup .popup-item", { hasText: "Undown" }).click();
+  await waitFor(() => hn.requests.filter(request => request.path.startsWith("/vote")).length === 2, 20000);
+  assert.equal(hn.requests.filter(request => request.path.startsWith("/vote"))[1].params.how, "un");
+});
+
+await test("comment overlay excludes downvote without an offered token", async ({ page }) => {
+  await gotoFeed(page);
+  await openThread(page);
+  const row = page.locator('.comment-row[data-comment-id="' + PLAIN_COMMENT + '"]');
+  await row.locator(":scope > .comment-card").click({ button: "right" });
+  assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: "Vote down" }).count(), 0);
 });
 
 await browser.close();

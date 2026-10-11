@@ -46,6 +46,10 @@
       tokenCache.clear();
       formHandles.clear();
       inFlight.clear();
+      rememberedVoteStates.clear();
+      storyCommentForms.clear();
+    itemKnownComments.clear();
+      documentVotes.clear();
     }
     currentSession = next;
     if (changed) notifySession();
@@ -165,6 +169,9 @@
   const tokenCache = new Map(); // key -> { auth, goto, username }
   const formHandles = new Map(); // handle -> { kind, action, fields, username, ... }
   const inFlight = new Map(); // SEC-32: one in-flight mutation per item
+  const rememberedVoteStates = new Map(); // safe item states, never tokens
+  const storyCommentForms = new Map();
+  const itemKnownComments = new Map(); // private top-level HN forms
   const documentVotes = new Map(); // id -> "up" | "down" (as seen on the harvested feed document)
   let nextHandleId = 1;
   let handleCounterSalt = 0;
@@ -195,6 +202,9 @@
     tokenCache.clear();
     formHandles.clear();
     documentVotes.clear();
+    rememberedVoteStates.clear();
+    storyCommentForms.clear();
+    itemKnownComments.clear();
   }
 
   function accountChangedOutcome(message) {
@@ -231,25 +241,30 @@
     return HEX40.test(auth) ? { auth, goto: params.get("goto") || "news" } : null;
   }
 
-  // All vote links on the page: up_ID / down_ID / un_ID anchors.
+  // HN's voted markup has an unv_ID span and an un_ID text link; the
+  // arrow is a sibling, never a descendant of the unvote anchor.
   function parseVoteLinks(doc) {
-    const result = new Map(); // id -> entry (may contain tokens; callers must strip)
+    const result = new Map();
     for (const a of doc.querySelectorAll("a[id]")) {
       const match = a.id.match(/^(up|down|un)_(\d+)$/);
       if (!match) continue;
       const [, kind, rawId] = match;
       const id = Number(rawId);
-      if (!Number.isInteger(id) || id <= 0) continue;
+      if (!Number.isSafeInteger(id) || id <= 0) continue;
       const href = a.getAttribute("href") || "";
-      const params = new URLSearchParams(href.replace(/^vote\??/, ""));
-      const arrowTitle = a.querySelector(".votearrow")?.getAttribute("title") || "";
-      const entry = result.get(id) || { canUp: false, canDown: false, voted: null, votedDirection: null };
-      if (kind === "up") entry.canUp = true;
-      if (kind === "down") entry.canDown = true;
+      const params = new URLSearchParams(href.replace(/^\/?vote\??/, ""));
+      const entry = result.get(id) || { canUp: false, canDown: false, voted: false, votedDirection: null };
+      const visible = !a.classList.contains("nosee") && !a.closest(".nosee");
+      if (kind === "up") entry.canUp = visible;
+      if (kind === "down") entry.canDown = visible;
       if (kind === "un") {
-        entry.voted = true;
-        // The filled arrow keeps its semantic title even after voting.
-        entry.votedDirection = arrowTitle === "downvote" ? "down" : "up";
+        const unv = doc.getElementById("unv_" + id);
+        const label = (a.textContent || "").trim().toLowerCase();
+        // Old synthetic fixtures incorrectly put an arrow in an un_ anchor.
+        // Keep the fixture fallback only for those malformed documents.
+        const legacy = a.querySelector(".votearrow")?.getAttribute("title");
+        entry.voted = visible && (Boolean(unv?.textContent?.trim()) || !unv || unv.contains(a));
+        if (entry.voted) entry.votedDirection = label.includes("undown") || legacy === "downvote" ? "down" : "up";
       }
       entry[kind + "HrefParams"] = {
         how: params.get("how") || (kind === "un" ? "un" : kind),
@@ -280,6 +295,13 @@
     for (const link of doc.querySelectorAll('a[href^="fave?"]')) consume(0, "favorite", link);
     for (const link of doc.querySelectorAll('a[href^="hide?"]')) consume(0, "hide", link);
     for (const link of doc.querySelectorAll('a[href^="flag?"]')) consume(0, "flag", link);
+    for (const link of doc.querySelectorAll('a[href^="reply?"]')) {
+      const id = Number(new URLSearchParams((link.getAttribute("href") || "").slice(6)).get("id"));
+      if (!Number.isSafeInteger(id) || id <= 0) continue;
+      const entry = actions.get(id) || {};
+      entry.replyAvailable = true;
+      actions.set(id, entry);
+    }
     return actions;
   }
 
@@ -361,7 +383,11 @@
       for (const [key, value] of new URLSearchParams(morePath.slice(1))) merged.set(key, value);
       morePath = base + "?" + merged.toString();
     }
-    return { status: "ok", ids: parsed.ids, morePath };
+    const votes = {};
+    if (currentSession) for (const [id, entry] of parseVoteLinks(page.doc)) {
+      if (entry.voted) votes[id] = entry.votedDirection;
+    }
+    return { status: "ok", ids: parsed.ids, morePath, votes };
   }
 
   function parseFnidForm(doc) {
@@ -402,9 +428,9 @@
     for (const [id, entry] of parseVoteLinks(doc)) {
       if (entry.voted) documentVotes.set(id, entry.votedDirection === "down" ? "down" : "up");
       if (!currentSession?.username) continue;
-      if (entry.upHrefParams?.auth) cacheToken("vote:up", id, entry.upHrefParams.auth, entry.upHrefParams.goto);
-      if (entry.downHrefParams?.auth) cacheToken("vote:down", id, entry.downHrefParams.auth, entry.downHrefParams.goto);
-      if (entry.unHrefParams?.auth) cacheToken("vote:un", id, entry.unHrefParams.auth, entry.unHrefParams.goto);
+      if (entry.upHrefParams?.auth) cacheToken("vote", id, entry.upHrefParams.auth, entry.upHrefParams.goto);
+      if (entry.downHrefParams?.auth) cacheToken("vote", id, entry.downHrefParams.auth, entry.downHrefParams.goto);
+      if (entry.unHrefParams?.auth) cacheToken("vote", id, entry.unHrefParams.auth, entry.unHrefParams.goto);
     }
     return currentSession ? { ...currentSession } : null;
   }
@@ -450,7 +476,7 @@
       for (const [id, entry] of votes) {
         for (const kind of ["up", "down", "un"]) {
           const params = entry[kind + "HrefParams"];
-          if (params?.auth) cacheToken("vote:" + kind, id, params.auth, params.goto);
+          if (params?.auth) cacheToken("vote", id, params.auth, params.goto);
         }
       }
       for (const [id, entry] of actions) {
@@ -462,11 +488,21 @@
     const storyEntry = votes.get(itemId);
     const storyActions = actions.get(itemId) || {};
     const commentForm = parseCommentForm(doc);
+    if (commentForm && currentSession) storyCommentForms.set(itemId, { form: commentForm, username: currentSession.username });
+    itemKnownComments.set(itemId, new Set([...doc.querySelectorAll("tr.comtr[id]")].map((row) => Number(row.id))));
+    const replyIds = new Set([...doc.querySelectorAll('a[href^="reply?"]')].map((link) => {
+      const params = new URLSearchParams((link.getAttribute("href") || "").slice("reply?".length));
+      return Number(params.get("id"));
+    }));
     const comments = {};
-    for (const [id, entry] of votes) {
-      if (id === itemId) continue;
-      comments[id] = { ...safeVoteState(entry), flagAvailable: Boolean(actions.get(id)?.flag) };
+    const commentIds = new Set([...votes.keys(), ...replyIds, ...actions.keys()]);
+    for (const id of commentIds) {
+      if (id === itemId || !Number.isSafeInteger(id) || id <= 0) continue;
+      const entry = votes.get(id);
+      comments[id] = { ...safeVoteState(entry), flagAvailable: Boolean(actions.get(id)?.flag), replyAvailable: replyIds.has(id) };
+      if (entry) rememberedVoteStates.set(id, safeVoteState(entry));
     }
+    rememberedVoteStates.set(itemId, safeVoteState(storyEntry));
     return {
       status: "ok",
       itemId,
@@ -512,6 +548,7 @@
   //   - when HN reports the token expired, refetch state and retry exactly once
   // ---------------------------------------------------------------------------
   const TOKEN_MAX_AGE = 60_000;
+  const VOTE_TOKEN_MAX_AGE = 30 * 60_000;
 
   async function refreshToken(kind, itemId, username, labels) {
     const state = await ensureItemState(itemId);
@@ -536,7 +573,7 @@
     if (!beginInFlight(key)) return { status: "failure", message: "An action for this item is already in progress" };
     try {
       let token = getToken(kind, itemId);
-      if (token && !(Date.now() - token.fetchedAt <= TOKEN_MAX_AGE)) token = null; // stale: re-verify below (SEC-35)
+      if (token && !(Date.now() - token.fetchedAt <= (kind === "vote" ? VOTE_TOKEN_MAX_AGE : TOKEN_MAX_AGE))) token = null; // stale: re-verify below (SEC-35)
       if (!token) {
         const refreshed = await refreshToken(kind, itemId, session.username, labels);
         if (refreshed.accountChanged) return accountChangedOutcome();
@@ -557,7 +594,8 @@
         }
       }
       const classified = classificationOutcome(page, labels);
-      if (classified) return classified;
+      if (classified && !(kind === "vote" && page.classification === "blank" && page.status >= 200 && page.status < 300)) return classified;
+      if (kind === "vote" && (page.status < 200 || page.status >= 300)) return { status: "indeterminate", message: "Hacker News returned an unexpected vote response." };
       return await onSuccess(page, token);
     } finally {
       endInFlight(key);
@@ -571,37 +609,46 @@
       loginRequired: "Sign in to vote",
       unavailable: how === "un" ? "Nothing to unvote" : "Voting is not available for this item",
     };
-    return withMutationToken(
-      "vote:" + how,
-      itemId,
-      labels,
-      (token) => {
-        const params = new URLSearchParams({
-          id: String(itemId),
-          how,
-          auth: token.auth,
-          goto: token.goto || ("item?id=" + itemId),
-          js: "t",
-        }); // SEC-14
-        return enqueue("/vote?" + params.toString());
-      },
-      async (page, token) => {
-        // js=t responses contain the refreshed vote links for this item.
-        refreshSessionFromDoc(page.doc);
-        if (!currentSession || token.username !== currentSession.username) return accountChangedOutcome();
-        const refreshed = parseVoteLinks(page.doc);
-        if (currentSession?.username) {
-          const entry = refreshed.get(itemId);
-          if (entry) {
-            for (const voteKind of ["up", "down", "un"]) {
-              const p = entry[voteKind + "HrefParams"];
-              if (p?.auth) cacheToken("vote:" + voteKind, itemId, p.auth, p.goto);
-            }
-          }
+    const prior = rememberedVoteStates.get(itemId) || {};
+    let outcome;
+    try {
+      outcome = await withMutationToken(
+        "vote", itemId, labels,
+        (token) => {
+          const params = new URLSearchParams({
+            id: String(itemId), how, auth: token.auth,
+            goto: token.goto || ("item?id=" + itemId), js: "t",
+          }); // SEC-14: no extra parameters
+          return enqueue("/vote?" + params.toString());
+        },
+        async (_page, token) => {
+          if (!currentSession || token.username !== currentSession.username) return accountChangedOutcome();
+          // HN's hn.js discards the js=t response. A 2xx blank body IS success.
+          const before = rememberedVoteStates.get(itemId) || prior;
+          const state = {
+            ...before, voted: how !== "un", votedDirection: how === "un" ? null : how,
+            canUp: how === "un" ? true : Boolean(before.canUp),
+            canDown: Boolean(before.canDown),
+          };
+          rememberedVoteStates.set(itemId, state);
+          return { status: "success", message: "", state };
         }
-        return { status: "success", message: "", state: safeVoteState(refreshed.get(itemId)) };
+      );
+    } catch {
+      outcome = { status: "indeterminate", message: "Could not confirm the vote." };
+    }
+    if (outcome.status !== "indeterminate") return outcome;
+    // One read-only confirmation after an uncertain mutation; never resend it.
+    try {
+      const refreshed = await ensureItemState(itemId);
+      if (refreshed.status === "ok") {
+        const state = itemId === refreshed.itemId ? refreshed.story : refreshed.comments?.[itemId];
+        if (state && state.voted === (how !== "un") && (how === "un" || state.votedDirection === how)) {
+          return { status: "success", message: "", state };
+        }
       }
-    );
+    } catch {}
+    return outcome;
   }
 
   async function tokenAction(kind, itemId, { un = false, confirmRefetch = false, labels = {} } = {}) {
@@ -680,13 +727,34 @@
     return Number.isInteger(itemId) && itemId > 0 ? "item?id=" + itemId : "news";
   }
 
+  function makeCommentHandle(form, parentId, storyId) {
+    handleCounterSalt += 1;
+    const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
+    formHandles.set(handle, {
+      kind: "comment", action: form.action, fields: { ...form.fields },
+      username: currentSession.username, parentId, storyId,
+      knownIds: new Set(itemKnownComments.get(storyId) || []), createdAt: Date.now(),
+    });
+    return { status: "ok", handle };
+  }
+
   async function openReplyForm(parentId, options = {}) {
     if (!currentSession) return { status: "loginRequired", message: "Sign in to reply" };
-    const goto = options.goto || gotoForItem(options.storyId) || gotoForItem(parentId);
+    const storyId = options.storyId || parentId;
+    if (storyId === parentId) {
+      const cached = storyCommentForms.get(storyId);
+      if (cached?.username === currentSession.username) return makeCommentHandle(cached.form, parentId, storyId);
+      // Top-level replies use the form already present on /item, not /reply.
+      const state = await ensureItemState(storyId);
+      if (state.status === "ok") {
+        const form = storyCommentForms.get(storyId);
+        if (form?.username === currentSession.username) return makeCommentHandle(form.form, parentId, storyId);
+      }
+    }
+    const goto = options.goto || gotoForItem(storyId);
     const page = await enqueue("/reply?" + new URLSearchParams({ id: String(parentId), goto }).toString());
     if (page.classification === "loginPage") { setSession(null, null); return { status: "loginRequired", message: "Sign in to reply" }; }
     if (page.classification === "validationRequired") return { status: "validationRequired", message: "Hacker News asks for verification before this reply. Open the reply on Hacker News to continue.", detail: "draft kept" };
-    if (page.classification === "expiredLink") return { status: "failure", message: "Hacker News reported an expired reply link. Refresh the discussion and try again.", detail: "" };
     if (page.classification !== "ok") return { status: "failure", message: "Could not open a reply form on Hacker News.", detail: page.classification };
     const form = parseCommentForm(page.doc);
     if (!form || !HEX40.test(form.fields.hmac || "")) {
@@ -694,10 +762,7 @@
     }
     refreshSessionFromDoc(page.doc);
     if (!currentSession) return { status: "loginRequired", message: "Sign in to reply" };
-    handleCounterSalt += 1;
-    const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    formHandles.set(handle, { kind: "comment", action: form.action, fields: { ...form.fields }, username: currentSession.username, parentId, createdAt: Date.now() });
-    return { status: "ok", handle };
+    return makeCommentHandle(form, parentId, storyId);
   }
 
   function getHandle(handle, kind) {
@@ -710,20 +775,60 @@
     return entry;
   }
 
-  function formOutcome(page, successPathTest, labels) {
-    if (page.classification === "badLogin") return { status: "loginRequired", message: "Your Hacker News session ended. Sign in again.", detail: "draft kept" };
-    if (page.classification === "tooFast") return { status: "failure", message: "Hacker News says you're posting too fast. Wait a moment before trying again.", detail: "draft kept" };
+  function formOutcome(page, matches, labels) {
+    if (page.classification === "badLogin" || page.classification === "loginPage") return { status: "loginRequired", message: "Your Hacker News session ended. Sign in again.", detail: "draft kept" };
+    if (page.classification === "tooFast") return { status: "failure", message: "Hacker News says you're posting too fast. Your draft is kept.", detail: "draft kept" };
     if (page.classification === "validationRequired") return { status: "validationRequired", message: "Hacker News asks for verification. Open the form on Hacker News to continue.", detail: "draft kept" };
-    if (page.classification === "rateLimited") return { status: "rateLimited", message: "Hacker News is rate-limiting requests. Wait a moment and check whether the post went through before retrying.", detail: "draft kept" };
-    if (page.classification === "blank") return { status: "indeterminate", message: "Hacker News's response was unreadable. Check whether the post went through before retrying.", detail: "draft kept" };
-    let path = "";
-    try { path = new URL(page.url).pathname + "?" + (new URL(page.url).search || ""); } catch {}
-    // A successful POST usually redirects to the item page; when redirects are
-    // not visible to the fetch (proxied environments), the returned item
-    // document itself is an equally strong success signal.
-    const itemLike = Boolean(page.doc.querySelector(".comment-tree, .toptext, .titleline, td.title"));
-    if (successPathTest(path, page) || itemLike) return { status: "success", message: "" };
-    return { status: "indeterminate", message: labels.indeterminate || "Hacker News did not confirm the action. Check on Hacker News before retrying.", detail: "" };
+    if (page.classification === "rateLimited") return { status: "rateLimited", message: "Hacker News is rate-limiting requests. Check whether the post went through before retrying.", detail: "draft kept" };
+    if (page.classification === "ok" && page.status >= 200 && page.status < 300 && matches(page)) return { status: "success", message: "" };
+    return { status: "indeterminate", message: labels.indeterminate || "Hacker News did not confirm the action. Check on Hacker News before retrying.", detail: "draft kept" };
+  }
+
+  function redirectedToItem(page) {
+    try { return new URL(page.url).pathname === "/item"; } catch { return false; }
+  }
+
+  function findOwnComment(doc, username, knownIds, text, id = null) {
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    for (const row of doc.querySelectorAll("tr.comtr[id]")) {
+      const rowId = Number(row.id);
+      if (!Number.isSafeInteger(rowId) || rowId <= 0) continue;
+      if (id !== null ? rowId !== id : knownIds?.has(rowId)) continue;
+      if (row.querySelector(".comhead .hnuser, .hnuser")?.textContent?.trim() !== username) continue;
+      const body = row.querySelector(".commtext");
+      // HN strips Markdown-like emphasis markers and collapses whitespace.
+      // Require substantial visible text overlap, not byte-for-byte source HTML.
+      const rendered = normalize(body?.textContent);
+      const submitted = normalize(text).replace(/\*([^*\n]+)\*/g, "$1")
+        .replace(/(^|\n)\s*>\s*/g, "$1").replace(/\s+/g, " ").trim();
+      if (!body || !submitted || !rendered.includes(submitted.slice(0, Math.min(80, submitted.length)))) continue;
+      // The returned HTML is sanitized before it can leave this closure.
+      return { id: rowId, html: sanitizeCommentHtml(body) };
+    }
+    return null;
+  }
+
+  function sanitizeCommentHtml(source) {
+    const doc = document.implementation.createHTMLDocument("");
+    const target = doc.createElement("div");
+    const allowed = new Set(["p", "br", "a", "i", "em", "b", "strong", "pre", "code", "blockquote", "ul", "ol", "li"]);
+    const copy = (node, into) => {
+      if (node.nodeType === 3) { into.appendChild(doc.createTextNode(node.nodeValue || "")); return; }
+      if (node.nodeType !== 1) return;
+      const tag = node.localName.toLowerCase();
+      if (["script", "style", "iframe", "object", "svg", "form"].includes(tag)) return;
+      const next = allowed.has(tag) ? doc.createElement(tag) : into;
+      if (tag === "a" && next !== into) {
+        try {
+          const url = new URL(node.getAttribute("href") || "", "https://news.ycombinator.com");
+          if (["https:", "http:"].includes(url.protocol)) { next.setAttribute("href", url.href); next.setAttribute("rel", "noopener noreferrer"); }
+        } catch {}
+      }
+      for (const child of node.childNodes) copy(child, next);
+      if (next !== into) into.appendChild(next);
+    };
+    for (const child of source.childNodes) copy(child, target);
+    return target.innerHTML; // inert, sanitized document; never live innerHTML
   }
 
   async function postComment(handle, text) {
@@ -731,9 +836,26 @@
     if (entry === null) return { status: "failure", message: "This reply form is no longer valid. Refresh and try again." };
     if (entry === "changed") return accountChangedOutcome();
     const body = { parent: entry.fields.parent, goto: entry.fields.goto, hmac: entry.fields.hmac, text };
-    const page = await enqueue("/" + (entry.action || "comment"), { method: "POST", body }); // SEC-14
-    const outcome = formOutcome(page, (path) => path.startsWith("/item"), { indeterminate: "Hacker News did not confirm the comment. Check the thread before posting again." });
-    if (outcome.status === "success") formHandles.delete(handle);
+    const page = await enqueue("/" + (entry.action || "comment"), { method: "POST", body }); // SEC-34: never retry a POST
+    // Some HN responses (and intercepting test servers) serve the item HTML
+    // directly at /comment rather than following the redirect. Verify once
+    // with a safe GET in that case; never send a second POST.
+    let verified = page;
+    if (page.classification === "ok" && !redirectedToItem(page)) {
+      try {
+        if (new URL(page.url).pathname === "/comment") {
+          verified = await enqueue("/item?id=" + entry.storyId);
+        }
+      } catch {}
+    }
+    const found = findOwnComment(verified.doc, entry.username, entry.knownIds, text);
+    const outcome = formOutcome(page, () => redirectedToItem(verified) && Boolean(found), {
+      indeterminate: "Hacker News did not confirm the comment. Your draft is kept; check the thread before posting again.",
+    });
+    if (outcome.status === "success") {
+      formHandles.delete(handle);
+      outcome.newComment = { id: found.id, parentId: entry.parentId, html: found.html };
+    }
     return outcome;
   }
 
@@ -743,14 +865,14 @@
     if (page.classification === "loginPage") { setSession(null, null); return { status: "loginRequired", message: "Sign in to edit" }; }
     if (page.classification !== "ok") return { status: "failure", message: "Hacker News did not offer an edit form for this comment.", detail: page.classification };
     const form = parseFormByPredicate(page.doc, (f) => ["xedit", "comment"].includes(f.getAttribute("action")));
-    if (!form || !HEX40.test(form.fields.hmac || "")) {
-      return { status: "failure", message: "Hacker News edit form could not be read. Edit on Hacker News instead.", detail: "" };
+    if (!form || !HEX40.test(form.fields.hmac || "") || Number(form.fields.id) !== commentId) {
+      return { status: "failure", message: "Hacker News edit form did not match this comment. Edit on Hacker News instead.", detail: "" };
     }
     refreshSessionFromDoc(page.doc);
     if (!currentSession) return { status: "loginRequired", message: "Sign in to edit" };
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    formHandles.set(handle, { kind: "edit", action: form.action || "xedit", fields: { ...form.fields }, username: currentSession.username, commentId, createdAt: Date.now() });
+    formHandles.set(handle, { kind: "edit", action: form.action || "xedit", fields: { ...form.fields }, username: currentSession.username, commentId, storyId: options.storyId || commentId, createdAt: Date.now() });
     return { status: "ok", handle, currentText: form.fields.text || "" };
   }
 
@@ -760,7 +882,14 @@
     if (entry === "changed") return accountChangedOutcome();
     const body = { ...entry.fields, text };
     const page = await enqueue("/" + (entry.action || "xedit"), { method: "POST", body });
-    const outcome = formOutcome(page, (path) => path.startsWith("/item"), { indeterminate: "Hacker News did not confirm the edit. Check the comment before retrying." });
+    let verified = page;
+    if (page.classification === "ok" && !redirectedToItem(page)) {
+      try {
+        if (new URL(page.url).pathname === "/xedit") verified = await enqueue("/item?id=" + entry.storyId);
+      } catch {}
+    }
+    const edited = findOwnComment(verified.doc, entry.username, null, text, entry.commentId);
+    const outcome = formOutcome(page, () => redirectedToItem(verified) && Boolean(edited), { indeterminate: "Hacker News did not confirm the edit. Your draft is kept." });
     if (outcome.status === "success") formHandles.delete(handle);
     return outcome;
   }
@@ -773,12 +902,12 @@
     if (page.classification !== "ok") return { status: "failure", message: "Hacker News did not offer a delete form for this comment.", detail: page.classification };
     const form = parseFormByPredicate(page.doc, (f) => true) // the page hosts exactly one form
       || parseFormByPredicate(page.doc, (f) => f.querySelector('input[type="submit"]'));
-    if (!form) return { status: "failure", message: "Hacker News delete form could not be read. Delete on Hacker News instead.", detail: "" };
+    if (!form || Number(form.fields.id) !== commentId) return { status: "failure", message: "Hacker News delete form did not match this comment. Delete on Hacker News instead.", detail: "" };
     refreshSessionFromDoc(page.doc);
     if (!currentSession) return { status: "loginRequired", message: "Sign in to delete" };
     handleCounterSalt += 1;
     const handle = "f" + (nextHandleId++) + "x" + handleCounterSalt;
-    formHandles.set(handle, { kind: "delete", action: form.action || "xdelete", fields: { ...form.fields }, username: currentSession.username, commentId, createdAt: Date.now() });
+    formHandles.set(handle, { kind: "delete", action: form.action || "xdelete", fields: { ...form.fields }, username: currentSession.username, commentId, storyId: options.storyId || commentId, createdAt: Date.now() });
     return { status: "ok", handle };
   }
 
@@ -787,7 +916,19 @@
     if (entry === null) return { status: "failure", message: "This delete form is no longer valid. Refresh and try again." };
     if (entry === "changed") return accountChangedOutcome();
     const page = await enqueue("/" + (entry.action || "xdelete"), { method: "POST", body: { ...entry.fields } });
-    const outcome = formOutcome(page, (path) => path.startsWith("/item") || path.startsWith("/news"), { indeterminate: "Hacker News did not confirm the delete. Check the comment before retrying." });
+    let verified = page;
+    if (page.classification === "ok" && !redirectedToItem(page)) {
+      try {
+        if (new URL(page.url).pathname === "/xdelete") verified = await enqueue("/item?id=" + entry.storyId);
+      } catch {}
+    }
+    const target = verified.doc.getElementById(String(entry.commentId));
+    const knownBefore = itemKnownComments.get(entry.storyId)?.has(entry.commentId);
+    const deleted = Boolean(knownBefore) && (!target || /^\[deleted\]$/i.test(target.querySelector(".commtext")?.textContent?.trim() || ""));
+    const outcome = formOutcome(page, () => {
+      try { return ["/item", "/news"].includes(new URL(verified.url).pathname) && deleted; }
+      catch { return false; }
+    }, { indeterminate: "Hacker News did not confirm the delete. Check the comment before retrying." });
     if (outcome.status === "success") formHandles.delete(handle);
     return outcome;
   }
@@ -825,7 +966,9 @@
       const id = Number(new URL(page.url).searchParams.get("id"));
       return { status: "alreadySubmitted", message: "Hacker News already has this story.", detail: String(Number.isInteger(id) ? id : ""), existingId: Number.isInteger(id) ? id : null };
     }
-    const outcome = formOutcome(page, (p) => p.startsWith("/newest") || p.startsWith("/item"), { indeterminate: "Hacker News did not confirm the submission. Check /newest before posting again." });
+    const outcome = formOutcome(page, (response) => {
+      try { return ["/newest", "/item"].includes(new URL(response.url).pathname); } catch { return false; }
+    }, { indeterminate: "Hacker News did not confirm the submission. Check /newest before posting again." });
     if (outcome.status === "success") formHandles.delete(handle);
     return outcome;
   }

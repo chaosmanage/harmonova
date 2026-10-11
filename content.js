@@ -56,17 +56,18 @@
     // Phase 7 part 2 (0.12.1): comment parity
     markNewComments: true,
     hideDelayed: true,
-    showAvatars: true,
+    showAvatars: false,
+    swapCommentActions: false,
     // Phase 7 (0.12.0): feed parity
     showDomain: true,
     compactPoints: false,
-    hotnessColors: true,
+    hotnessColors: false,
     hideJobs: false,
     hideRead: false,
     hiddenDomains: "",
     hiddenKeywords: "",
     feedOrder: [],
-    feedHidden: [],
+    feedHidden: ["pool", "active", "bestcomments", "launches", "whoishiring", "noobstories", "classic", "front"],
     frontDate: "",
     faviconProvider: "google",
     // Phase 7 part 3 (0.12.2): links & appearance
@@ -135,6 +136,9 @@
     selectedId: location.pathname === "/item" ? Number(new URLSearchParams(location.search).get("id")) : null,
     selectedStory: null,
     thread: null,
+    confirmedComments: new Map(), // story id -> Map of locally confirmed posts
+    confirmedEdits: new Map(), // story id -> Map of locally confirmed edits
+    confirmedDeletes: new Map(), // story id -> Set of locally confirmed deletions
     previewById: new Map(),
     readIds: new Set(),
     bookmarks: new Set(),
@@ -164,6 +168,7 @@
       debounceTimer: 0,
       seq: 0,
       recent: [], // memory only — never persisted (SEC-51)
+      keyboardIndex: -1,
     },
     // Phase 1+2 (account actions): per-thread HN document state (story vote
     // links, comment vote links) fetched from news.ycombinator.com on demand.
@@ -208,7 +213,9 @@
     if (seconds < 3600) return Math.floor(seconds / 60) + "m";
     if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
     if (seconds < 604800) return Math.floor(seconds / 86400) + "d";
-    return Math.floor(seconds / 604800) + "w";
+    if (seconds < 8 * 604800) return Math.floor(seconds / 604800) + "w";
+    if (seconds < 365 * 86400) return Math.floor(seconds / (30 * 86400)) + "mo";
+    return Math.floor(seconds / (365 * 86400)) + "y";
   };
 
   const domainOf = (url) => {
@@ -496,7 +503,9 @@
 
   const getPreview = (story) => new Promise((resolve) => {
     if (!story?.url) return resolve({ image: null, tint: null, favicon: null });
-    if (state.previewById.has(story.id)) return resolve(state.previewById.get(story.id));
+    const cached = state.previewById.get(story.id);
+    if (cached && (!cached.failedUntil || cached.failedUntil > Date.now())) return resolve(cached);
+    if (cached?.failedUntil) state.previewById.delete(story.id);
     const timer = setTimeout(() => resolve({ image: null, tint: null, favicon: null }), 7000);
     const wantRich = state.settings.richPreviews !== false;
     chrome.runtime.sendMessage({ type: "HARMONIC_PREVIEW", url: story.url, rich: wantRich }, (response) => {
@@ -508,6 +517,39 @@
       resolve(value);
     });
   });
+
+  // Preview requests are lazy for global-search results, with at most three
+  // concurrent metadata fetches. The same queue serves feed cards too.
+  const previewJobs = [];
+  let previewRunning = 0;
+  let previewObserver = null;
+  const pumpPreviews = () => {
+    while (previewRunning < 3 && previewJobs.length) {
+      const task = previewJobs.shift();
+      previewRunning++;
+      getPreview(task.story).then((result) => {
+        if (task.card.isConnected) task.show(result);
+      }).finally(() => { previewRunning--; pumpPreviews(); });
+    }
+  };
+  const requestCardPreview = (card, story, show) => {
+    const add = () => {
+      previewJobs.push({ card, story, show });
+      pumpPreviews();
+    };
+    if (state.search.active && typeof IntersectionObserver !== "undefined") {
+      if (!previewObserver) previewObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          previewObserver.unobserve(entry.target);
+          entry.target._loadHarmonicPreview?.();
+          delete entry.target._loadHarmonicPreview;
+        }
+      }, { root: storyList, rootMargin: "300px" });
+      card._loadHarmonicPreview = add;
+      previewObserver.observe(card);
+    } else add();
+  };
 
   const faviconUrl = (story) => {
     if (!story?.url) return null;
@@ -525,7 +567,7 @@
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
   let frontDateInput;
-  let searchPanel, searchFilters, searchRecent, searchChips;
+  let searchPanel, searchFilters, searchRecent, searchChips, searchSubmit;
   let accountChip;
 
   function applySettings() {
@@ -636,8 +678,9 @@
       if (!event.isTrusted) return; // SEC-30: scripted clicks never open menus
       openAccountMenu(event.currentTarget);
     });
-    actions.append(searchButton, refreshButton, newPostButton, moreButton, accountChip);
-    row.append(titleButton, frontDateInput, actions);
+    actions.append(searchButton, refreshButton, moreButton);
+    accountChip.classList.add("thread-secondary-action");
+    row.append(titleButton, frontDateInput, actions, accountChip);
     updateAccountChip();
 
     updatedLabel = el("div", "last-updated", "Last updated: " + formatTime(state.updatedAt));
@@ -749,10 +792,17 @@
     controls.append(rangeSelect, sortSelect, pointsInput, authorInput);
     searchFilters.append(searchChips, controls);
 
+    searchSubmit = el("button", "hn-search-submit");
+    searchSubmit.type = "button";
+    searchSubmit.hidden = true;
+    searchSubmit.addEventListener("click", () => {
+      setSearchMode("global");
+      runGlobalSearch(0);
+    });
     searchRecent = el("div", "hn-search-recent");
     searchRecent.hidden = true;
 
-    searchPanel.append(modes, searchFilters, searchRecent);
+    searchPanel.append(modes, searchSubmit, searchFilters, searchRecent);
     return searchPanel;
   }
 
@@ -919,9 +969,8 @@ async function loadThreadItemState(id, token) {
     const itemState = await window.HarmonicHN.ensureItemState(id);
     if (token !== state.itemStateToken || state.selectedId !== id) return;
     state.itemState = itemState || null;
-    if (itemState?.story?.voted) {
-      state.feedVotes.set(id, itemState.story.votedDirection === "down" ? "down" : "up");
-    }
+    if (itemState?.story?.voted) state.feedVotes.set(id, itemState.story.votedDirection === "down" ? "down" : "up");
+    else if (itemState?.status === "ok") state.feedVotes.delete(id);
     applyItemState();
   } catch {
     /* non-fatal: voting falls back to "sign in" prompts */
@@ -940,7 +989,8 @@ function updateThreadVoteUi() {
   if (voteButton) {
     const pending = voteButton.dataset.pending === "1";
     voteButton.classList.toggle("active", !pending && Boolean(story?.voted));
-    voteButton.title = story?.voted ? "Unvote" : "Upvote";
+    voteButton.title = story ? (story.voted ? "Unvote" : "Upvote") : "Loading vote state…";
+    voteButton.classList.toggle("loading", !story);
     voteButton.setAttribute("aria-label", voteButton.title);
     if (!pending) voteButton.disabled = false;
   }
@@ -974,6 +1024,11 @@ function syncCommentVoteUi(commentId) {
   const row = threadPane.querySelector('.comment-row[data-comment-id="' + commentId + '"]');
   if (!row) return;
   const cs = state.itemState?.comments?.[commentId] || null;
+  const voteMark = row.querySelector("[data-comment-vote-mark]");
+  if (voteMark) {
+    voteMark.hidden = !cs?.voted;
+    voteMark.textContent = cs?.votedDirection === "down" ? "↓" : "↑";
+  }
   const voteButton = row.querySelector("[data-comment-vote]");
   if (voteButton) {
     const pending = voteButton.dataset.pending === "1";
@@ -1014,10 +1069,21 @@ async function handleStoryVote(event) {
   if (!Number.isInteger(storyId) || storyId <= 0) return;
   const voteButton = threadPane.querySelector("[data-thread-vote]");
   if (!voteButton || voteButton.dataset.pending === "1") return; // one vote in flight (SEC-32)
-  const voted = Boolean(state.itemState?.story?.voted);
-  const direction = voted ? "un" : "up";
   voteButton.dataset.pending = "1";
   voteButton.disabled = true;
+  // Defer a fast click until we have the actual voted state from HN.
+  if (state.itemState?.status !== "ok" || state.itemState.itemId !== storyId) {
+    clearTimeout(state.itemStateTimer);
+    await loadThreadItemState(storyId, state.itemStateToken);
+    if (state.selectedId !== storyId || state.itemState?.status !== "ok") {
+      delete voteButton.dataset.pending;
+      voteButton.disabled = false;
+      showToast("Couldn't load your vote state");
+      return;
+    }
+  }
+  const voted = Boolean(state.itemState.story.voted);
+  const direction = voted ? "un" : "up";
   // Optimistic UI — rolled back below if Hacker News rejects the vote.
   voteButton.classList.toggle("active", !voted);
   bumpThreadPoints(voted ? -1 : 1);
@@ -1053,7 +1119,7 @@ async function handleStoryVote(event) {
   }
 }
 
-async function handleCommentVote(event, commentId) {
+async function handleCommentVote(event, commentId, requestedDown = null) {
   if (!requireTrustedEvent(event)) return;
   const session = window.HarmonicHN?.session?.();
   if (!session) {
@@ -1062,8 +1128,17 @@ async function handleCommentVote(event, commentId) {
   }
   if (!Number.isInteger(commentId) || commentId <= 0) return;
   const buttonNode = event.currentTarget;
-  if (buttonNode.dataset.pending === "1") return;
-  const isDown = buttonNode.hasAttribute("data-comment-vote-down");
+  if (!buttonNode || buttonNode.dataset.pending === "1") return;
+  const isDown = requestedDown === null ? buttonNode.hasAttribute("data-comment-vote-down") : requestedDown;
+  buttonNode.dataset.pending = "1";
+  if (state.itemState?.status !== "ok" || state.itemState.itemId !== state.selectedId) {
+    await loadThreadItemState(state.selectedId, state.itemStateToken);
+    if (state.itemState?.status !== "ok") {
+      delete buttonNode.dataset.pending;
+      showToast("Couldn't load your vote state");
+      return;
+    }
+  }
   const cs = state.itemState?.comments?.[commentId] || {};
   const voted = Boolean(cs.voted);
   const direction = voted ? "un" : isDown ? "down" : "up";
@@ -1650,20 +1725,16 @@ async function openUserPanel(username) {
   const submissionsTitle = el("h4", "", "Recent items");
   const submissions = el("div", "user-submissions");
   const links = el("div", "user-links");
-  const session = window.HarmonicHN?.session?.();
-  const ownProfile = session?.username === username;
-  // Other users get in-Harmonic links to their public lists (SEC-05 still
-  // applies: these are list pages, never the /user profile page).
-  if (!ownProfile) {
-    for (const kind of ["submissions", "comments", "favorites"]) {
-      const listLink = el("button", "user-hn-link", kind === "submissions" ? "Submissions" : kind === "comments" ? "Comments" : "Favorites");
-      listLink.type = "button";
-      listLink.addEventListener("click", () => {
-        overlay.remove();
-        openListView(kind, username);
-      });
-      links.appendChild(listLink);
-    }
+  // Segmented public-list tabs open inside Harmonic, for own and other users.
+  const tabs = el("nav", "user-tabs");
+  for (const kind of ["submissions", "comments", "favorites"]) {
+    const tab = el("button", "user-tab", kind[0].toUpperCase() + kind.slice(1));
+    tab.type = "button";
+    tab.addEventListener("click", () => {
+      overlay.remove();
+      openListView(kind, username);
+    });
+    tabs.append(tab);
   }
   const profileHref = safeHref("https://news.ycombinator.com/user?id=" + encodeURIComponent(username));
   if (profileHref) {
@@ -1673,7 +1744,7 @@ async function openUserPanel(username) {
     profileLink.rel = "noopener noreferrer";
     links.appendChild(profileLink);
   }
-  panel.append(header, karmaRow, about, submissionsTitle, submissions, links);
+  panel.append(header, karmaRow, about, tabs, submissionsTitle, submissions, links);
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
 
@@ -1845,6 +1916,52 @@ function openConfirmDialog({ title, message, confirmLabel = "Confirm", danger = 
   confirm.focus();
 }
 
+// HN formatting preview. All content is text nodes, including URL labels.
+function formatHnPreview(target, source) {
+  const lines = String(source || "").replace(/\r\n?/g, "\n").split("\n");
+  let paragraph = [];
+  const inline = (node, value) => {
+    const pattern = /(https?:\/\/[^\s<>]+)|\*([^*\n]+)\*/g;
+    let start = 0;
+    for (const match of value.matchAll(pattern)) {
+      node.append(document.createTextNode(value.slice(start, match.index)));
+      if (match[1]) {
+        const link = el("a", "", match[1]);
+        link.href = match[1];
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        node.append(link);
+      } else node.append(el("em", "", match[2]));
+      start = match.index + match[0].length;
+    }
+    node.append(document.createTextNode(value.slice(start)));
+  };
+  const flush = () => {
+    if (!paragraph.length) return;
+    const p = el("p");
+    inline(p, paragraph.join(" "));
+    target.append(p);
+    paragraph = [];
+  };
+  let code = [];
+  const flushCode = () => {
+    if (code.length) target.append(el("pre", "", code.join("\n")));
+    code = [];
+  };
+  for (const line of lines) {
+    if (/^ {2,}\S/.test(line)) {
+      flush();
+      code.push(line.slice(2));
+    } else {
+      flushCode();
+      if (!line.trim()) flush();
+      else paragraph.push(line.trim());
+    }
+  }
+  flush();
+  flushCode();
+}
+
 // Reply/edit composer. mode "reply" posts through postComment; mode "edit"
 // posts through saveEdit. The draft key is the parent (reply) or the comment
 // being edited (edit).
@@ -1859,6 +1976,22 @@ function openComposer(options) {
   }
   const verb = mode === "edit" ? "Editing comment" : parentId === storyId ? "Commenting on" : "Replying to";
   const node = el("section", "composer");
+  if (parentId !== storyId) {
+    const parent = findCommentNode(state.thread, parentId);
+    if (parent) {
+      const context = el("div", "composer-parent-context");
+      const excerpt = el("div", "composer-parent-excerpt");
+      excerpt.textContent = String(parent.text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300);
+      const expand = el("button", "composer-secondary", "Show parent");
+      expand.type = "button";
+      expand.addEventListener("click", () => {
+        const open = excerpt.classList.toggle("expanded");
+        expand.textContent = open ? "Hide parent" : "Show parent";
+      });
+      context.append(el("strong", "", "Replying to " + (parent.author || "[deleted]")), expand, excerpt);
+      node.appendChild(context);
+    }
+  }
   const header = el("div", "composer-header");
   header.append(
     el("span", "composer-identity", verb + " as " + session.username),
@@ -1887,13 +2020,21 @@ function openComposer(options) {
   previewToggle.type = "button";
   const discard = el("button", "composer-secondary composer-discard", "Discard draft");
   discard.type = "button";
+  const cancel = el("button", "composer-secondary composer-cancel", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => closeComposer({ keepDraft: true }));
+  const help = el("a", "composer-format-help", "Formatting help");
+  help.href = "https://news.ycombinator.com/formatdoc";
+  help.target = "_blank";
+  help.rel = "noopener noreferrer";
   const submit = el("button", "composer-submit", mode === "edit" ? "Save edit" : "Post reply");
   submit.type = "button";
-  actions.append(previewToggle, discard, (() => {
+  submit.disabled = mode !== "edit";
+  actions.append(help, previewToggle, discard, (() => {
     const spacer = el("span", "composer-spacer");
     return spacer;
-  })(), submit);
-  const footnote = el("div", "composer-footnote", "Ctrl+Enter posts · Esc keeps your draft");
+  })(), cancel, submit);
+  const footnote = el("div", "composer-footnote", "Posting as " + session.username + " · Ctrl+Enter posts · Esc keeps your draft");
   node.append(header, textarea, previewWrap, status, actions, footnote);
 
   // Draft restore note + autosave (debounced).
@@ -1909,7 +2050,7 @@ function openComposer(options) {
       previewWrap.append(el("span", "composer-preview-empty", "Nothing to preview yet."));
       return;
     }
-    appendSummaryInline(previewWrap, textarea.value);
+    formatHnPreview(previewWrap, textarea.value);
   };
   const autosave = () => {
     clearTimeout(draftTimer);
@@ -1957,7 +2098,32 @@ function openComposer(options) {
   });
   submit.addEventListener("click", submitComposer);
 
-  state.composer = { parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone };
+  const composer = { parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone };
+  state.composer = composer;
+  if (mode === "reply") {
+    status.hidden = false;
+    status.textContent = "Checking availability on Hacker News…";
+    window.HarmonicHN.openReplyForm(parentId, { storyId }).then((opened) => {
+      if (state.composer !== composer) return;
+      if (opened.status === "ok") {
+        composer.handle = opened.handle;
+        submit.disabled = false;
+        status.hidden = true;
+      } else {
+        status.textContent = opened.message || "Reply unavailable. Open Hacker News to continue.";
+        status.classList.add("error");
+        const escape = el("button", "composer-hn-open", "Open reply on Hacker News");
+        escape.type = "button";
+        escape.addEventListener("click", () => openOriginalHackerNews(
+          "/reply?id=" + parentId + "&goto=" + encodeURIComponent("item?id=" + storyId)));
+        status.append(document.createTextNode(" "), escape);
+      }
+    }).catch(() => {
+      if (state.composer !== composer) return;
+      status.textContent = "Could not load the reply form. Your draft is kept.";
+      status.classList.add("error");
+    });
+  }
   // Insert: inline under the anchored comment row, else above the comments.
   if (anchor) {
     anchor.insertBefore(node, anchor.querySelector(".comment-children"));
@@ -1984,7 +2150,7 @@ function openComposer(options) {
 
   function submitComposer() {
     const composer = state.composer;
-    if (!composer || composer.submitting) return;
+    if (!composer || composer.submitting || !composer.handle) return;
     const text = textarea.value;
     if (!text.trim()) {
       status.hidden = false;
@@ -1997,21 +2163,14 @@ function openComposer(options) {
     previewToggle.disabled = true;
     status.hidden = false;
     status.classList.remove("error");
-    status.textContent = mode === "edit" ? "Saving your edit on Hacker News…" : "Opening the Hacker News reply form…";
+    status.textContent = mode === "edit" ? "Saving your edit on Hacker News…" : "Posting your reply…";
     (async () => {
       try {
         let outcome;
         if (mode === "edit") {
           outcome = await window.HarmonicHN.saveEdit(handle, text);
         } else {
-          const opened = await window.HarmonicHN.openReplyForm(parentId, { storyId });
-          if (opened.status !== "ok") {
-            outcome = opened;
-          } else {
-            composer.handle = opened.handle;
-            status.textContent = "Posting your reply…";
-            outcome = await window.HarmonicHN.postComment(opened.handle, text);
-          }
+          outcome = await window.HarmonicHN.postComment(composer.handle, text);
         }
         handleComposerOutcome(composer, outcome, text);
       } catch {
@@ -2025,6 +2184,88 @@ function openComposer(options) {
   }
 }
 
+function findCommentNode(tree, id) {
+  if (!tree || typeof tree !== "object") return null;
+  if (tree.id === id) return tree;
+  for (const child of tree.children || []) {
+    const found = findCommentNode(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// A confirmed comment is inserted without re-fetching lagging Algolia data.
+function applyLocalComment(composer, outcome, text) {
+  if (!state.thread || state.thread.id !== composer.storyId) return;
+  if (composer.mode === "edit") {
+    const comment = findCommentNode(state.thread, composer.parentId);
+    if (comment) comment.text = text;
+    const edits = state.confirmedEdits.get(composer.storyId) || new Map();
+    edits.set(composer.parentId, text);
+    state.confirmedEdits.set(composer.storyId, edits);
+    const row = threadPane.querySelector('[data-comment-id="' + composer.parentId + '"]');
+    const body = row?.querySelector(":scope > .comment-card .comment-body");
+    if (body) {
+      body.replaceChildren();
+      // Text was entered by the user, not already-sanitized HTML.
+      body.textContent = text;
+    }
+    return;
+  }
+  const posted = outcome.newComment;
+  if (!posted || !Number.isSafeInteger(posted.id)) return;
+  const entry = {
+    id: posted.id,
+    author: window.HarmonicHN.session()?.username || null,
+    created_at_i: Math.floor(Date.now() / 1000),
+    text: posted.html,
+    children: [],
+  };
+  const parent = composer.parentId === composer.storyId
+    ? state.thread
+    : findCommentNode(state.thread, composer.parentId);
+  if (!parent) return;
+  if (!findCommentNode(state.thread, posted.id)) parent.children = [entry, ...(parent.children || [])];
+  const local = state.confirmedComments.get(composer.storyId) || new Map();
+  local.set(posted.id, { parentId: composer.parentId, entry });
+  state.confirmedComments.set(composer.storyId, local);
+  const parentRow = composer.parentId === composer.storyId ? null
+    : threadPane.querySelector('[data-comment-id="' + composer.parentId + '"]');
+  let container = composer.parentId === composer.storyId
+    ? threadPane.querySelector(".comments")
+    : parentRow?.querySelector(":scope > .comment-children");
+  if (!container && parentRow) {
+    container = el("div", "comment-children");
+    parentRow.appendChild(container);
+  }
+  if (!container || container.querySelector('[data-comment-id="' + posted.id + '"]')) return;
+  container.querySelector(":scope > .empty-comments")?.remove();
+  const depth = composer.parentId === composer.storyId ? 0
+    : Number(container.closest(".comment-row")?.dataset.depth || 0) + 1;
+  const row = renderComment(entry, depth);
+  row.classList.add("just-posted");
+  row.querySelector(".comment-meta")?.append(el("span", "posted-marker", "Posted"));
+  container.prepend(row);
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function mergeConfirmedComments(item) {
+  const local = state.confirmedComments.get(item.id);
+  if (local) for (const { parentId, entry } of local.values()) {
+    if (findCommentNode(item, entry.id)) continue;
+    const parent = parentId === item.id ? item : findCommentNode(item, parentId);
+    if (parent) parent.children = [entry, ...(parent.children || [])];
+  }
+  for (const [id, text] of state.confirmedEdits.get(item.id) || []) {
+    const comment = findCommentNode(item, id);
+    if (comment) comment.text = text;
+  }
+  for (const id of state.confirmedDeletes.get(item.id) || []) {
+    const comment = findCommentNode(item, id);
+    if (comment) { comment.text = null; comment.author = null; comment.deleted = true; }
+  }
+}
+
 function handleComposerOutcome(composer, outcome, text) {
   const { status, submit, previewToggle } = composer;
   composer.submitting = false;
@@ -2032,9 +2273,9 @@ function handleComposerOutcome(composer, outcome, text) {
   previewToggle.disabled = false;
   if (outcome?.status === "success") {
     draftClear(composer.parentId);
+    applyLocalComment(composer, outcome, text);
     closeComposer({ keepDraft: false });
     showToast(composer.mode === "edit" ? "Edit saved" : "Reply posted");
-    if (state.selectedId) loadThread(state.selectedId);
     return;
   }
   status.hidden = false;
@@ -2043,12 +2284,10 @@ function handleComposerOutcome(composer, outcome, text) {
   status.classList.add("error");
   // Draft is kept in all non-success outcomes (module outcomes say "draft kept").
   draftSet(composer.parentId, text);
-  if (outcome?.status === "validationRequired") {
-    const open = el("button", "composer-hn-open", "Open this reply on Hacker News");
+  if (outcome?.status !== "loginRequired" && outcome?.status !== "accountChanged") {
+    const open = el("button", "composer-hn-open", "Check on Hacker News");
     open.type = "button";
-    open.addEventListener("click", () => {
-      openOriginalHackerNews("/reply?id=" + composer.parentId + "&goto=" + encodeURIComponent("item?id=" + (state.selectedId || composer.parentId)));
-    });
+    open.addEventListener("click", () => openOriginalHackerNews("/item?id=" + composer.storyId));
     status.appendChild(document.createElement("br"));
     status.appendChild(open);
   }
@@ -2090,7 +2329,10 @@ function openFeedMenu(anchor) {
   }
 
   function openMoreMenu(anchor) {
+    const session = window.HarmonicHN?.session?.();
+    const karma = session?.karma == null ? "" : " · " + compact(session.karma) + " karma";
     openPopup(anchor, [
+      { label: session ? session.username + karma : "Log in", icon: "user", action: () => openAccountMenu(anchor) },
       { label: "New post", icon: "plus", action: () => startNewPost() },
       { label: "Add bookmarks to HN favorites", icon: "heart", action: () => addBookmarksToFavorites() },
       { label: "Settings", icon: "settings", action: openSettings },
@@ -2117,7 +2359,7 @@ function openFeedMenu(anchor) {
     if (!storyList) return;
     const open = Boolean(searchWrap?.classList.contains("open") && searchPanel);
     const height = open ? searchPanel.offsetHeight : 0;
-    storyList.style.paddingTop = height ? 108 + height + 12 + "px" : "";
+    // Header, search and results are in layout flow; no calculated gap.
   }
 
   function closeSearch() {
@@ -2128,6 +2370,12 @@ function openFeedMenu(anchor) {
       restoreFeedList();
     }
     filterStories();
+    searchWrap.classList.remove("open");
+    state.search.mode = "loaded";
+    searchPanel.querySelectorAll(".hn-search-mode").forEach((tab) =>
+      tab.classList.toggle("active", tab.dataset.mode === "loaded"));
+    searchFilters.hidden = true;
+    searchSubmit.hidden = true;
   }
 
   function abortSearch() {
@@ -2151,34 +2399,51 @@ function openFeedMenu(anchor) {
       filterStories();
     } else {
       renderRecentSearches();
-      queueGlobalSearch(0);
+      searchInput.focus();
     }
     syncSearchPanelSpace();
   }
 
   function onSearchInput() {
-    if (state.search.mode === "loaded") {
-      filterStories();
-      return;
+    if (state.search.active) {
+      abortSearch();
+      state.search.active = false;
+      restoreFeedList();
     }
+    filterStories();
     renderRecentSearches();
-    queueGlobalSearch(0);
   }
 
   function onSearchKeydown(event) {
     if (event.key === "Escape") {
-      if (state.search.active) {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && state.search.active) {
+      const cards = [...storyList.querySelectorAll(".hn-search-results > .story-card, .hn-search-results > .comment-hit")];
+      if (cards.length) {
         event.preventDefault();
-        state.search.active = false;
-        restoreFeedList();
-      } else {
-        closeSearch();
+        state.search.keyboardIndex = event.key === "ArrowDown"
+          ? (state.search.keyboardIndex + 1) % cards.length
+          : (state.search.keyboardIndex + cards.length) % cards.length;
+        cards.forEach((node, index) => node.classList.toggle("search-keyboard-selected", index === state.search.keyboardIndex));
+        cards[state.search.keyboardIndex].scrollIntoView({ block: "nearest" });
       }
       return;
     }
-    if (event.key === "Enter" && state.search.mode === "global") {
+    if (event.key === "Enter") {
       event.preventDefault();
-      runGlobalSearch(0);
+      const current = state.search.active && state.search.keyboardIndex >= 0
+        ? state.search.hits[state.search.keyboardIndex] : null;
+      if (current) {
+        if (current.kind === "comment") openThreadAtComment(current.storyId ?? current.story_id, current.id);
+        else selectStory(current.id);
+        closeSearch();
+      } else {
+        setSearchMode("global");
+        runGlobalSearch(0);
+      }
     }
   }
 
@@ -2190,7 +2455,7 @@ function openFeedMenu(anchor) {
   }
 
   function filterStories() {
-    if (state.search.mode !== "loaded") return;
+    if (state.search.active) return;
     const q = searchInput.value.trim().toLowerCase();
     const domains = parseListSetting(state.settings.hiddenDomains);
     const keywords = parseListSetting(state.settings.hiddenKeywords);
@@ -2220,7 +2485,7 @@ function openFeedMenu(anchor) {
     const tags = [state.search.tag];
     if (authorValid && author) tags.push("author_" + author);
     const options = {
-      query: searchInput.value,
+      query: state.search.query || searchInput.value,
       tags,
       sort: state.search.sort,
       page,
@@ -2235,13 +2500,13 @@ function openFeedMenu(anchor) {
 
   function queueGlobalSearch(page) {
     clearTimeout(state.search.debounceTimer);
-    state.search.debounceTimer = setTimeout(() => runGlobalSearch(page), 300);
+    if (state.search.query) state.search.debounceTimer = setTimeout(() => runGlobalSearch(page, true), 300);
   }
 
-  async function runGlobalSearch(page) {
+  async function runGlobalSearch(page, reuseQuery = false) {
     clearTimeout(state.search.debounceTimer);
     state.search.debounceTimer = 0;
-    const query = searchInput.value.trim();
+    const query = reuseQuery ? state.search.query : searchInput.value.trim();
     if (query.length < 2) {
       if (state.search.active) {
         state.search.active = false;
@@ -2253,13 +2518,19 @@ function openFeedMenu(anchor) {
     const controller = new AbortController();
     state.search.controller = controller;
     const seq = ++state.search.seq;
-    const { options, authorValid } = buildSearchOptions(page);
+    if (!state.search.active) state.search.feedScrollTop = storyList.scrollTop;
     state.search.query = query;
+    const { options, authorValid } = buildSearchOptions(page);
     state.search.active = true;
+    searchSubmit.hidden = true;
+    pushRecentSearch(query);
 
     if (page === 0) {
+      state.search.keyboardIndex = -1;
       storyList.classList.add("search-results");
-      storyList.replaceChildren(createLoading("Searching Hacker News…"));
+      const existing = storyList.querySelector(".hn-search-results");
+      if (existing) existing.classList.add("search-refining");
+      else storyList.replaceChildren(createLoading("Searching Hacker News…"));
     }
 
     const result = window.HarmonicSearch
@@ -2276,7 +2547,6 @@ function openFeedMenu(anchor) {
       state.search.hits = result.hits;
       state.search.page = result.page;
       state.search.nbPages = result.nbPages;
-      pushRecentSearch(query);
       renderSearchResults({ authorValid });
     } else {
       state.search.hits.push(...result.hits);
@@ -2345,6 +2615,19 @@ function openFeedMenu(anchor) {
       container.appendChild(more);
     }
     storyList.replaceChildren(container);
+    // Continue automatically when the last result enters the feed viewport.
+    // The button remains available for keyboard access and browsers without
+    // IntersectionObserver, while the existing request guard prevents overlap.
+    const more = container.querySelector(".hn-search-more");
+    if (more && typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        if (state.search.active && !state.search.controller && more.isConnected)
+          more.click();
+      }, { root: storyList, rootMargin: "280px" });
+      observer.observe(more);
+    }
   }
 
   function createCommentHitCard(hit) {
@@ -2379,12 +2662,18 @@ function openFeedMenu(anchor) {
     const step = () => {
       const row = threadPane.querySelector('[data-comment-id="' + target + '"]');
       if (row) {
+        let ancestor = row.parentElement?.closest(".comment-row");
+        while (ancestor) {
+          ancestor.classList.remove("collapsed");
+          ancestor = ancestor.parentElement?.closest(".comment-row");
+        }
         row.classList.add("comment-flash");
         row.scrollIntoView({ block: "center" });
         setTimeout(() => row.classList.remove("comment-flash"), 2400);
         return;
       }
       if (Date.now() < deadline && state.selectedId === storyId) requestAnimationFrame(step);
+      else if (state.selectedId === storyId) showToast("That comment is no longer in the thread");
     };
     requestAnimationFrame(step);
   }
@@ -2394,6 +2683,7 @@ function openFeedMenu(anchor) {
     storyList.replaceChildren();
     state.stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, index)));
     filterStories();
+    if (Number.isFinite(state.search.feedScrollTop)) storyList.scrollTop = state.search.feedScrollTop;
   }
 
   function pushRecentSearch(query) {
@@ -2404,6 +2694,9 @@ function openFeedMenu(anchor) {
 
   function renderRecentSearches() {
     if (!searchRecent) return;
+    const query = searchInput.value.trim();
+    searchSubmit.hidden = !searchWrap.classList.contains("open") || query.length < 2 || state.search.active;
+    searchSubmit.textContent = 'Search Hacker News for “' + query.slice(0, 200) + '” ↵';
     const searchOpen = searchWrap.classList.contains("open");
     const showRecents = state.search.mode === "global" && searchOpen && !searchInput.value.trim() && state.search.recent.length > 0;
     searchRecent.hidden = !showRecents;
@@ -2505,11 +2798,13 @@ function openFeedMenu(anchor) {
     const titleLine = el("div", "story-title-line");
     titleLine.append(rank, title);
     const meta = storyMeta(story);
-    // Phase 2: per-card overflow menu with a functional Upvote (feed token).
-    const cardMore = button("more", "Story actions", "story-card-more");
-    cardMore.addEventListener("click", (event) => {
+    // Actions are available on right-click / long-press, not another
+    // permanent button under the story metadata.
+    const showStoryActions = (event) => {
+      if (!event.isTrusted) return;
+      event.preventDefault();
       event.stopPropagation();
-      openPopup(cardMore, [
+      openPopup(card, [
         { label: "Open discussion", icon: "comment", action: () => selectStory(story) },
         ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(nitterize(articleHref(story)), "_blank", "noopener") }] : []),
         ...(archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(story) }] : []),
@@ -2519,8 +2814,15 @@ function openFeedMenu(anchor) {
         { label: state.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => toggleBookmark(story.id) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
       ]);
+    };
+    card.addEventListener("contextmenu", showStoryActions);
+    let cardHoldTimer;
+    card.addEventListener("pointerdown", (event) => {
+      if (!event.isTrusted || event.button !== 0 || event.target.closest("button, a")) return;
+      cardHoldTimer = setTimeout(() => showStoryActions(event), 600);
     });
-    meta.appendChild(cardMore);
+    for (const name of ["pointerup", "pointercancel", "pointerleave"])
+      card.addEventListener(name, () => clearTimeout(cardHoldTimer));
     main.append(titleLine, meta);
 
     const preview = el("a", "story-preview");
@@ -2531,8 +2833,12 @@ function openFeedMenu(anchor) {
     const previewImg = el("img", "story-preview-image");
     previewImg.alt = "";
     previewImg.addEventListener("error", () => {
+      previewImg.removeAttribute("src");
+      previewImg.remove();
       card.classList.remove("has-preview");
       card.classList.add("no-preview");
+      const previous = state.previewById.get(story.id) || {};
+      state.previewById.set(story.id, { ...previous, image: null, failedUntil: Date.now() + 86400000 });
     });
     preview.appendChild(previewImg);
     preview.addEventListener("click", (event) => {
@@ -2566,7 +2872,7 @@ function openFeedMenu(anchor) {
     });
 
     if (story.url) {
-      getPreview(story).then((meta) => {
+      requestCardPreview(card, story, (meta) => {
         const favicon = card.querySelector(".story-favicon");
         const faviconSrc = safeImageSrc(meta.favicon || "");
         if (faviconSrc && favicon) favicon.src = faviconSrc;
@@ -2685,6 +2991,9 @@ async function fetchListFeedIds(listPath) {
     throw error;
   }
   const ids = [...first.ids];
+  if (window.HarmonicHN.session() && first.votes) {
+    for (const [id, direction] of Object.entries(first.votes)) state.feedVotes.set(Number(id), direction);
+  }
   if (first.morePath && first.ids.length < FEED_BATCH_SIZE) {
     const second = await window.HarmonicHN.fetchListPage(first.morePath);
     if (second.status === "ok") for (const id of second.ids) if (!ids.includes(id)) ids.push(id);
@@ -2795,6 +3104,16 @@ async function refreshFeed() {
       const ids = feed.endpoint
         ? await fetchJson(HN_API + "/" + feed.endpoint + ".json")
         : await fetchListFeedIds(listPath);
+      // /news is the canonical HN list for the Top feed.
+      if (feed.endpoint === "topstories" && window.HarmonicHN?.session?.()) {
+        const hnList = await window.HarmonicHN.fetchListPage("/news");
+        if (hnList.status === "ok") {
+          const shown = new Set(ids.slice(0, FEED_BATCH_SIZE));
+          for (const [id, direction] of Object.entries(hnList.votes || {})) {
+            if (shown.has(Number(id))) state.feedVotes.set(Number(id), direction);
+          }
+        }
+      }
       if (generation !== state.feedGeneration) return;
       state.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
       const batchIds = state.feedIds.slice(0, FEED_BATCH_SIZE);
@@ -2894,13 +3213,14 @@ async function refreshFeed() {
     if (comment.author && comment.author === state.threadAuthor) row.classList.add("by-op");
     if (state.settings.hideDelayed && comment.text && /\[delayed\]/i.test(comment.text)) row.classList.add("is-delayed");
     const storyId = Number.isInteger(state.selectedId) ? state.selectedId : null;
-    if (state.settings.markNewComments && storyId && Number(comment.created_at_i || 0) > (state.seenTimes.get(storyId) || 0)) {
+    if (state.settings.markNewComments && storyId && state.seenTimes.has(storyId) && Number(comment.created_at_i || 0) > state.seenTimes.get(storyId)) {
       row.classList.add("is-new");
     }
     const isBlockedAuthor = comment.author && state.blockedUsers.has(comment.author);
     if (isBlockedAuthor) row.classList.add("is-blocked");
 
     const card = el("article", "comment-card");
+    card.tabIndex = 0;
     const meta = el("div", "comment-meta");
     // Generated avatars: deterministic, purely local color + initial.
     if (state.settings.showAvatars && comment.author) {
@@ -2915,7 +3235,7 @@ async function refreshFeed() {
       author.rel = "noopener";
     }
     if (comment.author && comment.author === state.threadAuthor) {
-      author.appendChild(el("span", "op-badge", "OP"));
+      author.appendChild(el("span", "op-badge", "(OP)"));
     }
     meta.appendChild(author);
     const tag = comment.author ? state.userTags.get(comment.author) : null;
@@ -2929,12 +3249,16 @@ async function refreshFeed() {
       });
       meta.appendChild(tagChip);
     }
-    if (row.classList.contains("is-new")) meta.appendChild(el("span", "new-badge", "new"));
+    // Newness is a thin rail, not a badge on every comment.
     const age = el("a", "comment-age", relativeTime(comment.created_at_i || 0));
     age.href = "https://news.ycombinator.com/item?id=" + comment.id;
     age.target = "_blank";
     age.rel = "noopener";
-    meta.append(age);
+    const voteMark = el("span", "comment-vote-mark", "↑");
+    voteMark.dataset.commentVoteMark = "1";
+    voteMark.hidden = !state.itemState?.comments?.[comment.id]?.voted;
+    if (state.itemState?.comments?.[comment.id]?.votedDirection === "down") voteMark.textContent = "↓";
+    meta.append(voteMark, age);
 
     const body = el("div", "comment-body");
     if (comment.text) appendSanitizedHtml(body, comment.text);
@@ -2979,23 +3303,25 @@ async function refreshFeed() {
     replyButton.title = session ? "Reply" : "Sign in to reply";
     replyButton.setAttribute("aria-label", replyButton.title);
     replyButton.append(svg("comment"));
-    replyButton.addEventListener("click", (event) => {
+    const beginReply = (event) => {
       if (!event.isTrusted) return;
       if (!session) {
         showToast("Sign in to reply");
         return;
       }
       openComposer({ parentId: comment.id, storyId: state.selectedId || comment.id, anchor: row });
-    });
+    };
+    replyButton.addEventListener("click", beginReply);
     const isOwn = session && comment.author && comment.author === session.username;
+    const canEditOwn = Boolean(isOwn && comment.created_at_i && Date.now() / 1000 - comment.created_at_i < 2 * 3600);
     const editButton = el("button", "comment-action");
     editButton.type = "button";
     editButton.title = "Edit";
     editButton.setAttribute("aria-label", "Edit comment");
     editButton.append(svg("edit"));
-    editButton.hidden = !isOwn;
-    editButton.addEventListener("click", async (event) => {
-      if (!event.isTrusted || !isOwn) return;
+    editButton.hidden = !canEditOwn;
+    const beginEdit = async (event) => {
+      if (!event.isTrusted || !canEditOwn) return;
       editButton.disabled = true;
       try {
         const opened = await window.HarmonicHN.openEditForm(comment.id, { storyId: state.selectedId || comment.id });
@@ -3007,15 +3333,16 @@ async function refreshFeed() {
       } finally {
         editButton.disabled = false;
       }
-    });
+    };
+    editButton.addEventListener("click", beginEdit);
     const deleteButton = el("button", "comment-action");
     deleteButton.type = "button";
     deleteButton.title = "Delete";
     deleteButton.setAttribute("aria-label", "Delete comment");
     deleteButton.append(svg("trash"));
-    deleteButton.hidden = !isOwn;
-    deleteButton.addEventListener("click", (event) => {
-      if (!event.isTrusted || !isOwn) return;
+    deleteButton.hidden = !canEditOwn;
+    const beginDelete = (event) => {
+      if (!event.isTrusted || !canEditOwn) return;
       // SEC-36: deletes run only behind an explicit confirmation.
       openConfirmDialog({
         title: "Delete this comment?",
@@ -3032,8 +3359,19 @@ async function refreshFeed() {
             }
             const outcome = await window.HarmonicHN.deleteComment(opened.handle);
             if (outcome.status === "success") {
+              const storyId = state.selectedId;
+              const deleted = state.confirmedDeletes.get(storyId) || new Set();
+              deleted.add(comment.id);
+              state.confirmedDeletes.set(storyId, deleted);
+              const model = findCommentNode(state.thread, comment.id);
+              if (model) {
+                model.text = null;
+                model.author = null;
+                model.deleted = true;
+              }
+              const existing = threadPane.querySelector('[data-comment-id="' + comment.id + '"]');
+              if (existing && model) existing.replaceWith(renderComment(model, depth));
               showToast("Comment deleted");
-              if (state.selectedId) loadThread(state.selectedId);
             } else {
               showToast(outcome.message || "The delete did not go through");
             }
@@ -3042,18 +3380,47 @@ async function refreshFeed() {
           }
         },
       });
-    });
+    };
+    deleteButton.addEventListener("click", beginDelete);
     const moreButton = el("button", "comment-action");
     moreButton.type = "button";
     moreButton.title = "More";
     moreButton.setAttribute("aria-label", "More comment actions");
     moreButton.append(svg("more"));
-    moreButton.addEventListener("click", (event) => {
+    const showCommentActions = (event) => {
       if (!event.isTrusted) return;
       const parentRow = row.parentElement?.closest?.(".comment-row");
       const parentId = parentRow?.dataset?.commentId;
       const hnLink = "https://news.ycombinator.com/item?id=" + comment.id;
+      const offeredByHn = state.itemState?.status === "ok"
+        && state.itemState?.comments?.[comment.id]?.replyAvailable === true;
+      const canReply = Boolean(session && offeredByHn && comment.author && comment.text
+        && !comment.dead && !comment.deleted
+        && Date.now() / 1000 - (comment.created_at_i || 0) < 14 * 86400);
+      const voteState = state.itemState?.comments?.[comment.id] || null;
       openPopup(moreButton, [
+        { heading: (comment.author || "[deleted]") +
+          (comment.author === state.threadAuthor ? " (OP)" : "") },
+        { heading: (body.textContent || "").trim().slice(0, 250) },
+        ...(session ? [
+          { label: voteState?.voted ? "Unvote" : "Vote up", icon: "up",
+            action: (clicked) => handleCommentVote(clicked, comment.id, false) },
+          ...(voteState?.canDown || voteState?.votedDirection === "down"
+            ? [{ label: voteState?.votedDirection === "down" ? "Undown" : "Vote down",
+              icon: "down", action: (clicked) => handleCommentVote(clicked, comment.id, true) }] : []),
+        ] : []),
+        { label: state.bookmarks.has(comment.id) ? "Remove bookmark" : "Bookmark",
+          icon: "star", action: () => toggleBookmark(comment.id) },
+        ...(session ? [{ label: "Favorite", icon: "heart",
+          action: async () => {
+            const result = await window.HarmonicHN.setFavorite(comment.id, true);
+            showToast(result.status === "success" ? "Favorited" : result.message || "Favorite unavailable");
+          } }] : []),
+        ...(canEditOwn ? [
+          { label: "Edit", icon: "edit", action: beginEdit },
+          { label: "Delete", icon: "trash", action: beginDelete },
+        ] : []),
+        ...(canReply ? [{ label: "Reply", icon: "comment", action: beginReply }] : []),
         {
           label: "Share link",
           icon: "share",
@@ -3113,10 +3480,10 @@ async function refreshFeed() {
           ? [{ label: "Flag comment", icon: "flag", action: (popupEvent) => confirmFlagItem(popupEvent, comment.id, "comment") }]
           : []),
       ]);
-    });
-    actionsRow.append(voteButton, downButton, replyButton, editButton, deleteButton, moreButton);
-
-    card.append(meta, actionsRow, body, collapsed);
+    };
+    moreButton.addEventListener("click", showCommentActions);
+    meta.appendChild(moreButton);
+    card.append(meta, body, collapsed);
     row.appendChild(card);
 
     const children = el("div", "comment-children");
@@ -3142,8 +3509,30 @@ async function refreshFeed() {
 
     card.addEventListener("click", (event) => {
       if (event.target.closest("a, button") || window.getSelection()?.toString()) return;
-      row.classList.toggle("collapsed");
+      if (state.settings.swapCommentActions) showCommentActions(event);
+      else row.classList.toggle("collapsed");
     });
+    card.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      showCommentActions(event);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.key.toLowerCase() === "a" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        showCommentActions(event);
+      }
+    });
+    let held = 0;
+    card.addEventListener("pointerdown", (event) => {
+      if (!event.isTrusted || event.button !== 0 || event.target.closest("a, button")) return;
+      held = setTimeout(() => {
+        if (state.settings.swapCommentActions) row.classList.toggle("collapsed");
+        else showCommentActions(event);
+      }, 550);
+    });
+    for (const name of ["pointerup", "pointercancel", "pointerleave"]) {
+      card.addEventListener(name, () => clearTimeout(held));
+    }
     return row;
   }
 
@@ -3445,6 +3834,7 @@ async function refreshFeed() {
     try {
       const item = await fetchJson(ALGOLIA_API + "/items/" + id);
       if (state.selectedId !== id) return;
+      mergeConfirmedComments(item);
       state.thread = item;
       renderThread(item);
     } catch (error) {
@@ -3505,13 +3895,8 @@ async function refreshFeed() {
     );
 
     const session = window.HarmonicHN?.session?.() || null;
-    const replyAction = threadAction("comment", "Reply to post", () => {
-      if (!session) {
-        showToast("Sign in to reply");
-        return;
-      }
-      // Phase 3: in-Harmonic composer for the top-level comment box.
-      openComposer({ parentId: item.id, storyId: item.id });
+    const replyAction = threadAction("comment", "Comments", () => {
+      threadPane.querySelector(".comments")?.scrollIntoView({ block: "start", behavior: "smooth" });
     });
     const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
     const preVoted = Boolean(storyState?.voted) || Boolean(state.feedVotes.get(item.id));
@@ -3544,8 +3929,6 @@ async function refreshFeed() {
       threadAction("user", "Open author", () => authorLink.click()),
       replyAction,
       upvoteButton,
-      favoriteButton,
-      hideButton,
       threadAction("star", "Bookmark", () => toggleBookmark(item.id), { id: item.id, active: state.bookmarks.has(item.id) }),
       threadAction("sparkle", "Story tools", () => startStorySummary(item), { summaryId: item.id, disabled: !item.url }),
       threadAction("share", "Share", async () => {
@@ -3560,6 +3943,21 @@ async function refreshFeed() {
     const more = threadAction("more", "More", (event) => {
       const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
       openPopup(event.currentTarget, [
+        { label: "Reply to story", icon: "comment", action: () => session
+          ? openComposer({ parentId: item.id, storyId: item.id })
+          : showToast("Sign in to reply") },
+        ...(session && storyState?.favoriteAvailable
+          ? [{ label: storyState.favorited ? "Unfavorite" : "Favorite", icon: "heart", action: handleStoryFavorite }]
+          : []),
+        ...(session && storyState?.hideAvailable
+          ? [{ label: storyState.hidden ? "Unhide" : "Hide", icon: "eyeOff", action: handleStoryHide }]
+          : []),
+        { label: "Search in comments", icon: "search", action: () => {
+          const heading = threadPane.querySelector(".comments-heading");
+          const input = heading?.querySelector(".comment-search");
+          heading?.classList.add("searching");
+          input?.focus();
+        } },
         { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
         { label: "Open on Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
         ...(archiveHref(item) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(item) }] : []),
@@ -3596,7 +3994,9 @@ async function refreshFeed() {
       appendSanitizedHtml(storyText, item.text);
       headerBody.appendChild(storyText);
     }
-    headerBody.append(createSummarySurface(item.id), actions);
+    favoriteButton.classList.add("thread-secondary-action");
+    hideButton.classList.add("thread-secondary-action");
+    headerBody.append(createSummarySurface(item.id), actions, favoriteButton, hideButton);
     updateSummarySurface(item.id);
     header.append(hero, headerBody);
     threadPane.appendChild(header);
@@ -3910,6 +4310,7 @@ async function refreshFeed() {
       settingToggle("Mark new comments", "markNewComments", "Highlight comments posted since your last visit to a story"),
       settingToggle("Hide [delayed]", "hideDelayed", "Collapse HN's [delayed] placeholder comments"),
       settingToggle("Comment avatars", "showAvatars", "Show generated local avatars beside comment authors"),
+      settingToggle("Swap comment actions", "swapCommentActions", "Tap opens actions; long-press collapses"),
       settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp")
     );
 
@@ -4004,12 +4405,55 @@ async function refreshFeed() {
       el("p", "settings-note", "Harmonic never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, Harmonic sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach Harmonic's storage or sync.")
     );
 
-    panel.append(header, storySection, commentsSection, userDataSection, headerDisplaySection, appearanceSection, linksSection, accountSection, aiSection, behaviorSection);
+    // A category index keeps the settings compact without changing any
+    // persisted keys or dropping advanced controls.
+    const categories = [
+      ["Appearance", [appearanceSection, headerDisplaySection]],
+      ["Stories", [storySection, behaviorSection]],
+      ["Comments", [commentsSection]],
+      ["Web and links", [linksSection]],
+      ["Account", [accountSection]],
+      ["Data", [userDataSection]],
+      ["AI", [aiSection]],
+    ];
+    const index = el("nav", "settings-categories");
+    const back = button("chevron", "Back to settings categories", "settings-back");
+    back.hidden = true;
+    back.addEventListener("click", showIndex);
+    header.insertBefore(back, header.firstChild);
+    const sections = el("div", "settings-pages");
+    for (const [name, children] of categories) {
+      const link = el("button", "settings-category");
+      link.type = "button";
+      link.append(el("strong", "", name), el("span", "", "›"));
+      link.addEventListener("click", () => showCategory(name));
+      index.append(link);
+      for (const section of children) {
+        section.hidden = true;
+        sections.append(section);
+      }
+    }
+    function showIndex() {
+      index.hidden = false;
+      back.hidden = true;
+      header.querySelector("h2").textContent = "Settings";
+      for (const section of sections.children) section.hidden = true;
+      panel.scrollTop = 0;
+    }
+    function showCategory(name) {
+      index.hidden = true;
+      back.hidden = false;
+      header.querySelector("h2").textContent = name;
+      const group = categories.find(([label]) => label === name)?.[1] || [];
+      for (const section of sections.children) section.hidden = !group.includes(section);
+      panel.scrollTop = 0;
+    }
+    panel.append(header, index, sections);
     overlay.appendChild(panel);
     overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
     if (options.focusAi) {
-      aiSection.scrollIntoView({ block: "start" });
+      showCategory("AI");
       aiSection.classList.add("settings-section-highlight");
       setTimeout(() => aiSection.classList.remove("settings-section-highlight"), 1200);
     }
@@ -4138,6 +4582,11 @@ async function refreshFeed() {
     storyList = el("div", "story-list");
     storyList.addEventListener("scroll", () => {
       const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;
+      if (state.search.active) {
+        if (remaining < 500 && !state.search.controller && state.search.page + 1 < state.search.nbPages)
+          runGlobalSearch(state.search.page + 1, true);
+        return;
+      }
       if (remaining < 900) loadMoreStories();
     }, { passive: true });
     feedInner.append(createToolbar(), storyList);
@@ -4150,6 +4599,8 @@ async function refreshFeed() {
     // Phase 6: author links open the in-Harmonic user panel (Firebase-backed)
     // instead of leaving for Hacker News.
     app.addEventListener("click", (event) => {
+      // HN's hn.js must not process clicks inside the extension UI.
+      event.stopPropagation();
       const link = event.target?.closest?.('a[href*="user?id="]');
       if (!link || !event.isTrusted) return;
       const match = (link.getAttribute("href") || "").match(/user\?id=([A-Za-z0-9_-]{1,32})/);
@@ -4158,6 +4609,15 @@ async function refreshFeed() {
       openUserPanel(decodeURIComponent(match[1]));
     });
     document.documentElement.classList.add("harmonic-ready");
+    // Search shortcut is inert while editing text or when an overlay is open.
+    document.addEventListener("keydown", (event) => {
+      if (!event.isTrusted || event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target.closest("input, textarea, select, [contenteditable]")) return;
+      if (document.querySelector(".harmonic-confirm-overlay, .settings-overlay, .harmonic-submit-overlay")) return;
+      event.preventDefault();
+      if (!searchWrap.classList.contains("open")) toggleSearch();
+      searchInput.focus();
+    });
     applySettings();
     if (state.selectedId) {
       app.classList.add("show-thread");
