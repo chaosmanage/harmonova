@@ -24,7 +24,9 @@ The extension targets the parts of Harmonic that matter most for reading:
 
 ## Current release
 
-The current extension version is **0.13.5**.
+The current extension version is **0.13.6**.
+
+Version 0.13.6 temporarily disables **editing and deleting comments inside Harmonic**. Choosing Edit or Delete on your own comment shows a clear not-supported prompt, then (only if you continue) opens the corresponding original Hacker News edit or delete-confirmation page in a separate tab. Cancelling leaves you in Harmonic; no Harmonic edit/delete form requests or mutations occur. Replying, submitting stories, and other actions are unaffected.
 
 Version 0.13.5 improves **comment editing and deletion** by reading back each comment permalink when its thread is paginated, accepting HN delete confirmation forms with server-bound `fnid`/`fnop` tokens (without assuming a hidden ID), and checking for explicit `[deleted]` markers before reporting success. Neither edit nor delete requests are automatically repeated. If HN cannot confirm the result, Harmonic provides a direct link to inspect the comment.
 
@@ -43,7 +45,7 @@ Version 0.13.1 tightens right-click menu sizing and icon colors, corrects HN log
 - **Vote state, on demand.** ~600 ms after a discussion opens, Harmonic fetches the story's Hacker News item page through the serial queue and applies the story's and every comment's vote state; tokens missing from the cache are fetched on demand when you act.
 - **Voting UI.** Thread-header Upvote/Unvote with optimistic points and rollback; per-comment Upvote, Downvote (only where Hacker News offers it, remaining visible as the undown affordance), Reply, and a More menu (share link, copy text, open parent/top level, view user); poll options with their own vote tokens; feed cards show a ▲ badge for stories you already voted and a Story actions menu with a functional Upvote.
 - **Reply composer (see [Replying, editing, and drafts](#replying-editing-and-drafts)).** Reply buttons open Harmonic's own composer and post through HN's exact reply form; the old hand-off remains as the verification-wall escape hatch.
-- **Edit and delete your own comments.** Comment rows authored by the signed-in user gain Edit (prefilled from HN's current text, POSTed once to `/xedit`) and Delete (real confirmation dialog — Cancel sends nothing — then exactly one `/xdelete`).
+- **Edit and delete your own comments (native HN handoff).** These actions are not currently supported inside Harmonic. On eligible comments, the Edit and Delete menu entries explain the limitation and require confirmation before opening the original Hacker News `/edit?id=…` or `/delete-confirm?id=…` form in a separate, untouched tab. Harmonic does not perform the edit or delete itself.
 - **Favorites.** The thread header's Favorite control reflects the fetched document (active when favorited, hidden when HN offers no link) and re-reads the item after acting to confirm the new state.
 - **Hide with undo.** Hide from the thread header or a card's overflow menu; the card disappears and a 6-second toast offers Undo (which unhides with `un=t` and restores the card without a feed reload).
 - **Flag, gated twice.** Flag story / Flag comment entries render only when the fetched document offers a flag link, and every flag runs behind an explicit confirmation dialog (Cancel sends nothing).

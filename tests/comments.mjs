@@ -2,8 +2,8 @@
 // driven through the real Chromium extension against fully mocked Hacker News
 // documents. Companion to tests/hn-auth.mjs (module flows) and tests/voting.mjs
 // (voting UI); this file asserts the composer loop end to end: draft autosave
-// and restore, the exact POST /comment and /xedit payloads HN's own forms
-// dictate, no-retry POSTs, delete confirmation (SEC-36), and trusted-click
+// and restore, the exact POST /comment payload, no-retry POSTs, native
+// Hacker News edit/delete handoffs (without mutations), and trusted-click
 // gating (SEC-30).
 import { chromium } from "playwright-core";
 import fs from "node:fs";
@@ -591,7 +591,7 @@ await test("tooFast on post keeps the draft and never retries the POST", async (
 // Edit + delete (own comments only)
 // ---------------------------------------------------------------------------
 
-await test("Edit shows only on own comments, prefills HN's current text, and posts the exact xedit payload", async ({ page, hn }) => {
+await test("Edit shows a not-supported prompt, then opens HN's native editor without posting", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
   const ownRow = page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]');
@@ -599,69 +599,58 @@ await test("Edit shows only on own comments, prefills HN's current text, and pos
   await otherRow.locator(":scope > .comment-card").click({ button: "right" });
   assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
   assert.equal(await page.locator('.harmonic-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
-  // Dismiss the other comment's context menu before opening another one;
-  // otherwise its floating surface can intercept the next right click.
   await page.mouse.click(3, 3);
-  await openCommentAction(page, ownRow, "Edit");
-  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/edit") && request.method === "GET"), 20000, 150, "GET /edit");
-  const editPage = composer(page);
-  await editPage.waitFor({ state: "visible", timeout: 10000 });
-  assert.equal(
-    (await page.locator(".composer .composer-identity").textContent()).trim(),
-    "Editing comment as " + USER
-  );
-  await page.waitForFunction(() => {
-    const box = document.querySelector(".composer .composer-input");
-    return box && box.value.length > 0;
-  }, { timeout: 8000 });
-  assert.equal(
-    await page.locator(".composer .composer-input").inputValue(),
-    "Original comment text.",
-    "textarea prefilled with HN's current text"
-  );
 
-  await typeInto(page, "Edited from Harmonic");
-  await page.locator(".composer .composer-submit").click();
-  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/xedit")), 20000, 150, "POST /xedit");
-  const posted = hn.requests.find((request) => request.path.startsWith("/xedit"));
-  assert.equal(posted.bodyParams.id, String(OWN_COMMENT), "edit id comes from HN's form");
-  assert.equal(posted.bodyParams.hmac, TOKEN_B, "edit hmac comes from HN's form");
-  assert.equal(posted.bodyParams.text, "Edited from Harmonic");
-  await new Promise((resolve) => setTimeout(resolve, 1800));
-  assert.equal(await composer(page).count(), 0, "composer closes after the edit");
-  const toast = await toastText(page);
-  assert.ok(toast.includes("Edit saved"), "edit toast: " + toast);
+  // The compact UI exposes Edit in the comment's right-click More menu.
+  await openCommentAction(page, ownRow, "Edit");
+  const prompt = page.locator('.harmonic-confirm-overlay');
+  await prompt.waitFor({ state: 'visible', timeout: 5000 });
+  assert.match(await prompt.textContent(), /Editing comments isn't supported in Harmonic yet/);
+  assert.match(await prompt.textContent(), /Nothing will be changed in Harmonic/);
+  await prompt.locator('.harmonic-confirm-cancel').click();
+  assert.equal(await prompt.count(), 0, "Cancel closes the prompt");
+  assert.equal(hn.requests.filter(r => /^\/(?:edit|xedit|r)(?:\?|$)/.test(r.path)).length, 0, "cancel sends no edit requests");
+
+  await openCommentAction(page, ownRow, "Edit");
+  await prompt.waitFor({ state: 'visible', timeout: 5000 });
+  const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
+  await prompt.locator('.harmonic-confirm-confirm').click();
+  const native = await nativePagePromise;
+  await native.waitForURL(url => url.pathname === '/edit' && url.searchParams.get('id') === String(OWN_COMMENT), { timeout: 15000, waitUntil: 'commit' });
+  assert.equal(await native.locator('#harmonic-app').count(), 0, "stock HN edit page is not replaced by Harmonic");
+  assert.ok(await native.locator('form[action="xedit"] textarea[name="text"]').count(), "HN form owns the edit");
+  assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, "Harmonic sends no edit POST");
+  assert.equal(hn.state.editedText, null, "comment is unchanged locally");
+  await native.close();
 });
 
-await test("Delete requires confirmation: Cancel sends nothing, Confirm deletes exactly once", async ({ page, hn }) => {
+await test("Delete prompts for a native HN confirmation; cancel and handoff never delete in Harmonic", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
   const ownRow = page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]');
   await openCommentAction(page, ownRow, "Delete");
-  const overlay = page.locator(".harmonic-confirm-overlay");
-  await overlay.waitFor({ state: "visible", timeout: 5000 });
-  assert.ok(
-    (await page.locator(".harmonic-confirm h3").textContent()).includes("Delete this comment?"),
-    "dialog names the action"
-  );
-  await page.locator(".harmonic-confirm-cancel").click();
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-  assert.equal(await overlay.count(), 0, "dialog dismissed");
-  assert.equal(hn.requests.filter((request) => request.path.startsWith("/delete-confirm")).length, 0, "SEC-36: cancel fetches nothing");
-  assert.equal(hn.requests.filter((request) => request.path.startsWith("/xdelete")).length, 0, "SEC-36: cancel deletes nothing");
+  const prompt = page.locator('.harmonic-confirm-overlay');
+  await prompt.waitFor({ state: 'visible', timeout: 5000 });
+  assert.match(await prompt.textContent(), /Deleting comments isn't supported in Harmonic yet/);
+  assert.match(await prompt.textContent(), /Nothing will be deleted in Harmonic/);
+  await prompt.locator('.harmonic-confirm-cancel').click();
+  assert.equal(hn.requests.filter(r => /\/(?:delete-confirm|xdelete|r)(?:\?|$)/.test(r.path)).length, 0, "Cancel sends no delete requests");
 
   await openCommentAction(page, ownRow, "Delete");
-  await overlay.waitFor({ state: "visible", timeout: 5000 });
-  await page.locator(".harmonic-confirm-confirm").click();
-  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/delete-confirm") && request.method === "GET"), 20000, 150, "GET /delete-confirm");
-  await waitFor(() => hn.requests.some((request) => request.path.startsWith("/xdelete")), 20000, 150, "POST /xdelete");
-  const posted = hn.requests.find((request) => request.path.startsWith("/xdelete"));
-  assert.equal(posted.bodyParams.id, String(OWN_COMMENT), "delete id comes from HN's form");
-  assert.equal(posted.bodyParams.hmac, TOKEN_A, "delete hmac comes from HN's form");
-  await new Promise((resolve) => setTimeout(resolve, 1800));
-  const toast = await toastText(page);
-  assert.ok(toast.includes("Comment deleted"), "delete toast: " + toast);
-  assert.ok(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"] .comment-body').getByText('[deleted]').isVisible(), "deleted content updated locally");
+  await prompt.waitFor({ state: 'visible', timeout: 5000 });
+  const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
+  await prompt.locator('.harmonic-confirm-confirm').click();
+  const native = await nativePagePromise;
+  await native.waitForURL(url => url.pathname === '/delete-confirm' &&
+    url.searchParams.get('id') === String(OWN_COMMENT) &&
+    url.searchParams.get('goto') === 'item?id=' + STORY_ID,
+  { timeout: 15000, waitUntil: 'commit' });
+  assert.equal(await native.locator('#harmonic-app').count(), 0, 'stock HN delete page is not replaced by Harmonic');
+  assert.match(await native.locator('body').textContent(), /Do you want to delete this comment\?/);
+  assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, 'Harmonic sends no delete POST');
+  assert.equal(hn.state.deleted, false, 'comment has not been deleted');
+  assert.equal(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]').count(), 1, 'comment remains on Harmonic');
+  await native.close();
 });
 
 // ---------------------------------------------------------------------------

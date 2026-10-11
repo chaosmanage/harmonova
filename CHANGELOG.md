@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Nothing yet.
 
+## [0.13.6] - 2026-10-11
+
+### Changed
+- **Comment Edit/Delete temporarily handed off to Hacker News.** Both actions on an eligible own comment now explain that Harmonic editing/deletion is unavailable. After explicitly choosing Continue on Hacker News, open the corresponding stock `/edit?id=` or `/delete-confirm?id=` page in an original-HN tab. Cancel never navigates and Harmonic sends no edit/delete POSTs.
+
+### Tested
+- Chromium verifies both menu handoffs, cancellation, correct native form URLs, original-HN tab bypass, and that no edit/delete mutation requests occur.
+
+
 ## [0.13.5] - 2026-10-11
 
 ### Fixed

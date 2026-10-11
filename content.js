@@ -3352,24 +3352,28 @@ async function refreshFeed() {
     editButton.setAttribute("aria-label", "Edit comment");
     editButton.append(svg("edit"));
     editButton.hidden = !canEditOwn;
-    const beginEdit = async (event) => {
+    // Editing and deleting are intentionally handled by stock HN until their
+    // authenticated action protocol is verified on real accounts. A user must
+    // confirm the handoff; Harmonic never fetches or POSTs either mutation.
+    const handoffCommentAction = (action, event) => {
       if (!event.isTrusted || !canEditOwn) return;
-      editButton.disabled = true;
-      try {
-        const opened = await window.HarmonicHN.openEditForm(comment.id, { storyId: state.selectedId || comment.id });
-        if (opened.status !== "ok") {
-          showToast(opened.message || "Hacker News did not offer an edit form for this comment.", {
-            actionLabel: "Check on HN",
-            onAction: () => openOriginalHackerNews("/edit?id=" + comment.id),
-            duration: 9000,
-          });
-          return;
-        }
-        openComposer({ parentId: comment.id, storyId: state.selectedId || comment.id, mode: "edit", handle: opened.handle, initialText: opened.currentText || "", anchor: row });
-      } finally {
-        editButton.disabled = false;
-      }
+      const deleting = action === "delete";
+      const storyId = Number.isSafeInteger(state.selectedId) && state.selectedId > 0
+        ? state.selectedId : comment.id;
+      const path = deleting
+        ? "/delete-confirm?id=" + comment.id + "&goto=" + encodeURIComponent("item?id=" + storyId)
+        : "/edit?id=" + comment.id;
+      openConfirmDialog({
+        title: deleting ? "Deleting comments isn't supported in Harmonic yet"
+          : "Editing comments isn't supported in Harmonic yet",
+        message: deleting
+          ? "Continue on the original Hacker News page to review and confirm deletion. Nothing will be deleted in Harmonic."
+          : "Continue on the original Hacker News page to edit this comment. Nothing will be changed in Harmonic.",
+        confirmLabel: "Continue on Hacker News",
+        onConfirm: () => openOriginalHackerNews(path),
+      });
     };
+    const beginEdit = (event) => handoffCommentAction("edit", event);
     editButton.addEventListener("click", beginEdit);
     const deleteButton = el("button", "comment-action");
     deleteButton.type = "button";
@@ -3377,54 +3381,7 @@ async function refreshFeed() {
     deleteButton.setAttribute("aria-label", "Delete comment");
     deleteButton.append(svg("trash"));
     deleteButton.hidden = !canEditOwn;
-    const beginDelete = (event) => {
-      if (!event.isTrusted || !canEditOwn) return;
-      // SEC-36: deletes run only behind an explicit confirmation.
-      openConfirmDialog({
-        title: "Delete this comment?",
-        message: "This permanently deletes your comment on Hacker News. It cannot be undone.",
-        confirmLabel: "Delete",
-        danger: true,
-        onConfirm: async () => {
-          deleteButton.disabled = true;
-          try {
-            const opened = await window.HarmonicHN.openDeleteForm(comment.id, { storyId: state.selectedId || comment.id });
-            if (opened.status !== "ok") {
-              showToast(opened.message || "Hacker News did not offer a delete form for this comment.", {
-                actionLabel: "Check on HN",
-                onAction: () => openOriginalHackerNews("/item?id=" + comment.id),
-                duration: 9000,
-              });
-              return;
-            }
-            const outcome = await window.HarmonicHN.deleteComment(opened.handle);
-            if (outcome.status === "success") {
-              const storyId = state.selectedId;
-              const deleted = state.confirmedDeletes.get(storyId) || new Set();
-              deleted.add(comment.id);
-              state.confirmedDeletes.set(storyId, deleted);
-              const model = findCommentNode(state.thread, comment.id);
-              if (model) {
-                model.text = null;
-                model.author = null;
-                model.deleted = true;
-              }
-              const existing = threadPane.querySelector('[data-comment-id="' + comment.id + '"]');
-              if (existing && model) existing.replaceWith(renderComment(model, depth));
-              showToast("Comment deleted");
-            } else {
-              showToast(outcome.message || "The delete did not go through", {
-                actionLabel: "Check on HN",
-                onAction: () => openOriginalHackerNews("/item?id=" + comment.id),
-                duration: 9000,
-              });
-            }
-          } finally {
-            deleteButton.disabled = false;
-          }
-        },
-      });
-    };
+    const beginDelete = (event) => handoffCommentAction("delete", event);
     deleteButton.addEventListener("click", beginDelete);
     const moreButton = el("button", "comment-action");
     moreButton.type = "button";
