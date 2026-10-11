@@ -90,6 +90,7 @@ test('P01 AI initial and empty-summary recovery POSTs share the external policy'
     let posts = 0;
     const worker = load(async (url, init) => {
       assert.equal(init.redirect, 'error'); assert.equal(init.credentials, 'omit'); assert.equal(init.referrerPolicy, 'no-referrer');
+      if (String(url).includes('firebaseio.com')) return new Response(JSON.stringify({ id: 1, type: 'story', url: 'https://example.com/' }), { headers: { 'content-type': 'application/json' } });
       if (!String(url).includes('openrouter.ai')) return new Response('Direct article', { headers: { 'content-type': 'text/plain' } });
       posts++;
       if (posts === redirectAt) return opaqueRedirect();
@@ -97,6 +98,7 @@ test('P01 AI initial and empty-summary recovery POSTs share the external policy'
       return new Response(JSON.stringify({ choices: [{ message: { content: 'Summary' } }] }), { headers: { 'content-type': 'application/json' } });
     });
     await worker.saveAiKey('dummy', 'session');
+    await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, allowEmptyRetry: true });
     const summarize = () => worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, url: 'https://example.com/', model: 'openrouter/free', systemPrompt: 'Summarize', streamResponses: true }, new AbortController());
     if (redirectAt) await assert.rejects(summarize, /REMOTE_FETCH_BLOCKED/); else await summarize();
     assert.equal(posts, redirectAt === 1 ? 1 : 2);

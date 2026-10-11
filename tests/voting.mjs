@@ -151,6 +151,7 @@ function createHnMock() {
       return route.fulfill(documentFor(targetPath, targetSearch));
     }
     if (pathname === "/logout") {
+      state.loggedIn = false;
       return route.fulfill(serveHtml(fixture("news.html")));
     }
     return route.fulfill(documentFor(pathname, parsed.search));
@@ -364,8 +365,7 @@ await test("signed-in account menu lists profile destinations and logout", async
 
 await test("logout through the chip fetches, never navigates to /logout, and reloads signed out", async ({ page, hn }) => {
   await gotoFeed(page);
-  // Simulate HN invalidating the session on logout.
-  hn.state.loggedIn = false;
+  // Mock invalidates HN session on the actual /logout request, not before click.
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
   await page.locator(".harmonova-popup .popup-item").first().click();
   await page.locator(".harmonova-popup .popup-item", { hasText: "Log out" }).click();
