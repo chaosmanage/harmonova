@@ -11,6 +11,13 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 
 ![HarmoNova showing colorful stories on the left and a discussion on the right](docs/assets/overview.png)
 
+Features
+Side-by-side story cards and threaded discussions.
+Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
+Customizable themes, typography, and story/comment layouts.
+Vote, reply, submit, and save favorites with your Hacker News account.
+Optional AI summaries of articles or discussions using your own OpenRouter API key.
+
 ## Install in Chrome
 
 **No coding or building required.** Just download the extension, extract it, and tell Chrome where the folder is.
