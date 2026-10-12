@@ -1786,390 +1786,59 @@ function openFeedMenu(anchor) {
   function storyMeta(...args){return searchUI.storyMeta(...args);}
   function hideDomain(...args){return searchUI.hideDomain(...args);}
   function isJobStory(...args){return searchUI.isJobStory(...args);}
-  function createStoryCard(story, index) {
-    const card = el("article", "story-card");
-    card.dataset.storyId = String(story.id);
-    card.dataset.search = (story.title || "") + " " + domainOf(story.url);
-    card.dataset.domain = domainOf(story.url);
-    card.dataset.type = isJobStory(story) ? "job" : (story.type || "story");
-    card.style.setProperty("--fallback-tint", hashTint(domainOf(story.url)));
-    if (state.readIds.has(story.id)) card.classList.add("is-read");
-    if (state.selectedId === story.id) card.classList.add("selected");
 
-    const main = el("div", "story-card-main");
-    const title = el("a", "story-card-title", story.title || "(untitled)");
-    setStoryLink(title, story);
-    title.target = "_blank";
-    title.rel = "noopener noreferrer";
-    title.addEventListener("click", (event) => {
-      event.stopPropagation();
-      markRead(story.id);
-      if (state.settings.cardClickComments || !story.url) {
-        event.preventDefault();
-        selectStory(story, true, true, event);
-      } else if (state.settings.alwaysOpenComments) {
-        setTimeout(() => selectStory(story, false), 0);
-      }
-    });
-    const rank = el("span", "story-index", (index + 1) + ".");
-    const titleLine = el("div", "story-title-line");
-    titleLine.append(rank, title);
-    const meta = storyMeta(story);
-    // Actions are available on right-click / long-press, not another
-    // permanent button under the story metadata.
-    const showStoryActions = (event) => {
-      if (!event.isTrusted) return;
-      event.preventDefault();
-      event.stopPropagation();
-      openPopup(card, [
-        { label: "Open discussion", icon: "comment", action: (event) => selectStory(story, true, true, event) },
-        ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(nitterize(articleHref(story)), "_blank", "noopener") }] : []),
-        ...(archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(story) }] : []),
-        { label: state.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
-        ...(window.HarmoNovaHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => hideFromFeed(e, story.id) }] : []),
-        ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => hideDomain(story) }] : []),
-        { label: state.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => toggleBookmark(story.id) },
-        { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
-      ], event.type === "contextmenu" || event.type === "pointerdown" ? { x: event.clientX, y: event.clientY } : null);
-    };
-    card.addEventListener("contextmenu", showStoryActions);
-    let cardHoldTimer;
-    card.addEventListener("pointerdown", (event) => {
-      if (!event.isTrusted || event.button !== 0 || event.target.closest("button, a")) return;
-      cardHoldTimer = setTimeout(() => showStoryActions(event), 600);
-    });
-    for (const name of ["pointerup", "pointercancel", "pointerleave"])
-      card.addEventListener(name, () => clearTimeout(cardHoldTimer));
-    main.append(titleLine, meta);
-
-    const preview = el("a", "story-preview");
-    preview.href = articleHref(story);
-    preview.target = story.url ? "_blank" : "_self";
-    preview.rel = "noopener noreferrer";
-    preview.title = story.url ? "Open article" : "Open comments";
-    const previewImg = el("img", "story-preview-image");
-    previewImg.alt = "";
-    previewImg.addEventListener("error", () => {
-      previewImg.removeAttribute("src");
-      previewImg.remove();
-      card.classList.remove("has-preview");
-      card.classList.add("no-preview");
-      const previous = state.previewById.get(story.id) || {};
-      state.previewById.set(story.id, { ...previous, image: null, failedUntil: Date.now() + 86400000 });
-    });
-    preview.appendChild(previewImg);
-    preview.addEventListener("click", (event) => {
-      event.stopPropagation();
-      markRead(story.id);
-      if (state.settings.cardClickComments || !story.url) {
-        event.preventDefault();
-        selectStory(story, true, true, event);
-      } else if (state.settings.alwaysOpenComments) {
-        setTimeout(() => selectStory(story, false), 0);
-      }
-    });
-
-    const commentButton = el("button", "story-comment-button");
-    commentButton.type = "button";
-    commentButton.title = "Open " + (story.descendants || 0) + " comments";
-    commentButton.append(svg("comment"), el("strong", "", compact(story.descendants || 0)));
-    commentButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      selectStory(story, true, true, event);
-    });
-
-    card.addEventListener("click", (event) => {
-      if (event.target.closest("a,button") || !state.settings.cardClickEnabled) return;
-      markRead(story.id);
-      if (state.settings.cardClickComments || !story.url) {
-        selectStory(story, true, true, event);
-      } else {
-        window.open(articleHref(story), "_blank", "noopener");
-      }
-    });
-
-    if (story.url) {
-      previewsUI.requestCardPreview(card, story, (meta) => {
-        const favicon = card.querySelector(".story-favicon");
-        const faviconSrc = safeImageSrc(meta.favicon || "");
-        if (faviconSrc && favicon) favicon.src = faviconSrc;
-        const imageSrc = safeImageSrc(meta.image || "");
-        if (imageSrc) {
-          previewImg.src = imageSrc;
-          card.classList.add("has-preview");
-        } else {
-          card.classList.add("no-preview");
-        }
-        if (meta.tint) card.style.setProperty("--story-tint", meta.tint);
-      });
-    } else {
-      card.classList.add("no-preview");
-    }
-
-    card.append(main, preview, commentButton);
-    // Phase 2: feed-level vote affordances — "already voted" badge from the
-    // harvested document plus an overflow menu with a functional Upvote.
-    applyCardVotedState(card, story.id);
-    return card;
-  }
-
-  function applyCardVotedState(card, id) {
-    const voted = state.feedVotes.has(id);
-    card.classList.toggle("voted", voted);
-    card.dataset.votedDirection = voted ? (state.feedVotes.get(id) === "down" ? "down" : "up") : "";
-    if (!card.querySelector(".story-voted-badge")) {
-      const badge = el("span", "story-voted-badge", "▲");
-      badge.title = "You upvoted this";
-      card.appendChild(badge);
-    }
-  }
-
-  // Upvote/unvote straight from a feed card, using the token harvested from
-  // the feed document (or an on-demand item fetch when the story isn't on it).
-  async function voteFromFeed(event, storyId) {
-    if (!requireTrustedEvent(event)) return;
-    const session = window.HarmoNovaHN?.session?.();
-    if (!session) {
-      showToast("Sign in to vote");
-      return;
-    }
-    if (!Number.isInteger(storyId) || storyId <= 0) return;
-    const direction = state.feedVotes.get(storyId) ? "un" : "up";
-    const outcome = await window.HarmoNovaHN.vote(storyId, direction);
-    if (outcome.status === "success") {
-      if (direction === "up") state.feedVotes.set(storyId, outcome.state?.votedDirection === "down" ? "down" : "up");
-      else state.feedVotes.delete(storyId);
-      updateFeedVoteBadges();
-      showToast(direction === "up" ? "Upvoted" : "Vote removed");
-    } else {
-      showToast(outcome.message || "The vote did not go through");
-      if (outcome.status === "loginRequired") updateAccountChip();
-    }
-  }
-
-  function createLoading(label) {
-    const wrap = el("div", "harmonova-loading");
-    wrap.append(el("div", "harmonova-spinner"), el("span", "", label));
-    return wrap;
-  }
-
-  async function loadMoreStories() {
-    if (state.listView || state.search.active || state.loadingMore || !state.hasMoreStories || !state.feedIds.length) return;
-    const generation = state.feedGeneration;
-    const batchIds = state.feedIds.slice(state.feedCursor, state.feedCursor + FEED_BATCH_SIZE);
-    if (!batchIds.length) {
-      state.hasMoreStories = false;
-      return;
-    }
-
-    state.loadingMore = true;
-    state.feedCursor += batchIds.length;
-    const loading = createLoading("Loading more stories…");
-    loading.classList.add("load-more-stories");
-    storyList.appendChild(loading);
-    try {
-      const stories = await fetchItems(batchIds,feedScope.signal);
-      if (generation !== state.feedGeneration) return;
-      loading.remove();
-      const startIndex = state.stories.length;
-      state.stories.push(...stories);
-      stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, startIndex + index)));
-      state.hasMoreStories = state.feedCursor < state.feedIds.length;
-      filterStories();
-    } catch {
-      if(generation!==state.feedGeneration)return;
-      loading.remove();
-      state.feedCursor -= batchIds.length;
-      showToast("Couldn’t load more stories");
-    } finally {
-      if (generation === state.feedGeneration) state.loadingMore = false;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-// Phase 7 (0.12.0): feed parity helpers
-// ---------------------------------------------------------------------------
-
-function frontDayOffset(days) {
-  const date = new Date(Date.now() - days * 86400000);
-  return date.toISOString().slice(0, 10);
-}
-
-function validFrontDate(value) {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
-}
-
-// Parity-list feeds have no Firebase id list; pull ids from public HN list
-// pages through the queue. Two pages are enough for a comfortable feed.
-async function fetchListFeedIds(listPath,signal) {
-  const first = await window.HarmoNovaHN.fetchListPage(listPath,{signal});
-  if (first.status !== "ok") {
-    const error = new Error(first.message || "Hacker News did not return the list");
-    error.status = first.status;
-    throw error;
-  }
-  const ids = [...first.ids];
-  if (window.HarmoNovaHN.session() && first.votes) {
-    for (const [id, direction] of Object.entries(first.votes)) state.feedVotes.set(Number(id), direction);
-  }
-  if (first.morePath && first.ids.length < FEED_BATCH_SIZE) {
-    const second = await window.HarmoNovaHN.fetchListPage(first.morePath,{signal});
-    if (second.status === "ok") for (const id of second.ids) if (!ids.includes(id)) ids.push(id);
-  }
-  return ids;
-}
-
-function visibleFeeds() {
-  const order = (Array.isArray(state.settings.feedOrder) ? state.settings.feedOrder : [])
-    .filter((key) => FEEDS[key]);
-  const hidden = new Set((Array.isArray(state.settings.feedHidden) ? state.settings.feedHidden : []).filter((key) => FEEDS[key]));
-  const ordered = [...order, ...FEED_ORDER_DEFAULT.filter((key) => !order.includes(key))];
-  return ordered.filter((key) => !hidden.has(key));
-}
-
-function syncFrontDateInput() {
-  if (!frontDateInput) return;
-  const show = FEEDS[state.feed]?.dayBased;
-  frontDateInput.hidden = !show;
-  if (show) frontDateInput.value = validFrontDate(state.settings.frontDate) || frontDayOffset(1);
-}
-
-function openManageFeeds() {
-  document.querySelector(".feeds-overlay")?.remove();
-  const overlay = el("div", "feeds-overlay");
-  const panel = el("section", "feeds-panel");
-  const header = el("header", "feeds-header");
-  header.append(el("h2", "", "Manage frontpages"), el("p", "feeds-note", "Reorder the feed menu and hide the lists you never read. Settings stay local to this profile."));
-  const close = button("close", "Close");
-  close.type = "button";
-  close.addEventListener("click", () => overlay.remove());
-  header.appendChild(close);
-  panel.appendChild(header);
-
-  const save = async (order, hidden) => {
-    state.settings.feedOrder = order;
-    state.settings.feedHidden = hidden;
-    await saveSettings(["feedOrder","feedHidden"]);
-  };
-
-  const renderRows = () => {
-    panel.querySelectorAll(".feeds-row").forEach((node) => node.remove());
-    const hidden = new Set(state.settings.feedHidden || []);
-    const order = (state.settings.feedOrder || []).filter((key) => FEEDS[key]);
-    const all = [...order, ...FEED_ORDER_DEFAULT.filter((key) => !order.includes(key))];
-    all.forEach((key, index) => {
-      const row = el("div", "feeds-row" + (hidden.has(key) ? " feeds-row-hidden" : ""));
-      const check = el("input", "feeds-check");
-      check.type = "checkbox";
-      check.checked = !hidden.has(key);
-      check.addEventListener("change", () => {
-        const nextHidden = new Set(state.settings.feedHidden || []);
-        if (check.checked) nextHidden.delete(key); else nextHidden.add(key);
-        save(state.settings.feedOrder || [], [...nextHidden]).then(renderRows);
-      });
-      const label = el("span", "feeds-label", FEEDS[key].label);
-      const up = el("button", "feeds-move", "↑");
-      up.type = "button";
-      up.setAttribute("aria-label", "Move " + FEEDS[key].label + " up");
-      up.disabled = index === 0;
-      up.addEventListener("click", () => {
-        const list = [...all];
-        [list[index - 1], list[index]] = [list[index], list[index - 1]];
-        save(list, state.settings.feedHidden || []).then(renderRows);
-      });
-      const down = el("button", "feeds-move", "↓");
-      down.type = "button";
-      down.setAttribute("aria-label", "Move " + FEEDS[key].label + " down");
-      down.disabled = index === all.length - 1;
-      down.addEventListener("click", () => {
-        const list = [...all];
-        [list[index + 1], list[index]] = [list[index], list[index + 1]];
-        save(list, state.settings.feedHidden || []).then(renderRows);
-      });
-      row.append(check, label, up, down);
-      panel.appendChild(row);
-    });
-  };
-  renderRows();
-  overlay.appendChild(panel);
-  document.body.appendChild(overlay);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) overlay.remove();
-  });
-}
-
-async function refreshFeed() {
-    abortSearch();
-    state.search.active = false;
-    // A manual refresh closes an open account list view and rebuilds the feed.
-    state.listView = null;
-    feedScope.dispose();feedScope=HarmoNovaLifecycle.create();
-    const scope=feedScope;
-    const generation = ++state.feedGeneration;
-    state.loadingMore = false;
-    state.feedIds = [];
-    state.feedCursor = 0;
-    state.hasMoreStories = true;
-    storyList.replaceChildren(createLoading("Loading stories…"));
-    const key = state.feed;
-    const feed = FEEDS[key];
-    syncFrontDateInput();
-    try {
-      // Phase 7: parity lists have no Firebase endpoint — their ids come from
-      // public HN list pages fetched through the rate-limited queue (SEC-05
-      // allowlist applies). Past frontpages add the day parameter.
-      const listPath = feed.dayBased
-        ? "/front?day=" + encodeURIComponent(validFrontDate(state.settings.frontDate) || frontDayOffset(1))
-        : feed.listPath;
-      const ids = feed.endpoint
-        ? await fetchJson(HN_API + "/" + feed.endpoint + ".json",scope.signal)
-        : await fetchListFeedIds(listPath,scope.signal);
-      // /news is the canonical HN list for the Top feed.
-      if (feed.endpoint === "topstories" && window.HarmoNovaHN?.session?.()) {
-        const hnList = await window.HarmoNovaHN.fetchListPage("/news",{signal:scope.signal});
-        if (hnList.status === "ok") {
-          const shown = new Set(ids.slice(0, FEED_BATCH_SIZE));
-          for (const [id, direction] of Object.entries(hnList.votes || {})) {
-            if (shown.has(Number(id))) state.feedVotes.set(Number(id), direction);
-          }
-        }
-      }
-      if (generation !== state.feedGeneration) return;
-      state.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
-      const batchIds = state.feedIds.slice(0, FEED_BATCH_SIZE);
-      state.feedCursor = batchIds.length;
-      const stories = await fetchItems(batchIds,feedScope.signal);
-      if (generation !== state.feedGeneration) return;
-      state.stories = stories;
-      // Parity lists have no reliable "more" cursor; everything fetched is shown.
-      state.hasMoreStories = feed.endpoint ? state.feedCursor < state.feedIds.length : false;
-      state.updatedAt = new Date();
-      updatedLabel.textContent = "Last updated: " + formatTime(state.updatedAt);
-      storyList.replaceChildren();
-      if (feed.kind === "comments") {
-        // Best-comments style feeds: comment rows with story context (Algolia).
-        const rows = await Promise.all(batchIds.map((id) => renderThreadListItem(id)));
-        if (generation !== state.feedGeneration) return;
-        rows.forEach((row, index) => row && storyList.appendChild(row));
-      } else {
-        stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, index)));
-        filterStories();
-      }
-      if (state.selectedId) {
-        const match = stories.find((story) => story.id === state.selectedId);
-        if (match) state.selectedStory = match;
-      } else if (stories[0] && window.innerWidth >= 900 && feed.kind !== "comments") {
-        selectStory(stories[0], false, false);
-      }
-    } catch (error) {
-      if(!scope.alive || generation!==state.feedGeneration)return;
-      const fail = el("div", "harmonova-error");
-      fail.append(el("strong", "", "Couldn’t load Hacker News"), el("span", "", error.message));
-      storyList.replaceChildren(fail);
-    }
-  }
-
-
+  const feedUI=HarmoNovaContentFeed.create({
+    get FEEDS(){return FEEDS;},
+    get FEED_BATCH_SIZE(){return FEED_BATCH_SIZE;},
+    get FEED_ORDER_DEFAULT(){return FEED_ORDER_DEFAULT;},
+    get HN_API(){return HN_API;},
+    get abortSearch(){return abortSearch;},
+    get archiveHref(){return archiveHref;},
+    get articleHref(){return articleHref;},
+    get button(){return button;},
+    get compact(){return compact;},
+    get domainOf(){return domainOf;},
+    get el(){return el;},
+    get encodeURIComponent(){return encodeURIComponent;},
+    get feedScope(){return feedScope;},set feedScope(value){feedScope=value;},
+    get fetchItems(){return fetchItems;},
+    get fetchJson(){return fetchJson;},
+    get filterStories(){return filterStories;},
+    get formatTime(){return formatTime;},
+    get frontDateInput(){return frontDateInput;},
+    get hashTint(){return hashTint;},
+    get hideDomain(){return hideDomain;},
+    get hideFromFeed(){return hideFromFeed;},
+    get isJobStory(){return isJobStory;},
+    get markRead(){return markRead;},
+    get nitterize(){return nitterize;},
+    get openArchive(){return openArchive;},
+    get openPopup(){return openPopup;},
+    get previewsUI(){return previewsUI;},
+    get renderThreadListItem(){return renderThreadListItem;},
+    get requireTrustedEvent(){return requireTrustedEvent;},
+    get safeImageSrc(){return safeImageSrc;},
+    get saveSettings(){return saveSettings;},
+    get selectStory(){return selectStory;},
+    get setStoryLink(){return setStoryLink;},
+    get showToast(){return showToast;},
+    get storyList(){return storyList;},
+    get storyMeta(){return storyMeta;},
+    get svg(){return svg;},
+    get toggleBookmark(){return toggleBookmark;},
+    get updateAccountChip(){return updateAccountChip;},
+    get updateFeedVoteBadges(){return updateFeedVoteBadges;},
+    get updatedLabel(){return updatedLabel;}
+  },stateFacet(["bookmarks","feed","feedCursor","feedGeneration","feedIds","feedVotes","hasMoreStories","listView","loadingMore","previewById","readIds","search","selectedId","selectedStory","settings","stories","updatedAt"]));
+  function createStoryCard(...args){return feedUI.createStoryCard(...args);}
+  function applyCardVotedState(...args){return feedUI.applyCardVotedState(...args);}
+  function createLoading(...args){return feedUI.createLoading(...args);}
+  function loadMoreStories(...args){return feedUI.loadMoreStories(...args);}
+  function frontDayOffset(...args){return feedUI.frontDayOffset(...args);}
+  function validFrontDate(...args){return feedUI.validFrontDate(...args);}
+  function visibleFeeds(...args){return feedUI.visibleFeeds(...args);}
+  function openManageFeeds(...args){return feedUI.openManageFeeds(...args);}
+  function refreshFeed(...args){return feedUI.refreshFeed(...args);}
   const commentsUI=HarmoNovaContentComments.create({
     get appendSanitizedHtml(){return appendSanitizedHtml;},
     get confirmFlagItem(){return confirmFlagItem;},
