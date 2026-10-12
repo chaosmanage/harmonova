@@ -41,7 +41,15 @@ await withExtension(async({context,worker})=> {
   await page.evaluate(()=>{for(const img of document.querySelectorAll('img[src^="data:image/png"]')) img.dispatchEvent(new Event('error'));});
   assert.deepEqual(remoteDom,[],'image errors never fall back to remote URLs');
   blockImages=true;await page.reload();
+  await page.waitForFunction(()=>document.querySelector('.story-preview-image')?.getAttribute('src')?.startsWith('data:image/png;base64,'));
+  // Chromium may exempt isolated-world image assignment from page CSP. Apply
+  // the existing safe PNG from the page realm to exercise actual CSP denial.
+  await page.evaluate(()=>{
+    window.cspImageDenials=0;document.addEventListener('securitypolicyviolation',e=>{if(e.effectiveDirective==='img-src'&&e.blockedURI==='data')window.cspImageDenials++;});
+    const img=document.querySelector('.story-preview-image');const src=img.getAttribute('src');img.removeAttribute('src');img.src=src+'#page-csp';
+  });
   await page.locator('.story-card.no-preview').first().waitFor();
+  assert.ok(await page.evaluate(()=>window.cspImageDenials>0),'actual page CSP blocked the safe data image');
   assert.equal(await page.locator('.story-preview-image[src]').count(),0,'CSP denial leaves local placeholder');
   assert.deepEqual(remoteDom,[],'CSP denial never switches to a remote image');
   console.log('PASS P08 real PNG/JPEG/WebP sanitization, cards/heroes, credential omission and zero remote DOM images');

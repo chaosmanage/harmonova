@@ -1,5 +1,8 @@
 name: Offline security and release gate
 on: [push, pull_request, workflow_dispatch]
+concurrency:
+  group: offline-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:

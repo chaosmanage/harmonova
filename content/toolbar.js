@@ -232,9 +232,19 @@
     return dependencies.searchPanel;
   }
 
+  let activePopupDispose = () => {};
+  window.addEventListener("pagehide",()=>activePopupDispose(),{once:true});
   function openPopup(anchor, items, pointer = null) {
+    activePopupDispose();
     document.querySelector(".harmonova-popup")?.remove();
     const popup = dependencies.domUI.el("div", "harmonova-popup");
+    const close = event => { if (!popup.contains(event.target)) dispose(); };
+    const onKey = event => { if (event.key === "Escape") dispose(); };
+    const dispose = () => {
+      popup.remove();document.removeEventListener("pointerdown",close,true);document.removeEventListener("keydown",onKey,true);
+      if(activePopupDispose===dispose)activePopupDispose=()=>{};
+    };
+    activePopupDispose=dispose;
     for (const item of items) {
       if (item.heading) {
         popup.appendChild(dependencies.domUI.el("div", "popup-heading", item.heading));
@@ -249,7 +259,7 @@
       row.appendChild(dependencies.domUI.el("span", "", item.label));
       row.addEventListener("click", (event) => {
         if (!event.isTrusted) return; // SEC-30: scripted menu clicks never act
-        popup.remove();
+        dispose();
         item.action(event);
       });
       popup.appendChild(row);
@@ -263,15 +273,11 @@
     const targetY = pointer ? pointer.y : rect.bottom + margin;
     popup.style.left = Math.max(margin, Math.min(targetX, window.innerWidth - width - margin)) + "px";
     popup.style.top = Math.max(margin, Math.min(targetY, window.innerHeight - height - margin)) + "px";
-    setTimeout(() => {
-      const close = (e) => {
-        if (!popup.contains(e.target)) {
-          popup.remove();
-          document.removeEventListener("pointerdown", close, true);
-        }
-      };
-      document.addEventListener("pointerdown", close, true);
-    });
+    // Menus open on click/contextmenu or a completed long-press; the opening
+    // pointerdown has already finished. Register immediately to avoid a lost
+    // first outside click, and retire listeners on every close path.
+    document.addEventListener("pointerdown",close,true);
+    document.addEventListener("keydown",onKey,true);
   }
 
   // ---------------------------------------------------------------------------

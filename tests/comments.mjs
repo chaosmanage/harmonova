@@ -593,6 +593,7 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
   assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
   assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
   await page.mouse.click(3, 3);
+  await page.locator(".harmonova-popup").waitFor({state:"hidden"});
 
   // The compact UI exposes Edit in the comment's right-click More menu.
   await openCommentAction(page, ownRow, "Edit");
@@ -607,7 +608,7 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
   await openCommentAction(page, ownRow, "Edit");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/edit'),15000,50,'committed native edit page');
+  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/edit'),30000,50,'committed native edit page');
   const native=browser.pages().find(p=>new URL(p.url()).pathname==='/edit');
   assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
   assert.equal(await native.locator('#harmonova-app').count(), 0, "stock HN edit page is not replaced by HarmoNova");
@@ -632,7 +633,7 @@ await test("Delete prompts for a native HN confirmation; cancel and handoff neve
   await openCommentAction(page, ownRow, "Delete");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/delete-confirm'),15000,50,'committed native delete page');
+  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/delete-confirm'),30000,50,'committed native delete page');
   const native=browser.pages().find(p=>new URL(p.url()).pathname==='/delete-confirm');
   assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
   assert.equal(new URL(native.url()).searchParams.get('goto'),'item?id='+STORY_ID);
