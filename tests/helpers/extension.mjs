@@ -4,20 +4,32 @@ import os from 'node:os';
 import path from 'node:path';
 import { offlineProxy, installOfflineRoutes } from './network.mjs';
 
-export async function launchExtension({ destinations = new Map(), args = [] } = {}) {
+export async function launchExtension({ destinations = new Map(), args = [], incognito = false } = {}) {
   const profile = await mkdtemp(path.join(os.tmpdir(), 'harmonova-test-'));
   const proxy = await offlineProxy(destinations);
   let context;
   try {
     const extensionPath = path.resolve(process.env.EXTENSION_PATH || '.');
     await mkdir(path.resolve(process.env.TEST_OUTPUT_DIR || 'test-results'), { recursive: true });
-    context = await chromium.launchPersistentContext(profile, {
+    const launchOptions = {
       executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
       headless: true, ignoreHTTPSErrors: true, viewport: { width: 1919, height: 872 },
       proxy: { server: proxy.url, bypass: '<-loopback>' },
       args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-background-networking', '--ignore-certificate-errors',
         '--disable-extensions-except=' + extensionPath, '--load-extension=' + extensionPath, ...args],
-    });
+    };
+    context = await chromium.launchPersistentContext(profile, launchOptions);
+    if (incognito) {
+      const firstWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker",{timeout:15000});
+      const extensionId = new URL(firstWorker.url()).host;
+      const settings = await context.newPage();
+      await settings.goto("chrome://extensions/?id="+extensionId);
+      const toggle = settings.locator("#allow-incognito");
+      await toggle.waitFor({state:"visible"});
+      if (await toggle.getAttribute("checked") === null) await toggle.click();
+      await context.close();
+      context = await chromium.launchPersistentContext(profile, launchOptions);
+    }
     const assertRoutes = await installOfflineRoutes(context);
     // CONNECT attempts can precede Playwright fulfillment and include Chromium
     // telemetry. The proxy denies them without opening a destination socket;
