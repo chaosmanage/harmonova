@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://news.ycombinator.com/item?id=50046402">
     <img
-      src="https://img.shields.io/badge/-Discuss%20this%20project%20on%20Hacker%20News-555555?style=for-the-badge&logo=ycombinator&logoColor=FFD700&labelColor=FF6600"
+      src="https://img.shields.io/badge/-Discuss%20on%20Hacker%20News-555555?style=for-the-badge&logo=ycombinator&logoColor=FFD700&labelColor=FF6600"
       alt="Discuss on Hacker News"
     />
   </a>
