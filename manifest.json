@@ -67,6 +67,7 @@
         "content/actions.js",
         "content/dom.js",
         "content/links.js",
+        "content/sanitize.js",
         "content.js"
       ],
       "css": [

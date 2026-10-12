@@ -126,72 +126,11 @@
   const INCOGNITO = Boolean(chrome.extension?.inIncognitoContext);
   const privateReader = INCOGNITO ? HarmoNovaPrivateStore.create() : null;
 
-  const normalizeQuotedParagraphs = (target) => {
-    const stripQuoteMarkers = (quote) => {
-      const walker = document.createTreeWalker(quote, NodeFilter.SHOW_TEXT);
-      let node;
-      while ((node = walker.nextNode())) {
-        node.textContent = (node.textContent || "").replace(/(^|\n)(\s*)>\s?/g, "$1$2");
-      }
-    };
 
-    target.querySelectorAll("blockquote").forEach((quote) => {
-      quote.classList.add("harmonova-quote");
-      stripQuoteMarkers(quote);
-    });
-
-    target.querySelectorAll("p").forEach((paragraph) => {
-      const text = paragraph.textContent || "";
-      if (!text.trimStart().startsWith(">")) return;
-      const quote = document.createElement("blockquote");
-      quote.className = "harmonova-quote";
-      while (paragraph.firstChild) quote.appendChild(paragraph.firstChild);
-      stripQuoteMarkers(quote);
-      paragraph.replaceWith(quote);
-    });
-
-    for (const node of [...target.childNodes]) {
-      if (node.nodeType !== Node.TEXT_NODE) continue;
-      const text = node.textContent || "";
-      if (!text.trimStart().startsWith(">")) continue;
-      const quote = document.createElement("blockquote");
-      quote.className = "harmonova-quote";
-      quote.textContent = text.replace(/(^|\n)(\s*)>\s?/g, "$1$2");
-      node.replaceWith(quote);
-    }
-  };
-
-  const appendSanitizedHtml = (target, html) => {
-    if (!html) return;
-    const parsed = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
-    const allowed = new Set(["P", "A", "PRE", "CODE", "I", "EM", "B", "STRONG", "BR", "BLOCKQUOTE"]);
-    const copy = (source, parent) => {
-      for (const child of source.childNodes) {
-        if (child.nodeType === Node.TEXT_NODE) {
-          parent.appendChild(document.createTextNode(child.textContent || ""));
-          continue;
-        }
-        if (child.nodeType !== Node.ELEMENT_NODE) continue;
-        if (!allowed.has(child.tagName)) {
-          copy(child, parent);
-          continue;
-        }
-        const out = document.createElement(child.tagName.toLowerCase());
-        if (child.tagName === "A") {
-          const href = linksUI.safeHref(child.getAttribute("href") || "");
-          if (!href) { copy(child, parent); continue; }
-          out.href = linksUI.nitterize(href);
-          out.target = "_blank";
-          out.rel = "noopener noreferrer";
-        }
-        copy(child, out);
-        parent.appendChild(out);
-      }
-    };
-    copy(parsed.body, target);
-    normalizeQuotedParagraphs(target);
-  };
-
+  const sanitizeUI=HarmoNovaContentSanitize.create({
+    get NodeFilter(){return NodeFilter;},
+    get linksUI(){return linksUI;}
+  },undefined);
 
   const stateUI=HarmoNovaContentState.create({
     get ENABLED_BACKUP_KEY(){return ENABLED_BACKUP_KEY;},
@@ -509,7 +448,7 @@
     get HN_API(){return HN_API;},
     get abortSearch(){return abortSearch;},
     get accountChip(){return accountChip;},
-    get appendSanitizedHtml(){return appendSanitizedHtml;},
+    get appendSanitizedHtml(){return sanitizeUI.appendSanitizedHtml;},
     get applyCardVotedState(){return applyCardVotedState;},
     get closeComposer(){return closeComposer;},
     get compact(){return linksUI.compact;},
@@ -703,7 +642,7 @@ function openFeedMenu(anchor) {
   function openManageFeeds(...args){return feedUI.openManageFeeds(...args);}
   function refreshFeed(...args){return feedUI.refreshFeed(...args);}
   const commentsUI=HarmoNovaContentComments.create({
-    get appendSanitizedHtml(){return appendSanitizedHtml;},
+    get appendSanitizedHtml(){return sanitizeUI.appendSanitizedHtml;},
     get confirmFlagItem(){return confirmFlagItem;},
     get el(){return domUI.el;},
     get encodeURIComponent(){return encodeURIComponent;},
@@ -740,7 +679,7 @@ function openFeedMenu(anchor) {
   const readerUI=HarmoNovaContentReader.create({
     get ALGOLIA_API(){return ALGOLIA_API;},
     get app(){return app;},
-    get appendSanitizedHtml(){return appendSanitizedHtml;},
+    get appendSanitizedHtml(){return sanitizeUI.appendSanitizedHtml;},
     get archiveHref(){return linksUI.archiveHref;},
     get articleHref(){return linksUI.articleHref;},
     get button(){return domUI.button;},
