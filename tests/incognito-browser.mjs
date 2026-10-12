@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { launchExtension } from "./helpers/extension.mjs";
+import { launchExtension, synchronizeNativeTabCreation } from "./helpers/extension.mjs";
 import { hnRedirectFixture } from "./helpers/network.mjs";
 
 const fixtureHtml = fs.readFileSync(new URL("./fixtures/hn/news.html", import.meta.url), "utf8");
@@ -122,6 +122,7 @@ export async function incognitoBrowserCheck() {
     await page.waitForFunction(()=>document.querySelector('.account-chip') && !document.querySelector('.account-chip').classList.contains('logged-in'));
     await validateNoPrivateWrites(h.worker,baseline);
     await page.locator('.feed-toolbar [aria-label="More"]').click();
+    await synchronizeNativeTabCreation(privateContext,h.worker);
     const existingPages=new Set(privateContext.pages());
     await page.locator('.popup-item',{hasText:'Open original Hacker News'}).click();
     let original;

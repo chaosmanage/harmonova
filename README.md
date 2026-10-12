@@ -86,7 +86,7 @@ In private windows, reader data and drafts stay only in the current document and
 
 ![AI summary of the Nanolathe Total Annihilation article in the discussion reader](docs/assets/ai-summary-demo.png)
 
-*Example summary of the [Nanolathe article](https://nanolathe.gg/). The screenshot uses a prepared response for demonstration, not a live API request.*
+*Historical mocked demonstration. This arbitrary article is not supported for provider-excerpt summaries in 0.14.0.*
 
 ## A couple of things to know
 

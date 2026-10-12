@@ -87,3 +87,26 @@ export async function nativeWindowPage(context,worker,{incognito=false}={}) {
   if(!page)throw new Error('Native window page did not attach');
   return page;
 }
+
+// Chrome can navigate an extension-created tab before Playwright has finished
+// attaching its paused target. Preserve real API results and wait only for the
+// synthetic about:blank target to initialize before returning create().
+export async function synchronizeNativeTabCreation(context,worker) {
+  const known=new Set(context.pages());
+  const onPage=async page=>{
+    if(known.has(page))return;known.add(page);
+    try {if(await page.evaluate(()=>location.href)==='about:blank')await worker.evaluate(()=>{globalThis.harmonovaTestReadyTabs++;globalThis.harmonovaTestReleaseTab?.();});}catch{}
+  };
+  context.on('page',onPage);
+  await worker.evaluate(()=>{
+    globalThis.harmonovaTestReadyTabs=0;const native=chrome.tabs.create.bind(chrome.tabs);
+    chrome.tabs.create=async(...args)=>{
+      const before=harmonovaTestReadyTabs;const tab=await native(...args);
+      if(args[0]?.url==='about:blank'&&harmonovaTestReadyTabs===before)await new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>{globalThis.harmonovaTestReleaseTab=null;reject(new Error('Synthetic native tab attachment timed out'));},10000);
+        globalThis.harmonovaTestReleaseTab=()=>{clearTimeout(timer);globalThis.harmonovaTestReleaseTab=null;resolve();};
+      });
+      return tab;
+    };
+  });
+}

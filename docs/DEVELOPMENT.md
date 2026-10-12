@@ -26,7 +26,7 @@ The full Chromium persistent profile supports extension loading; the helper expl
 
 All default network access is synthetic: Playwright routes plus a denying proxy, including redirected requests. Real local TLS fixtures supply redirect hit counters, compressed/stalled bodies and credential/referrer checks. Unknown application destinations fail the gate. HN token fixtures contain deterministic placeholders. `node scripts/redact-fixtures.mjs --check` recursively scans every committed fixture format without printing suspected secrets. Raw capture storage is ignored and is not used by CI.
 
-The incognito gate enables the extension in a synthetic profile, restarts Chromium and creates an actual private context. It verifies private imports/export, drafts, logout and normal-store equality. A browser unable to support that gate fails the release checks; there is no skip-based claim of private support.
+The incognito gate enables the extension in a synthetic profile, waits for Chrome’s permission-triggered extension reload, restarts Chromium and creates an actual Chrome private window. It verifies private imports, exact exported Blob bytes, drafts, logout, native handoffs and normal-store equality. Native handoff cases use Chrome-created windows because CDP contexts can report virtual window IDs. The harness preserves Chrome API results while waiting for Playwright to attach the initial blank tab, avoiding a paused-target navigation race. A browser unable to support that gate fails the release checks; there is no skip-based claim of private support.
 
 ## Live tests and account actions
 

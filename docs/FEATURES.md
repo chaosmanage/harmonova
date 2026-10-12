@@ -69,7 +69,7 @@ Tags and blocking are **private local reading preferences**, not HN account feat
 - **View on archive** opens the Wayback Machine when you want to look for an older copy of an article.
 - **Nitter redirect** is opt-in. If enabled, Twitter/X links point to your configured Nitter instance instead.
 
-You can turn these extras off in Settings. Not every external site provides metadata or accepts automated fetches.
+You can turn these extras off in Settings. External previews require a saved extension-page preference and support only the providers listed above.
 
 ## Optional AI summaries
 
@@ -77,7 +77,7 @@ The **Article** and **Discussion** buttons are separate for a reason: one summar
 
 1. Open Settings → **AI** and configure an [OpenRouter](https://openrouter.ai/) API key through the extension's own settings page.
 2. Choose a model (the initial default is `openrouter/free`). Availability and pricing are determined by OpenRouter, not this project.
-3. Open a story and click **Article** or **Discussion**. The request runs only when you click.
+3. Open a story and click **Article** or **Discussion**. The request runs on a real click, or after a real story selection if you separately enable automatic summaries.
 4. You can stop a running summary or regenerate it. The summary appears in the current reader, not in a new service.
 
 ![AI settings and OpenRouter configuration in the HarmoNova settings pane](assets/ai-settings.png)

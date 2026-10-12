@@ -1,5 +1,5 @@
 import { hnRedirectFixture } from './helpers/network.mjs';
-import { launchExtension, nativeWindowPage } from './helpers/extension.mjs';
+import { launchExtension, nativeWindowPage, synchronizeNativeTabCreation } from './helpers/extension.mjs';
 // HarmoNova Phase 4+5 UI suite: favorites, hide-with-undo, flag, bookmark bulk
 // favorite (SEC-37), and the story-submission modal — driven through the real
 // Chromium extension against fully mocked Hacker News documents. Companion to
@@ -340,6 +340,7 @@ async function test(name, fn) {
     });
     const nativeHandoff = name.includes('hands off to HN') || name.startsWith('Edit shows') || name.startsWith('Delete prompts');
     const page = nativeHandoff ? await nativeWindowPage(browser,harness.worker) : await browser.newPage();
+    if(nativeHandoff)await synchronizeNativeTabCreation(browser,harness.worker);
     let timer;
     try {await Promise.race([fn({page,hn}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error("Offline action case exceeded 120 seconds")),120000);})]);}
     finally {clearTimeout(timer);}
