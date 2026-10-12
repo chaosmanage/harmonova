@@ -24,7 +24,7 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
       code: "STORAGE_UNAVAILABLE", message: "Reader data could not be saved", retryable: true } }));
     return true;
   };
-  if(message.type === "HARMONOVA_PREFERENCES_GET")return reply((sender.tab?.incognito ? dependencies.privatePreferencesSnapshot():dependencies.preferencesStore.snapshot()).then(value=>({ok:true,value})));
+  if(message.type === "HARMONOVA_PREFERENCES_GET")return reply(((sender.tab?.incognito || HarmoNovaMessageBoundary.senderKind(sender,chrome.runtime)==="popup") ? dependencies.privatePreferencesSnapshot():dependencies.preferencesStore.snapshot()).then(value=>({ok:true,value})));
   if(message.type === "HARMONOVA_PREFERENCES_PATCH")return reply(dependencies.preferencesStore.patch(message.fields,message.enabled));
   if(message.type === "HARMONOVA_MIGRATE_PREFERENCES")return reply(dependencies.preferencesStore.migrate(message.appearance));
   if(message.type === "HARMONOVA_NETWORK_POLICY_GET") return reply(dependencies.currentNetworkPolicy().then(policy=>({ok:true,policy})));

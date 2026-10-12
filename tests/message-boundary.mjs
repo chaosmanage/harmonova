@@ -164,3 +164,10 @@ test("P02 duplicate AI work is rejected rather than restarted", () => {
   assert.ok(posted.some(msg => msg.code === "AI_BUSY"));
   received({ type: "cancel" });
 });
+
+test("P13 opening the popup reads cosmetics without initiating normal migrations",async()=>{
+ const {listeners,stores}=setup();stores.sync.harmonicSettings={uiTheme:'navy'};stores.sync.harmonicEnabled=false;
+ const before=JSON.stringify(stores);
+ const response=await invoke(listeners,{type:'HARMONOVA_PREFERENCES_GET'},{id:ext,url:'chrome-extension://test-extension-id/popup.html'});
+ assert.equal(response.ok,true);assert.equal(response.value.enabled,false);assert.equal(response.value.settings.uiTheme,'navy');assert.equal(JSON.stringify(stores),before);
+});

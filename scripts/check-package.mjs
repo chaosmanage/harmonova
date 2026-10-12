@@ -24,7 +24,8 @@ assert.equal(manifest.version,JSON.parse(read('package-lock.json')).version);
 const references=new Set([manifest.background.service_worker,manifest.action.default_popup,manifest.options_page,...Object.values(manifest.icons),...Object.values(manifest.action.default_icon),...manifest.content_scripts.flatMap(c=>[...c.js,...c.css]),...manifest.web_accessible_resources.flatMap(r=>r.resources)]);
 const add=(from,reference)=> {if(!reference||/^(?:https?:|data:|#)/.test(reference))return;references.add(path.posix.normalize(path.posix.join(path.posix.dirname(from),reference.split(/[?#]/)[0])));};
 for(const file of actual) {
- const source=/\.(js|html|css)$/.test(file)?read(path.join(dist,file)).toString():'';
+ const scanned=/\.(js|html|css|json|md|txt)$/.test(file)||file==='LICENSE' ? read(path.join(dist,file)).toString():'';
+ const source=/\.(js|html|css)$/.test(file)?scanned:'';
  if(file.endsWith('.html'))for(const m of source.matchAll(/(?:src|href)=["']([^"']+)["']/g))add(file,m[1]);
  if(file.endsWith('.css'))for(const m of source.matchAll(/url\(["']?([^)'"\s]+)["']?\)/g))add(file,m[1]);
  if(file.endsWith('.js')) {
@@ -32,7 +33,7 @@ for(const file of actual) {
   for(const m of source.matchAll(/(?:chrome\.runtime\.getURL|runtime\.getURL)\(["']([^"']+)["']\)/g))references.add(m[1]);
  }
  // Context-specific credential detection avoids license hashes and synthetic examples.
- if(source && /(?:sk-or-v1-[A-Za-z0-9]{24,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:auth=|hmac["']?\s*[:=]\s*["']?)[2-9a-f][0-9a-f]{39})/i.test(source))throw new Error(`Credential pattern in release: ${file}`);
+ if(scanned && /(?:sk-or-v1-[A-Za-z0-9]{24,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:auth["']?\s*[:=]\s*["']?|hmac["']?\s*[:=]\s*["']?)(?!0{40}|1{40})[0-9a-f]{40})/i.test(scanned))throw new Error(`Credential pattern in release: ${file}`);
 }
 for(const reference of references)assert.ok(expected.has(reference),`Missing runtime reference: ${reference}`);
 const zip=`dist/harmonova-${manifest.version}.zip`;
