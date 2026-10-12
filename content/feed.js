@@ -345,7 +345,7 @@ async function refreshFeed() {
       if (feed.endpoint === "topstories" && window.HarmoNovaHN?.session?.()) {
         const hnList = await window.HarmoNovaHN.fetchListPage("/news",{signal:scope.signal});
         if (hnList.status === "ok") {
-          const shown = new Set(ids.slice(0, dependencies.FEED_BATCH_SIZE));
+          const shown = new Set(ids.slice(0, dependencies.INITIAL_FEED_BATCH_SIZE));
           for (const [id, direction] of Object.entries(hnList.votes || {})) {
             if (shown.has(Number(id))) model.feedVotes.set(Number(id), direction);
           }
@@ -353,10 +353,11 @@ async function refreshFeed() {
       }
       if (generation !== model.feedGeneration) return;
       model.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
-      const batchIds = model.feedIds.slice(0, dependencies.FEED_BATCH_SIZE);
+      const batchIds = model.feedIds.slice(0, dependencies.INITIAL_FEED_BATCH_SIZE);
       model.feedCursor = batchIds.length;
       const stories = await dependencies.fetchItems(batchIds,dependencies.feedScope.signal);
       if (generation !== model.feedGeneration) return;
+      if (!stories.length && batchIds.length) throw new Error("Story details are temporarily unavailable");
       model.stories = stories;
       // Parity lists have no reliable "more" cursor; everything fetched is shown.
       model.hasMoreStories = feed.endpoint ? model.feedCursor < model.feedIds.length : false;

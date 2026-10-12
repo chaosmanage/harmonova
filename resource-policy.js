@@ -4,7 +4,7 @@
   "use strict";
   const Limits = Object.freeze({
     hnHtml: { bytes: 4*1024*1024, deadline: 15000 },
-    publicJson: { bytes: 4*1024*1024, deadline: 15000 },
+    publicJson: { bytes: 4*1024*1024, deadline: 15000, queueDeadline: 45000 },
     aiStream: { bytes: 2*1024*1024, deadline:120000 },
     article: { bytes: 2 * 1024 * 1024, deadline: 15000 },
     metadata: { bytes: 1500000, deadline: 6000 },
@@ -62,10 +62,14 @@
     const relay = () => controller.abort(init.signal?.reason);
     init.signal?.addEventListener("abort",relay,{once:true});
     if (init.signal?.aborted) relay();
-    const timer = setTimeout(()=>controller.abort(failure("RESOURCE_TIMEOUT")),budget.deadline);
+    // Queue wait is bounded separately from the network/body deadline.
+    // Waiting behind other requests must not consume a request's fetch time.
+    const queueTimer = setTimeout(()=>controller.abort(failure("RESOURCE_QUEUE_TIMEOUT")),
+      budget.queueDeadline ?? budget.deadline);
+    let timer = null;
     const signal = controller.signal;
     let release, reader, response, streamController, ended = false, total = 0;
-    const finish = () => { if (ended) return; ended=true; clearTimeout(timer); init.signal?.removeEventListener("abort",relay); signal.removeEventListener("abort",stop); release?.(); };
+    const finish = () => { if (ended) return; ended=true; clearTimeout(queueTimer); clearTimeout(timer); init.signal?.removeEventListener("abort",relay); signal.removeEventListener("abort",stop); release?.(); };
     const stop = () => { const error=signal.reason || failure("RESOURCE_CANCELLED"); try { streamController?.error(error); } catch {} cancelQuietly(reader); finish(); };
     signal.addEventListener("abort",stop,{once:true});
     const raced = task => new Promise((resolve,reject)=> {
@@ -76,7 +80,9 @@
     });
     try {
       release = await acquire(url,signal);
-      if(signal.aborted) {release();throw failure("RESOURCE_CANCELLED");}
+      clearTimeout(queueTimer);
+      if(signal.aborted) {release();throw signal.reason || failure("RESOURCE_CANCELLED");}
+      timer = setTimeout(()=>controller.abort(failure("RESOURCE_TIMEOUT")),budget.deadline);
       response = await raced(fetchImpl(url,{...init,signal,credentials:"omit",referrerPolicy:"no-referrer",redirect:"error"}));
       const type=(response.headers.get("content-type") || "").split(";")[0].toLowerCase().trim();
       if (response.type === "opaqueredirect" || response.status >=300 && response.status <400) throw failure("REMOTE_FETCH_BLOCKED");

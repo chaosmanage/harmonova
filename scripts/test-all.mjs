@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 const unit=['ai-worker','ai-consent','security','remote-policy','message-boundary','storage-state','reader-cross-tab','incognito','resource-limits','image-policy','provider-policy','hn-queue','fixture-guard'];
-const browser=['harness','network-boundary','security-browser','hn-parser','hn-auth','search','voting','comments','actions','profile','parity','comment-parity','links','fix-regressions','reload','provider-browser','settings-sidebar-browser','image-browser','migration-browser','lifecycle-browser','incognito-browser','resource-browser'];
+const browser=['harness','network-boundary','security-browser','hn-parser','hn-auth','search','voting','comments','actions','profile','parity','comment-parity','links','fix-regressions','reload','provider-browser','settings-sidebar-browser','feed-resilience-browser','image-browser','migration-browser','lifecycle-browser','incognito-browser','resource-browser'];
 const mode=process.argv[2]||'all';
 if(!['unit','browser','all'].includes(mode))throw new Error('Unknown test mode');
 const output=path.resolve(process.env.TEST_OUTPUT_DIR||'test-results');fs.mkdirSync(output,{recursive:true});

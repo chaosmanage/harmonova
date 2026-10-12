@@ -1,3 +1,9 @@
+## v0.14.0 feed reliability hotfix
+
+- Load the first 12 stories promptly, then fetch more on scroll instead of blocking the entire feed on a 40-story batch.
+- Give each public-data request its full network deadline *after* it leaves the bounded queue, and keep a separate limit for queue waiting.
+- Keep successfully fetched stories visible when one Firebase item fails; add slow-network, pagination, and failure-isolation browser regression coverage.
+
 ## v0.14.0 follow-up — Sidebar AI and public-web restoration
 
 - Embed the privileged AI and preview settings inside the HarmoNova sidebar with consistent dark controls and a clear disclosure before enabling OpenRouter summaries.

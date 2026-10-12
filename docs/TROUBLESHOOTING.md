@@ -39,6 +39,10 @@ For a **release download**, extract the new archive and replace the *contents* o
 
 Loading a second unpacked copy from a different directory can create a second extension ID. Chrome stores extension data by extension identity, so this may make your existing local data appear missing. Before a larger move or reinstall, consider exporting your user data in Settings → Data.
 
+## Stories stay on Loading or show RESOURCE_TIMEOUT
+
+Update to the latest remediation-branch version, reload HarmoNova at `chrome://extensions`, and refresh the Hacker News tab. Story details now arrive in smaller batches to avoid exhausting the network queue; later stories load when you scroll. If the feed still cannot connect, use the refresh button and check whether `hacker-news.firebaseio.com` is reachable on your network. External previews and AI do not need to be disabled for normal reading.
+
 ## Posts, replies, votes, or account controls aren't working
 
 You must first sign in on Hacker News. HarmoNova uses the HN session and its own action forms; it never asks for a password inside the extension. HN can also require validation or apply rate limits. When a post can't be confirmed, HarmoNova attempts to keep your draft and offers a way back to HN's original form.

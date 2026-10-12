@@ -81,6 +81,26 @@ test("P07 scheduler limits six concurrent, two per origin, with forward progress
   assert.equal(policy.activeCount, 0);
 });
 
+test('Public data queue time does not consume the network deadline', async () => {
+  // A 105ms network operation, with two same-origin slots, leaves a third
+  // request queued for 105ms. A 160ms end-to-end timer would fail that third
+  // request even though its own fetch completes within the permitted 160ms.
+  let activeNetwork=0,peak=0;
+  const fetchImpl=async()=>{
+    activeNetwork++;peak=Math.max(peak,activeNetwork);
+    await new Promise(resolve=>setTimeout(resolve,105));
+    activeNetwork--;
+    return new Response('ok',{headers:{'content-type':'text/plain'}});
+  };
+  const budget={bytes:100,deadline:160,queueDeadline:500};
+  const requests=Array.from({length:3},()=>policy.request(fetchImpl,
+    'https://firebase-queue.test/item',{},budget,['text/plain'])
+    .then(response=>policy.readText(response,100)));
+  assert.deepEqual(await Promise.all(requests),['ok','ok','ok']);
+  assert.equal(peak,2,'per-origin network cap is still enforced');
+  assert.equal(policy.activeCount,0);
+});
+
 test('P07 canceled queued job leaves immediately and frees queue capacity', async () => {
   const a=await policy.acquire('https://cancel.test/'), b=await policy.acquire('https://cancel.test/');
   const controller=new AbortController();

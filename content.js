@@ -1,7 +1,10 @@
 (() => {
   const HN_API = "https://hacker-news.firebaseio.com/v0";
   const ALGOLIA_API = "https://hn.algolia.com/api/v1";
-  const FEED_BATCH_SIZE = 40;
+  const FEED_BATCH_SIZE = 32;
+  // Fast first paint: avoid waiting for 40 item requests behind the
+  // per-origin network limiter before showing any story.
+  const INITIAL_FEED_BATCH_SIZE = 12;
   const SETTINGS_BACKUP_KEY = "harmonova:settings:v1";
   const ENABLED_BACKUP_KEY = "harmonova:enabled:v1";
   const SETTINGS_HASH = "#harmonova-settings";
@@ -107,14 +110,23 @@
     const safeIds = ids.filter((id) => Number.isInteger(id) && id > 0).slice(0, 60);
     const results = new Array(safeIds.length);
     let cursor = 0;
-    const workers = Array.from({ length: Math.min(10, safeIds.length) }, async () => {
-      while (cursor < safeIds.length) {
+    let firstError = null;
+    const workers = Array.from({ length: Math.min(6, safeIds.length) }, async () => {
+      while (cursor < safeIds.length && !signal?.aborted) {
         const index = cursor++;
-        results[index] = await fetchJson(HN_API + "/item/" + safeIds[index] + ".json",signal);
+        try {
+          results[index] = await fetchJson(HN_API + "/item/" + safeIds[index] + ".json",signal);
+        } catch (error) {
+          // A single removed/failed item must not blank the whole feed.
+          firstError ||= error;
+        }
       }
     });
     await Promise.all(workers);
-    return results.filter(Boolean);
+    if (signal?.aborted) throw firstError || new Error("Feed request cancelled");
+    const stories = results.filter(value => value && Number.isSafeInteger(value.id) && value.id > 0);
+    if (!stories.length && firstError) throw firstError;
+    return stories;
   };
 
 
@@ -353,6 +365,7 @@ function openFeedMenu(anchor) {
   const feedUI=HarmoNovaContentFeed.create({
     get FEEDS(){return FEEDS;},
     get FEED_BATCH_SIZE(){return FEED_BATCH_SIZE;},
+    get INITIAL_FEED_BATCH_SIZE(){return INITIAL_FEED_BATCH_SIZE;},
     get FEED_ORDER_DEFAULT(){return FEED_ORDER_DEFAULT;},
     get HN_API(){return HN_API;},
     get abortSearch(){return abortSearch;},
