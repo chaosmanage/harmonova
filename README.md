@@ -72,7 +72,7 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 - **Search all of Hacker News.** Find stories or comments and filter by date, author, and more.
 - **Make it yours.** Dark themes, fonts, story previews, comment styles, and other settings.
 - **Use your HN account.** Vote, reply, submit stories, and manage favorites, using Hacker News's own login.
-- **Summarize with AI (optional).** Use your own OpenRouter key to summarize a supported provider excerpt or its HN discussion.
+- **Summarize with AI (optional).** Use your own OpenRouter key to summarize a public article or its HN discussion.
 
 ### A closer look
 
@@ -90,13 +90,13 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 
 External previews start enabled for public websites. Toggle them in the sidebar under **Settings → AI**, alongside summary consent, the model, prompt, streaming preferences and OpenRouter key. Websites that refuse metadata or image access fall back to placeholders. Article summaries read capped public article HTML/text when available and send that text to OpenRouter only after you explicitly enable AI permissions. Browser host permissions cover HTTP(S) websites for these features; see [Privacy](docs/PRIVACY.md) for safeguards and limitations.
 
-The **Article** summary button uses a supported provider's excerpt or abstract; full arbitrary article extraction is unavailable. **Discussion** summarizes public HN comments. Save an OpenRouter key and fresh AI permission on the extension settings page. Saving a key alone enables nothing. Automatic summaries need separate consent and a real story selection. The selected public text is sent to OpenRouter and may incur charges.
+The **Article** summary button reads bounded public article text when the site permits it; **Discussion** summarizes public HN comments. Save an OpenRouter key and fresh AI permission in Settings → AI. Saving a key alone enables nothing. Automatic summaries need separate consent and a real story selection. The selected public text is sent to OpenRouter and may incur charges.
 
 In private windows, reader data and drafts stay only in the current document and disappear on reload, navigation or closure. Private AI and external previews are disabled. See [Privacy](docs/PRIVACY.md) for exact storage and request behavior.
 
 ![AI summary of the Nanolathe Total Annihilation article in the discussion reader](docs/assets/ai-summary-demo.png)
 
-*Historical mocked demonstration. This arbitrary article is not supported for provider-excerpt summaries in 0.14.0.*
+*Illustrative mocked summary; actual results depend on the linked site's access policy and the selected AI model.*
 
 ## A couple of things to know
 

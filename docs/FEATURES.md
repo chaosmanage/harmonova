@@ -73,7 +73,7 @@ You can turn these extras off in Settings. External previews are on by default b
 
 ## Optional AI summaries
 
-The **Article** and **Discussion** buttons are separate for a reason: one summarizes a supported provider excerpt, the other summarizes public conversation on HN. They are not interchangeable sources.
+The **Article** and **Discussion** buttons summarize different sources: bounded public article text and public conversation on HN, respectively.
 
 1. Open Settings → **AI** and configure an [OpenRouter](https://openrouter.ai/) API key through the extension's own settings page.
 2. Choose a model (the initial default is `openrouter/free`). Availability and pricing are determined by OpenRouter, not this project.
@@ -82,7 +82,7 @@ The **Article** and **Discussion** buttons are separate for a reason: one summar
 
 ![AI settings and OpenRouter configuration in the HarmoNova settings pane](assets/ai-settings.png)
 
-For an Article summary, HarmoNova uses supported GitHub metadata, a Wikipedia excerpt or an arXiv abstract. Arbitrary linked article HTML is not fetched. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model/prompt. Saving a key alone does not enable summaries; save fresh consent on the extension settings page. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate.
+For an Article summary, HarmoNova extracts bounded readable text from the linked public page when the site permits it; provider metadata can supply an excerpt when available. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model and prompt. Saving a key alone does not enable summaries; save fresh consent in Settings → AI. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate.
 
 ![AI summary presentation in HarmoNova using test-only sample output](assets/ai-summary-demo.png)
 

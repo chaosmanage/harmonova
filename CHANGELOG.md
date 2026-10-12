@@ -1,32 +1,11 @@
-## Unreleased — adjustable feed density and release notices
+## v0.14.0 — Security, reader controls, and reliability
 
-- Make story Content Zoom scale card heights, previews, icons, padding and gaps; default to a denser 70% layout (about 8 stories at 1856 × 832). Existing saved zoom preferences are preserved.
-- Separate Comment Zoom from Content Zoom and scale comment-card metadata, text and spacing together; default to 90%, with 65–150% zoom options.
-- Remove obsolete bookmark commands and duplicate story Favorite menu action; the thread toolbar star remains the story Favorite control.
-- Check official GitHub releases once daily via the worker and offer a subtle in-page download link. Ignore individual versions or disable notices altogether in Appearance.
-
-## v0.14.0 feed reliability hotfix
-
-- Load the first 12 stories promptly, then fetch more on scroll instead of blocking the entire feed on a 40-story batch.
-- Give each public-data request its full network deadline *after* it leaves the bounded queue, and keep a separate limit for queue waiting.
-- Keep successfully fetched stories visible when one Firebase item fails; add slow-network, pagination, and failure-isolation browser regression coverage.
-
-## v0.14.0 follow-up — Sidebar AI and public-web restoration
-
-- Embed the privileged AI and preview settings inside the HarmoNova sidebar with consistent dark controls and a clear disclosure before enabling OpenRouter summaries.
-- Restore default-on external previews for public websites and full-article text extraction for AI summaries; preserve existing disabled preview preferences.
-- Keep bounded no-cookie/no-referrer/no-redirect requests, image sanitization, verified story URLs and worker-owned AI consent. Broad HTTP(S) host permissions are needed for general websites; see the DNS limitation in the privacy docs.
-- Add offline Chromium integration coverage for the sidebar, key isolation, consent and generic HTML extraction.
-
-## v0.14.0 — Security and privacy remediation
-
-- Require fresh AI consent in extension settings; stored keys and page preferences never authorize spending. Automatic summaries need separate consent and a real selection.
-- Default external previews off and restrict them to supported GitHub, Wikipedia and arXiv operations. Arbitrary article extraction and remote favicon fallbacks are unavailable; local placeholders keep ordinary reading usable.
-- Reject external redirects, omit cookies/referrers, enforce streamed size/time limits and render bounded sanitized PNG images. PNG/JPEG/nonanimated WebP are supported when origin, dimensions and encoded size pass checks.
-- Isolate private reader data and drafts in document memory; reload/navigation loses that state. Private AI and external previews are disabled; original-HN handoffs stay private.
-- Require trusted final account actions and definitive logout verification. Ambiguous posts are not replayed; uncertain outcomes retain drafts. Serialize reader/draft/preferences mutations, preserve unrelated tab updates and show draft conflicts.
-- Migrate legacy data only after successful writes, keep safe appearance recovery fields and refuse unknown newer schemas without deletion. Reader imports report truncation and support optional v1 seen times.
-- Split classic runtime modules and add offline source/package CI, recursive fixture scanning, syntax/lint checks and ZIP/source integrity checks. No live accounts or billable calls in default tests.
+- Require fresh extension-owned consent for AI; keep provider keys out of page storage and exports, and protect HN actions and drafts from uncertain retries.
+- Bound and validate external requests, reject redirects, sanitize preview images, and isolate private-window reader data. Public website previews and article extraction return with broad HTTP(S) host permissions.
+- Move AI and preview controls into the in-page Settings sidebar. Show the first 20 feed stories promptly, keep successful items when one request fails, and improve queue deadlines.
+- Scale story and comment layouts independently with 70% story zoom, 85% comment zoom, and 15.5 px comment text defaults; preserve saved preferences.
+- Add quiet release notices and recovery prompts for tabs left open across extension reloads.
+- Split runtime ownership into focused modules and add offline source, browser, package, and integrity gates.
 
 ## v0.13.10 — Google Sans Flex Rounded default font
 
