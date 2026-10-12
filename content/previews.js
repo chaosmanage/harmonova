@@ -53,7 +53,7 @@
     const controller=new AbortController();previewCardScopes.set(card,controller);
     const add=()=> {
       if(controller.signal.aborted||previewJobs.length>=100)return;
-      previewJobs.push({card,story,show,controller}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });Promise.resolve().then(pumpPreviews).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
+      previewJobs.push({card,story,show,controller});Promise.resolve().then(pumpPreviews).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
     };
     if(model.search.active&&typeof IntersectionObserver!=="undefined") {
       if(!previewObserver)previewObserver=new IntersectionObserver(entries=>{

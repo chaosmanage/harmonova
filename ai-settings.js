@@ -141,7 +141,7 @@ chrome.storage.sync.get(["harmonovaSettings", "harmonicSettings"], record => {
 });
 
 const previewEnabled=document.querySelector("#previews-enabled"),previewStatus=document.querySelector("#previews-status");
-send({type:"HARMONOVA_NETWORK_POLICY_GET"}).then(result=>{previewEnabled.checked=result?.policy?.externalPreviewsEnabled===true.catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
+send({type:"HARMONOVA_NETWORK_POLICY_GET"}).then(result=>{previewEnabled.checked=result?.policy?.externalPreviewsEnabled===true;}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
 document.querySelector("#previews-save").addEventListener("click",async event=>{
   if(!event.isTrusted)return;
   const result=await send({type:"HARMONOVA_NETWORK_POLICY_SAVE",policy:{version:1,externalPreviewsEnabled:previewEnabled.checked}});
