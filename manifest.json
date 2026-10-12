@@ -66,6 +66,7 @@
         "content/reader.js",
         "content/actions.js",
         "content/dom.js",
+        "content/links.js",
         "content.js"
       ],
       "css": [

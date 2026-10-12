@@ -117,96 +117,10 @@
     return results.filter(Boolean);
   };
 
-  const relativeTime = (epochSeconds) => {
-    const seconds = Math.max(1, Math.floor(Date.now() / 1000 - epochSeconds));
-    if (seconds < 60) return "now";
-    if (seconds < 3600) return Math.floor(seconds / 60) + "m";
-    if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
-    if (seconds < 604800) return Math.floor(seconds / 86400) + "d";
-    if (seconds < 8 * 604800) return Math.floor(seconds / 604800) + "w";
-    if (seconds < 365 * 86400) return Math.floor(seconds / (30 * 86400)) + "mo";
-    return Math.floor(seconds / (365 * 86400)) + "y";
-  };
 
-  const domainOf = (url) => {
-    if (!url) return "news.ycombinator.com";
-    try { return new URL(url).hostname.replace(/^www\./, ""); }
-    catch { return "news.ycombinator.com"; }
-  };
+  const linksUI=HarmoNovaContentLinks.create({
 
-  const compact = (value) => {
-    const n = Number(value || 0);
-    if (n < 1000) return String(n);
-    if (n < 1000000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(".0", "") + "k";
-    return (n / 1000000).toFixed(1).replace(".0", "") + "m";
-  };
-
-  const formatTime = (date) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-  const hashTint = (text) => {
-    let hash = 2166136261;
-    for (const ch of String(text || "")) {
-      hash ^= ch.charCodeAt(0);
-      hash = Math.imul(hash, 16777619);
-    }
-    const hue = Math.abs(hash) % 360;
-    return "hsl(" + hue + " 64% 16%)";
-  };
-
-  const safeHref = (href) => {
-    try {
-      const url = new URL(href, "https://news.ycombinator.com");
-      return ["http:", "https:"].includes(url.protocol) ? url.href : null;
-    } catch { return null; }
-  };
-
-  // Only worker-reencoded, bounded PNG bytes are rendered. There is no
-  // original URL or credentialed network fallback in an error handler.
-  const safeImageSrc = href => typeof href==="string" && href.length<=350000 &&
-    /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(href) ? href : null;
-
-  // SEC-41: every external link resolves through safeHref, falling back to the HN item.
-  const articleHref = (story) => safeHref(story?.url) || "https://news.ycombinator.com/item?id=" + story.id;
-
-  // Phase 7 part 3: optional Nitter redirect for X/Twitter links.
-  const NITTER_HOSTS = new Set(["twitter.com", "www.twitter.com", "mobile.twitter.com", "m.twitter.com", "x.com", "www.x.com"]);
-  const nitterInstanceHost = () => {
-    const raw = String(state.settings.nitterInstance || "nitter.net").trim().replace(/^https?:\/\//i, "").replace(/[\/?#].*$/, "");
-    return /^[a-z0-9][a-z0-9.-]{2,79}$/i.test(raw) ? raw.toLowerCase() : null;
-  };
-  const nitterize = (href) => {
-    if (!state.settings.nitterRedirect || typeof href !== "string") return href;
-    try {
-      const url = new URL(href);
-      if (!NITTER_HOSTS.has(url.hostname)) return href;
-      // An unparseable instance falls back to the default rather than dropping the redirect.
-      const instance = nitterInstanceHost() || "nitter.net";
-      return "https://" + instance + url.pathname + url.search + url.hash;
-    } catch {
-      return href;
-    }
-  };
-  // Anchors remember the un-rewritten article URL so a settings change can
-  // refresh every visible link without re-rendering the feed.
-  const setStoryLink = (anchor, story) => {
-    const raw = articleHref(story);
-    anchor.dataset.rawHref = raw;
-    anchor.href = nitterize(raw);
-  };
-  const refreshStoryLinks = () => {
-    document.querySelectorAll("a[data-raw-href]").forEach((anchor) => {
-      anchor.href = nitterize(anchor.dataset.rawHref);
-    });
-  };
-  // "View on archive": the article URL on the Wayback Machine (never HN fallbacks).
-  const archiveHref = (story) => {
-    const raw = safeHref(story?.url);
-    return raw ? "https://web.archive.org/web/2/" + raw : null;
-  };
-  const openArchive = (story) => {
-    const href = archiveHref(story);
-    if (href) window.open(href, "_blank", "noopener");
-  };
+  },stateFacet(["settings"]));
 
   // SEC-51: incognito keeps read state, bookmarks, drafts, and search history in memory only.
   const INCOGNITO = Boolean(chrome.extension?.inIncognitoContext);
@@ -264,9 +178,9 @@
         }
         const out = document.createElement(child.tagName.toLowerCase());
         if (child.tagName === "A") {
-          const href = safeHref(child.getAttribute("href") || "");
+          const href = linksUI.safeHref(child.getAttribute("href") || "");
           if (!href) { copy(child, parent); continue; }
-          out.href = nitterize(href);
+          out.href = linksUI.nitterize(href);
           out.target = "_blank";
           out.rel = "noopener noreferrer";
         }
@@ -429,7 +343,7 @@
     row.append(titleButton, frontDateInput, actions, accountChip);
     updateAccountChip();
 
-    updatedLabel = domUI.el("div", "last-updated", "Last updated: " + formatTime(state.updatedAt));
+    updatedLabel = domUI.el("div", "last-updated", "Last updated: " + linksUI.formatTime(state.updatedAt));
     searchWrap = domUI.el("div", "feed-search");
     searchInput = domUI.el("input", "feed-search-input");
     searchInput.type = "search";
@@ -598,7 +512,7 @@
     get appendSanitizedHtml(){return appendSanitizedHtml;},
     get applyCardVotedState(){return applyCardVotedState;},
     get closeComposer(){return closeComposer;},
-    get compact(){return compact;},
+    get compact(){return linksUI.compact;},
     get composerUI(){return composerUI;},
     get createLoading(){return createLoading;},
     get createStoryCard(){return createStoryCard;},
@@ -611,8 +525,8 @@
     get openOriginalHackerNews(){return openOriginalHackerNews;},
     get openPopup(){return openPopup;},
     get refreshFeed(){return refreshFeed;},
-    get relativeTime(){return relativeTime;},
-    get safeHref(){return safeHref;},
+    get relativeTime(){return linksUI.relativeTime;},
+    get safeHref(){return linksUI.safeHref;},
     get showToast(){return showToast;},
     get storyList(){return storyList;},
     get svg(){return domUI.svg;},
@@ -686,7 +600,7 @@ function openFeedMenu(anchor) {
 
   function openMoreMenu(anchor) {
     const session = window.HarmoNovaHN?.session?.();
-    const karma = session?.karma == null ? "" : " · " + compact(session.karma) + " karma";
+    const karma = session?.karma == null ? "" : " · " + linksUI.compact(session.karma) + " karma";
     openPopup(anchor, [
       { label: session ? session.username + karma : "Log in", icon: "user", action: () => openAccountMenu(anchor) },
       { label: "New post", icon: "plus", action: () => startNewPost() },
@@ -701,15 +615,15 @@ function openFeedMenu(anchor) {
   const searchUI=HarmoNovaContentSearch.create({
     get FEEDS(){return FEEDS;},
     get INCOGNITO(){return INCOGNITO;},
-    get compact(){return compact;},
+    get compact(){return linksUI.compact;},
     get createLoading(){return createLoading;},
     get createStoryCard(){return createStoryCard;},
-    get domainOf(){return domainOf;},
+    get domainOf(){return linksUI.domainOf;},
     get el(){return domUI.el;},
     get feedTitle(){return feedTitle;},
     get previewsUI(){return previewsUI;},
     get refreshFeed(){return refreshFeed;},
-    get relativeTime(){return relativeTime;},
+    get relativeTime(){return linksUI.relativeTime;},
     get saveSettings(){return saveSettings;},
     get searchInput(){return searchInput;},
     get searchPanel(){return searchPanel;},
@@ -742,34 +656,34 @@ function openFeedMenu(anchor) {
     get FEED_ORDER_DEFAULT(){return FEED_ORDER_DEFAULT;},
     get HN_API(){return HN_API;},
     get abortSearch(){return abortSearch;},
-    get archiveHref(){return archiveHref;},
-    get articleHref(){return articleHref;},
+    get archiveHref(){return linksUI.archiveHref;},
+    get articleHref(){return linksUI.articleHref;},
     get button(){return domUI.button;},
-    get compact(){return compact;},
-    get domainOf(){return domainOf;},
+    get compact(){return linksUI.compact;},
+    get domainOf(){return linksUI.domainOf;},
     get el(){return domUI.el;},
     get encodeURIComponent(){return encodeURIComponent;},
     get feedScope(){return feedScope;},set feedScope(value){feedScope=value;},
     get fetchItems(){return fetchItems;},
     get fetchJson(){return fetchJson;},
     get filterStories(){return filterStories;},
-    get formatTime(){return formatTime;},
+    get formatTime(){return linksUI.formatTime;},
     get frontDateInput(){return frontDateInput;},
-    get hashTint(){return hashTint;},
+    get hashTint(){return linksUI.hashTint;},
     get hideDomain(){return hideDomain;},
     get hideFromFeed(){return hideFromFeed;},
     get isJobStory(){return isJobStory;},
     get markRead(){return markRead;},
-    get nitterize(){return nitterize;},
-    get openArchive(){return openArchive;},
+    get nitterize(){return linksUI.nitterize;},
+    get openArchive(){return linksUI.openArchive;},
     get openPopup(){return openPopup;},
     get previewsUI(){return previewsUI;},
     get renderThreadListItem(){return renderThreadListItem;},
     get requireTrustedEvent(){return requireTrustedEvent;},
-    get safeImageSrc(){return safeImageSrc;},
+    get safeImageSrc(){return linksUI.safeImageSrc;},
     get saveSettings(){return saveSettings;},
     get selectStory(){return selectStory;},
-    get setStoryLink(){return setStoryLink;},
+    get setStoryLink(){return linksUI.setStoryLink;},
     get showToast(){return showToast;},
     get storyList(){return storyList;},
     get storyMeta(){return storyMeta;},
@@ -794,7 +708,7 @@ function openFeedMenu(anchor) {
     get el(){return domUI.el;},
     get encodeURIComponent(){return encodeURIComponent;},
     get handleCommentVote(){return handleCommentVote;},
-    get hashTint(){return hashTint;},
+    get hashTint(){return linksUI.hashTint;},
     get openComposer(){return openComposer;},
     get openConfirmDialog(){return openConfirmDialog;},
     get openOriginalHackerNews(){return openOriginalHackerNews;},
@@ -802,7 +716,7 @@ function openFeedMenu(anchor) {
     get openUserPanel(){return openUserPanel;},
     get persistBlockedUsers(){return persistBlockedUsers;},
     get persistUserTags(){return persistUserTags;},
-    get relativeTime(){return relativeTime;},
+    get relativeTime(){return linksUI.relativeTime;},
     get renderThread(){return renderThread;},
     get showToast(){return showToast;},
     get svg(){return domUI.svg;},
@@ -812,7 +726,7 @@ function openFeedMenu(anchor) {
   const summaryUI=HarmoNovaContentSummary.create({
     get el(){return domUI.el;},
     get openSettings(){return openSettings;},
-    get safeHref(){return safeHref;},
+    get safeHref(){return linksUI.safeHref;},
     get showToast(){return showToast;},
     get stateUI(){return stateUI;},
     get svg(){return domUI.svg;}
@@ -827,18 +741,18 @@ function openFeedMenu(anchor) {
     get ALGOLIA_API(){return ALGOLIA_API;},
     get app(){return app;},
     get appendSanitizedHtml(){return appendSanitizedHtml;},
-    get archiveHref(){return archiveHref;},
-    get articleHref(){return articleHref;},
+    get archiveHref(){return linksUI.archiveHref;},
+    get articleHref(){return linksUI.articleHref;},
     get button(){return domUI.button;},
     get cancelItemState(){return cancelItemState;},
     get closeComposer(){return closeComposer;},
     get commentsUI(){return commentsUI;},
-    get compact(){return compact;},
+    get compact(){return linksUI.compact;},
     get confirmFlagItem(){return confirmFlagItem;},
     get createLoading(){return createLoading;},
     get createSummarySurface(){return createSummarySurface;},
     get disableHarmoNova(){return disableHarmoNova;},
-    get domainOf(){return domainOf;},
+    get domainOf(){return linksUI.domainOf;},
     get el(){return domUI.el;},
     get encodeURIComponent(){return encodeURIComponent;},
     get fetchJson(){return fetchJson;},
@@ -849,7 +763,7 @@ function openFeedMenu(anchor) {
     get markRead(){return markRead;},
     get mergeConfirmedComments(){return mergeConfirmedComments;},
     get openAccountMenu(){return openAccountMenu;},
-    get openArchive(){return openArchive;},
+    get openArchive(){return linksUI.openArchive;},
     get openComposer(){return openComposer;},
     get openOriginalHackerNews(){return openOriginalHackerNews;},
     get openPopup(){return openPopup;},
@@ -857,13 +771,13 @@ function openFeedMenu(anchor) {
     get openUserPanel(){return openUserPanel;},
     get persistSeenTimes(){return persistSeenTimes;},
     get previewsUI(){return previewsUI;},
-    get relativeTime(){return relativeTime;},
+    get relativeTime(){return linksUI.relativeTime;},
     get renderComment(){return renderComment;},
     get renderPollOptions(){return renderPollOptions;},
-    get safeImageSrc(){return safeImageSrc;},
+    get safeImageSrc(){return linksUI.safeImageSrc;},
     get saveSettings(){return saveSettings;},
     get scheduleItemState(){return scheduleItemState;},
-    get setStoryLink(){return setStoryLink;},
+    get setStoryLink(){return linksUI.setStoryLink;},
     get showToast(){return showToast;},
     get startStorySummary(){return startStorySummary;},
     get stopActiveSummary(){return stopActiveSummary;},
@@ -884,13 +798,13 @@ function openFeedMenu(anchor) {
     get app(){return app;},
     get applySettings(){return applySettings;},
     get button(){return domUI.button;},
-    get compact(){return compact;},
+    get compact(){return linksUI.compact;},
     get el(){return domUI.el;},
     get filterStories(){return filterStories;},
     get flushSettings(){return flushSettings;},
-    get nitterInstanceHost(){return nitterInstanceHost;},
+    get nitterInstanceHost(){return linksUI.nitterInstanceHost;},
     get privateReader(){return privateReader;},
-    get refreshStoryLinks(){return refreshStoryLinks;},
+    get refreshStoryLinks(){return linksUI.refreshStoryLinks;},
     get renderThread(){return renderThread;},
     get saveSettings(){return saveSettings;},
     get showToast(){return showToast;},
