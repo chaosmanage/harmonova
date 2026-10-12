@@ -36,9 +36,9 @@
 ## Verification / acceptance checklist
 
 - [ ] No `main` changes; new branch exists and has pushed cleanup and feature milestones.
-- [ ] Both account menus share actions; signed-in new-post and signed-out login work.
-- [ ] Active Nitter code and settings gone, existing links correct.
-- [ ] Release workflow never runs on ordinary pushes, and avoids duplicate browser gate.
-- [ ] All security units retained; essential UI smoke is green; optional diagnostics remain usable.
-- [ ] Packaged ZIP byte parity and references are verified, and root layout documented.
+- [x] Both account menus share actions; signed-in new-post and signed-out login work.
+- [x] Active Nitter code and settings gone, existing links correct.
+- [x] Release workflow never runs on ordinary pushes, and avoids duplicate browser gate.
+- [x] All security units retained; essential UI smoke is green; optional diagnostics remain usable.
+- [x] Packaged ZIP byte parity and references are verified, and root layout documented.
 - [ ] Opt-in seen filtering is safe, bounded, persisted, default-off and independently revertible.
