@@ -290,6 +290,13 @@ await test("GitHub rich preview renders validated text facts", { storyUrl: "http
   const box = richBox(page);
   await box.waitFor({ state: "visible", timeout: 20000 });
   assert.equal(await box.locator(".rich-preview-provider").textContent(), "GitHub", "provider chip says GitHub");
+  const widths = await box.evaluate(element => {
+    const parent = element.parentElement;
+    const padding = getComputedStyle(parent);
+    return { actual: element.getBoundingClientRect().width,
+      available: parent.getBoundingClientRect().width - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight) };
+  });
+  assert.ok(Math.abs(widths.actual - widths.available) < 2, "rich preview fills story header width");
   assert.equal(await box.locator(".rich-preview-title").textContent(), "octocat/harmonova", "repo full_name rendered");
   const text = await box.textContent();
   assert.ok(text.includes("★ 12,345"), "star count rendered: " + text);

@@ -1,6 +1,6 @@
 // HarmoNova HN session and account-action client (isolated content-script world).
 //
-// Implements the Hacker News protocol rules from docs/implementation-plan.md §7:
+// Implements the Hacker News account-action protocol with these constraints:
 //   SEC-04 logout via fetch, never navigation
 //   SEC-10/11 tokens live only in this closure; nothing outside can read them
 //   SEC-12 every cached token is tagged with the username it was fetched under

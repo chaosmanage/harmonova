@@ -112,7 +112,7 @@
       settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
       settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
-      dependencies.el("p", "settings-note", "Preview images are enabled by default; turn them off under AI. Websites without usable images show a local placeholder."),
+      dependencies.el("p", "settings-note", "Preview images are enabled by default; turn them off under AI Summarization. Websites without usable images show a local placeholder."),
       settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
       settingSlider("Content zoom", "contentScale", 75, 125, 5, "%")
     );
@@ -180,7 +180,7 @@
           if (model.settings.nitterInstance && !dependencies.nitterInstanceHost()) dependencies.showToast("That doesn't look like a hostname — Nitter links keep the default");
         },
       }),
-      dependencies.el("p", "settings-note", "Website previews are enabled by default and can be controlled under AI. Sites that block metadata or images use placeholders. Nitter links open the instance you select.")
+      dependencies.el("p", "settings-note", "Website previews are enabled by default and can be controlled under AI Summarization. Sites that block metadata or images use placeholders. Nitter links open the instance you select.")
     );
 
     const aiSection = dependencies.el("div", "settings-section ai-settings-section");
@@ -228,7 +228,7 @@
       ["Web and links", [linksSection]],
       ["Account", [accountSection]],
       ["Data", [userDataSection]],
-      ["AI", [aiSection]],
+      ["AI Summarization", [aiSection]],
     ];
     const index = dependencies.el("nav", "settings-categories");
     const back = dependencies.button("chevron", "Back to settings categories", "settings-back");
@@ -267,7 +267,7 @@
     overlay.addEventListener("click", (event) => { if (event.target === overlay) closeSettings(); });
     document.body.appendChild(overlay);
     if (options.focusAi) {
-      showCategory("AI");
+      showCategory("AI Summarization");
       aiSection.classList.add("settings-section-highlight");
       setTimeout(() => aiSection.classList.remove("settings-section-highlight"), 1200);
     }

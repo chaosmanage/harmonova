@@ -4,7 +4,7 @@
 //   /search          — relevance-sorted results
 //   /search_by_date  — newest-first results
 //
-// Rules from docs/implementation-plan.md §Phase S:
+// Search input and response handling rules:
 //   - queries are trimmed and capped at 200 characters
 //   - tags are validated against a strict allowlist; author_* names must match
 //     ^[A-Za-z0-9_-]{1,32}$

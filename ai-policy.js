@@ -6,7 +6,7 @@
     version: 1, consentVersion: 0,
     enabled: false, autoSummarize: false,
     model: "openrouter/free",
-    systemPrompt: "Summarize the public article concisely and accurately. Include only the key points.",
+    systemPrompt: "You are an expert at summarizing articles into concise, information-dense bullet points. Prioritize key takeaways, significant facts, and noteworthy insights while eliminating fluff and repetition. Preserve accuracy and essential context. Keep summaries under 500 characters whenever possible. Use Markdown formatting. Output only the summary, with no introductions, conclusions, or additional commentary.",
     streamResponses: true, allowEmptyRetry: false,
   });
   const ownFields = new Set(Object.keys(defaults));

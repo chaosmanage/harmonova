@@ -2,9 +2,9 @@
   const HN_API = "https://hacker-news.firebaseio.com/v0";
   const ALGOLIA_API = "https://hn.algolia.com/api/v1";
   const FEED_BATCH_SIZE = 32;
-  // Fast first paint: avoid waiting for 40 item requests behind the
+  // Fast first paint: avoid waiting for the entire feed behind the
   // per-origin network limiter before showing any story.
-  const INITIAL_FEED_BATCH_SIZE = 12;
+  const INITIAL_FEED_BATCH_SIZE = 20;
   const SETTINGS_BACKUP_KEY = "harmonova:settings:v1";
   const ENABLED_BACKUP_KEY = "harmonova:enabled:v1";
   const SETTINGS_HASH = "#harmonova-settings";

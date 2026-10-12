@@ -15,3 +15,11 @@ trace*.zip
 # Documentation screenshots are intentional, not test output.
 !docs/assets/
 !docs/assets/*.png
+
+# Local-only working plans, reviews, and handoffs (never commit)
+AUDIT.md
+REMEDIATION_PLAN.md
+SECURITY_REMEDIATION_HANDOFF.md
+SETTINGS_REDESIGN_PLAN.md
+docs/fix-plan.md
+docs/implementation-plan.md

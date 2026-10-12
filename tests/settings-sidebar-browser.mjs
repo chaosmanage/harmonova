@@ -26,10 +26,16 @@ await withExtension(async({context,worker})=>{
   await page.evaluate(()=>{location.hash='#harmonova-settings';});
   await page.locator('.settings-overlay').waitFor({state:'visible'});
   await page.locator('.settings-category').filter({hasText:'AI'}).click();
+  assert.equal(await page.locator('.settings-header h2').innerText(),'AI Summarization');
   const frame=page.frameLocator('.ai-settings-frame');
   await frame.locator('#previews-enabled').waitFor();
   assert.equal(await frame.locator('#previews-enabled').isChecked(),true,'previews should default on in sidebar');
   assert.ok((await frame.locator('body').getAttribute('class')).includes('embedded'));
+  const buttonOffset=await frame.locator('#policy-save').evaluate(button=>
+    button.getBoundingClientRect().left-button.closest('.group').getBoundingClientRect().left);
+  assert.ok(buttonOffset>=13 && buttonOffset<=20,'save permissions button aligns with group in embedded layout');
+  assert.equal(await frame.locator('#policy-prompt').inputValue(),
+    'You are an expert at summarizing articles into concise, information-dense bullet points. Prioritize key takeaways, significant facts, and noteworthy insights while eliminating fluff and repetition. Preserve accuracy and essential context. Keep summaries under 500 characters whenever possible. Use Markdown formatting. Output only the summary, with no introductions, conclusions, or additional commentary.');
   const actualFrame=page.frames().find(f=>f.url().includes('/ai-settings.html'));
   assert.ok(actualFrame,'trusted extension page is embedded in sidebar');
   assert.ok(actualFrame.url().startsWith('chrome-extension://'));

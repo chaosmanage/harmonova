@@ -26,7 +26,7 @@ await withExtension(async ({context}) => {
   await page.locator('.story-card').first().waitFor({timeout:13000});
   assert.ok(Date.now()-started<13000,'first stories must render before a full 40-request batch');
   assert.equal(await page.locator('.harmonova-error').count(),0);
-  assert.equal(await page.locator('.story-card').count(),12,'initial batch is bounded');
+  assert.equal(await page.locator('.story-card').count(),20,'initial batch loads 20 stories');
   slow=false;
   await page.locator('.story-card').last().scrollIntoViewIfNeeded();
   await page.waitForFunction(()=>document.querySelectorAll('.story-card').length>=40,null,{timeout:14000});
@@ -35,6 +35,6 @@ await withExtension(async ({context}) => {
   await page.reload();
   await page.locator('.story-card').first().waitFor({timeout:12000});
   assert.equal(await page.locator('.harmonova-error').count(),0,'one failed item must not blank the feed');
-  assert.ok(await page.locator('.story-card').count()>=11,'other stories survive a failed response');
+  assert.ok(await page.locator('.story-card').count()>=19,'other stories survive a failed response');
   console.log('PASS slow Firebase feed, early rendering, scroll pagination, isolated item failure');
 });

@@ -13,6 +13,12 @@ const consent = patch => ({
   model: "openrouter/free", systemPrompt: "Summarize the provided public source.",
   streamResponses: false, allowEmptyRetry: false, ...patch,
 });
+test("new installations ship the concise Markdown article-summary prompt", () => {
+  const { context } = loadBackground();
+  const prompt = context.HarmoNovaAiPolicy.defaults.systemPrompt;
+  assert.equal(prompt, "You are an expert at summarizing articles into concise, information-dense bullet points. Prioritize key takeaways, significant facts, and noteworthy insights while eliminating fluff and repetition. Preserve accuracy and essential context. Keep summaries under 500 characters whenever possible. Use Markdown formatting. Output only the summary, with no introductions, conclusions, or additional commentary.");
+  assert.ok(new TextEncoder().encode(prompt).byteLength <= 8192);
+});
 test("P03 disabled by default despite stored API key and older preferences", async () => {
   const { context, listeners, stores } = loadBackground({ fetchImpl: async () => {
     throw new Error("Unexpected provider call");

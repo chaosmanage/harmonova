@@ -42,6 +42,8 @@ button{min-height:39px;padding:0 14px;border-radius:10px;border:1px solid #45434
 button:hover{background:#302e36}
 button.primary{margin:14px 16px 0;border-color:#a0666b;background:#995d63;color:#fff}
 button.primary:hover{background:#ab6d74}
+/* Keep the permission action aligned with its fields, including narrow iframes. */
+#policy-save{margin:14px 16px 0}
 button.secondary{margin:14px 16px 0 0}
 button:disabled{opacity:.45;cursor:default}
 .actions{display:flex;gap:0;flex-wrap:wrap}

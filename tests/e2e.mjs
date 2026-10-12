@@ -182,7 +182,7 @@ try {
   assert.equal(await commentsZoomSlider.inputValue(), "100");
   await commentsZoomSlider.fill("75");
   assert.ok((await commentsZoomRow.textContent()).includes("75%"));
-  await openSettingsCategory("AI");
+  await openSettingsCategory("AI Summarization");
   const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
   assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
 

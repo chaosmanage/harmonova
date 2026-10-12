@@ -1844,7 +1844,9 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
   border:1px solid var(--harmonova-outline,rgba(238,238,255,.14));
   border-radius:10px;
   background:var(--harmonova-surface,#14191e);
-  max-width:640px;
+  width:100%;
+  max-width:none;
+  box-sizing:border-box;
 }
 .rich-preview-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .rich-preview-provider{
