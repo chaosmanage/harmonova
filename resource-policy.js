@@ -102,7 +102,7 @@
       return {ok:response.ok,status:response.status,type:response.type,url:response.url,headers:response.headers,body};
     } catch(error) { if(reader)reader.cancel().catch(()=>{}); else response?.body?.cancel().catch(()=>{}); finish(); throw error; }
   }
-  async function readBytes(response, cap) {
+  async function readBytes(response, cap, signal) {
     if (!Number.isSafeInteger(cap) || cap < 0) throw failure("INVALID_RESOURCE_LIMIT");
     const advertised = Number(response.headers?.get("content-length"));
     if (Number.isFinite(advertised) && advertised > cap) {
@@ -118,7 +118,12 @@
     const chunks = [];
     try {
       while (true) {
-        const part = await reader.read();
+        const part = await new Promise((resolve,reject)=>{
+          const abort=()=>reject(failure("RESOURCE_CANCELLED"));
+          if(signal?.aborted)return abort();
+          signal?.addEventListener("abort",abort,{once:true});
+          reader.read().then(resolve,reject).finally(()=>signal?.removeEventListener("abort",abort));
+        });
         if (part.done) { done = true; break; }
         if (!ArrayBuffer.isView(part.value) || part.value.BYTES_PER_ELEMENT !== 1) throw failure("INVALID_RESOURCE_CHUNK");
         total += part.value.byteLength;
@@ -130,12 +135,12 @@
       for (const chunk of chunks) { out.set(chunk, index); index += chunk.byteLength; }
       return out;
     } finally {
-      if (!done) try { await reader.cancel(); } catch {}
+      if (!done) reader.cancel().catch(()=>{});
       try { reader.releaseLock(); } catch {}
     }
   }
-  async function readText(response, cap) {
-    const bytes = await readBytes(response, cap);
+  async function readText(response, cap, signal) {
+    const bytes = await readBytes(response, cap, signal);
     return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   }
   const sharedJobs=new Map();

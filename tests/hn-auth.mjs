@@ -607,7 +607,7 @@ for (const scenario of ["no token signed out", "no token signed in", "missing to
       const originalFetch = window.fetch;
       const originalTimeout = window.setTimeout;
       const calls = [];
-      window.setTimeout = (fn, ms, ...args) => originalTimeout(fn, ms === 10000 ? 20 : ms, ...args);
+      window.setTimeout = (fn, ms, ...args) => originalTimeout(fn, c.scenario === "timeout" && ms === 10000 ? 850 : ms, ...args);
       if (c.scenario.startsWith("no token") || c.scenario === "missing token" || c.scenario === "partial top bar") {
         const doc = new DOMParser().parseFromString(c.signedIn, "text/html");
         doc.querySelector("#logout").setAttribute("href", "logout?auth=invalid");
@@ -625,7 +625,9 @@ for (const scenario of ["no token signed out", "no token signed in", "missing to
         if (c.scenario === "blank") html = "";
         if (c.scenario === "verification wall" && !mutation) html = c.wall;
         if (c.scenario === "login wall" && !mutation) html = '<form action="login"><input type="password" name="pw"></form>';
-        return { url: c.scenario === "cross origin" ? "https://example.invalid/news" : url, status: 200, text: async () => html };
+        const response=new Response(html,{status:200,headers:{"content-type":"text/html"}});
+        Object.defineProperty(response,"url",{value:c.scenario==="cross origin"?"https://example.invalid/news":url});
+        return response;
       };
       try {
         const results = c.scenario === "duplicate" ? await Promise.all([HarmoNovaHN.logout(), HarmoNovaHN.logout()]) : [await HarmoNovaHN.logout()];

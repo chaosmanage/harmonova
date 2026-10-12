@@ -29,7 +29,7 @@ function makeVm() {
     URLSearchParams,
     setTimeout,
     clearTimeout,
-    AbortController,
+    AbortController,AbortSignal,TextEncoder,TextDecoder,Response,ReadableStream,
     fetch: (url, options) => {
       unitCalls.push({ url, options });
       if (unitDeferred) {
@@ -40,19 +40,14 @@ function makeVm() {
         });
       }
       const payload = unitResponder ? unitResponder(url, options) : { ok: false, status: 500 };
-      return Promise.resolve({
-        ok: payload.ok ?? false,
-        status: payload.status ?? 500,
-        json: async () => {
-          if (payload.jsonThrows) throw new Error("Invalid JSON");
-          return payload.json;
-        },
-      });
+      return Promise.resolve(new Response(payload.jsonThrows ? 'not json' : JSON.stringify(payload.json ?? null),{
+        status:payload.status??500,headers:{'content-type':'application/json'},
+      }));
     },
   };
   context.globalThis = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(repoRoot, "hn-search.js"), "utf8"), context);
+  for(const file of ["resource-policy.js","lifecycle.js","hn-search.js"])vm.runInContext(fs.readFileSync(path.join(repoRoot,file),"utf8"),context);
   return context;
 }
 

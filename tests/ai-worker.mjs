@@ -159,3 +159,7 @@ test('P07 heartbeat-only streams have a total event budget and cancel on failure
   await assert.rejects(worker.streamOpenRouter(new Response(body),()=>{}),/count exceeded/);
   assert.equal(canceled,true);
 });
+
+test('SSE event budget counts UTF-8 bytes before JSON parsing',async()=> {
+  await assert.rejects(worker.streamOpenRouter(stream(['data: '+ 'α'.repeat(70000)+'\n\n']),()=>{}),/event exceeded size limit/);
+});

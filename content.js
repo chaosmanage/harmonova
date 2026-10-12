@@ -140,20 +140,23 @@
     seenTimes: new Map(), // story id -> last-visit timestamp for new-comment markers
   };
 
-  const fetchJson = async (url) => {
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    return response.json();
+  let feedScope=HarmoNovaLifecycle.create(), threadScope=HarmoNovaLifecycle.create();
+  const fetchJson = async (url,signal) => {
+    const origin=new URL(url).origin;
+    if(!["https://hacker-news.firebaseio.com","https://hn.algolia.com"].includes(origin))throw new Error("Unsupported public data source");
+    const response=await HarmoNovaResourcePolicy.request(fetch,url,{signal,headers:{Accept:"application/json"}},HarmoNovaResourcePolicy.Limits.publicJson,["application/json"]);
+    if(!response.ok){await response.body?.cancel();throw new Error("Public data request failed");}
+    return HarmoNovaLifecycle.validateTree(JSON.parse(await HarmoNovaResourcePolicy.readText(response,4*1024*1024,signal)));
   };
 
-  const fetchItems = async (ids) => {
+  const fetchItems = async (ids,signal) => {
     const safeIds = ids.filter((id) => Number.isInteger(id) && id > 0).slice(0, 60);
     const results = new Array(safeIds.length);
     let cursor = 0;
     const workers = Array.from({ length: Math.min(10, safeIds.length) }, async () => {
       while (cursor < safeIds.length) {
         const index = cursor++;
-        results[index] = await fetchJson(HN_API + "/item/" + safeIds[index] + ".json");
+        results[index] = await fetchJson(HN_API + "/item/" + safeIds[index] + ".json",signal);
       }
     });
     await Promise.all(workers);
@@ -543,24 +546,18 @@
     }
   };
   const requestCardPreview = (card, story, show) => {
-    const add = () => {
-      if(previewJobs.length>=100) return;
-      const controller=new AbortController(); previewCardScopes.set(card,controller);
-      previewJobs.push({ card, story, show, controller });
-      Promise.resolve().then(pumpPreviews);
+    if(previewCardScopes.size>=200){const [old,controller]=previewCardScopes.entries().next().value;controller.abort();previewCardScopes.delete(old);previewObserver?.unobserve(old);delete old._loadHarmoNovaPreview;}
+    const controller=new AbortController();previewCardScopes.set(card,controller);
+    const add=()=> {
+      if(controller.signal.aborted||previewJobs.length>=100)return;
+      previewJobs.push({card,story,show,controller});Promise.resolve().then(pumpPreviews);
     };
-    if (state.search.active && typeof IntersectionObserver !== "undefined") {
-      if (!previewObserver) previewObserver = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          previewObserver.unobserve(entry.target);
-          entry.target._loadHarmoNovaPreview?.();
-          delete entry.target._loadHarmoNovaPreview;
-        }
-      }, { root: storyList, rootMargin: "300px" });
-      card._loadHarmoNovaPreview = add;
-      previewObserver.observe(card);
-    } else add();
+    if(state.search.active&&typeof IntersectionObserver!=="undefined") {
+      if(!previewObserver)previewObserver=new IntersectionObserver(entries=>{
+        for(const entry of entries)if(entry.isIntersecting){previewObserver.unobserve(entry.target);entry.target._loadHarmoNovaPreview?.();delete entry.target._loadHarmoNovaPreview;}
+      },{root:storyList,rootMargin:"300px"});
+      card._loadHarmoNovaPreview=add;previewObserver.observe(card);
+    }else add();
   };
 
   const faviconUrl = () => null; // Unsupported remote favicons use a local placeholder.
@@ -979,7 +976,7 @@ function scheduleItemState(id) {
 
 async function loadThreadItemState(id, token) {
   try {
-    const itemState = await window.HarmoNovaHN.ensureItemState(id);
+    const itemState = await window.HarmoNovaHN.ensureItemState(id,{signal:threadScope.signal});
     if (token !== state.itemStateToken || state.selectedId !== id) return;
     state.itemState = itemState || null;
     if (itemState?.story?.voted) state.feedVotes.set(id, itemState.story.votedDirection === "down" ? "down" : "up");
@@ -1839,9 +1836,11 @@ async function openUserPanel(username) {
 async function loadPollOptions(storyId) {
   state.pollOptions = null;
   try {
-    const item = await fetchJson(HN_API + "/item/" + storyId + ".json");
+    const scope=threadScope;
+    const item = await fetchJson(HN_API + "/item/" + storyId + ".json",scope.signal);
+    if(!scope.alive || state.selectedId!==storyId)return;
     if (state.selectedId !== storyId || item?.type !== "poll" || !Array.isArray(item.parts)) return;
-    const options = await fetchItems(item.parts);
+    const options = await fetchItems(item.parts,scope.signal);
     if (state.selectedId !== storyId) return;
     state.pollOptions = options
       .filter((option) => Number.isInteger(option.id) && option.id > 0)
@@ -2166,12 +2165,13 @@ function openComposer(options) {
   });
   submit.addEventListener("click", submitComposer);
 
-  const composer = { username: session.username, parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone, draftToken: null, draftRevision: 0, draftWrite: Promise.resolve(), draftReady: Promise.resolve(), lastTrustedText: "" };
+  const composer = {scope:HarmoNovaLifecycle.create(), username: session.username, parentId, storyId, mode, handle, node, textarea, status, submit, previewToggle, previewWrap, discard, draftTimer, submitting: false, onDone, draftToken: null, draftRevision: 0, draftWrite: Promise.resolve(), draftReady: Promise.resolve(), lastTrustedText: "" };
   state.composer = composer;
+  composer.scope.own(()=>clearTimeout(composer.draftTimer));
   if (mode === "reply") {
     status.hidden = false;
     status.textContent = "Checking availability on Hacker News…";
-    window.HarmoNovaHN.openReplyForm(parentId, { storyId }).then((opened) => {
+    window.HarmoNovaHN.openReplyForm(parentId, { storyId,signal:composer.scope.signal }).then((opened) => {
       if (state.composer !== composer) return;
       if (opened.status === "ok") {
         composer.handle = opened.handle;
@@ -2396,6 +2396,7 @@ async function closeComposer({ keepDraft = true } = {}) {
     else await runtimeMessage({ type: "HARMONOVA_DRAFT_RETIRE", token: composer.draftToken });
   }
   composer.draftToken = null;
+  composer.scope?.dispose();
   composer.node?.remove();
   if (state.composer === composer) state.composer = null;
   return true;
@@ -3026,7 +3027,7 @@ function openFeedMenu(anchor) {
     loading.classList.add("load-more-stories");
     storyList.appendChild(loading);
     try {
-      const stories = await fetchItems(batchIds);
+      const stories = await fetchItems(batchIds,feedScope.signal);
       if (generation !== state.feedGeneration) return;
       loading.remove();
       const startIndex = state.stories.length;
@@ -3035,6 +3036,7 @@ function openFeedMenu(anchor) {
       state.hasMoreStories = state.feedCursor < state.feedIds.length;
       filterStories();
     } catch {
+      if(generation!==state.feedGeneration)return;
       loading.remove();
       state.feedCursor -= batchIds.length;
       showToast("Couldn’t load more stories");
@@ -3058,8 +3060,8 @@ function validFrontDate(value) {
 
 // Parity-list feeds have no Firebase id list; pull ids from public HN list
 // pages through the queue. Two pages are enough for a comfortable feed.
-async function fetchListFeedIds(listPath) {
-  const first = await window.HarmoNovaHN.fetchListPage(listPath);
+async function fetchListFeedIds(listPath,signal) {
+  const first = await window.HarmoNovaHN.fetchListPage(listPath,{signal});
   if (first.status !== "ok") {
     const error = new Error(first.message || "Hacker News did not return the list");
     error.status = first.status;
@@ -3070,7 +3072,7 @@ async function fetchListFeedIds(listPath) {
     for (const [id, direction] of Object.entries(first.votes)) state.feedVotes.set(Number(id), direction);
   }
   if (first.morePath && first.ids.length < FEED_BATCH_SIZE) {
-    const second = await window.HarmoNovaHN.fetchListPage(first.morePath);
+    const second = await window.HarmoNovaHN.fetchListPage(first.morePath,{signal});
     if (second.status === "ok") for (const id of second.ids) if (!ids.includes(id)) ids.push(id);
   }
   return ids;
@@ -3160,6 +3162,8 @@ async function refreshFeed() {
     state.search.active = false;
     // A manual refresh closes an open account list view and rebuilds the feed.
     state.listView = null;
+    feedScope.dispose();feedScope=HarmoNovaLifecycle.create();
+    const scope=feedScope;
     const generation = ++state.feedGeneration;
     state.loadingMore = false;
     state.feedIds = [];
@@ -3177,11 +3181,11 @@ async function refreshFeed() {
         ? "/front?day=" + encodeURIComponent(validFrontDate(state.settings.frontDate) || frontDayOffset(1))
         : feed.listPath;
       const ids = feed.endpoint
-        ? await fetchJson(HN_API + "/" + feed.endpoint + ".json")
-        : await fetchListFeedIds(listPath);
+        ? await fetchJson(HN_API + "/" + feed.endpoint + ".json",scope.signal)
+        : await fetchListFeedIds(listPath,scope.signal);
       // /news is the canonical HN list for the Top feed.
       if (feed.endpoint === "topstories" && window.HarmoNovaHN?.session?.()) {
-        const hnList = await window.HarmoNovaHN.fetchListPage("/news");
+        const hnList = await window.HarmoNovaHN.fetchListPage("/news",{signal:scope.signal});
         if (hnList.status === "ok") {
           const shown = new Set(ids.slice(0, FEED_BATCH_SIZE));
           for (const [id, direction] of Object.entries(hnList.votes || {})) {
@@ -3193,7 +3197,7 @@ async function refreshFeed() {
       state.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
       const batchIds = state.feedIds.slice(0, FEED_BATCH_SIZE);
       state.feedCursor = batchIds.length;
-      const stories = await fetchItems(batchIds);
+      const stories = await fetchItems(batchIds,feedScope.signal);
       if (generation !== state.feedGeneration) return;
       state.stories = stories;
       // Parity lists have no reliable "more" cursor; everything fetched is shown.
@@ -3217,6 +3221,7 @@ async function refreshFeed() {
         selectStory(stories[0], false, false);
       }
     } catch (error) {
+      if(!scope.alive || generation!==state.feedGeneration)return;
       const fail = el("div", "harmonova-error");
       fail.append(el("strong", "", "Couldn’t load Hacker News"), el("span", "", error.message));
       storyList.replaceChildren(fail);
@@ -3906,7 +3911,9 @@ async function refreshFeed() {
   }
 
   async function loadThread(id) {
-    if (!state.activeSummary || state.activeSummary.storyId !== id) stopActiveSummary();
+    threadScope.dispose();threadScope=HarmoNovaLifecycle.create();
+    const scope=threadScope;
+    stopActiveSummary();
     cancelItemState();
     closeComposer({ keepDraft: true });
     // Direct thread switches (e.g. "already submitted" → open the existing
@@ -3921,12 +3928,13 @@ async function refreshFeed() {
     scheduleItemState(id);
     loadPollOptions(id);
     try {
-      const item = await fetchJson(ALGOLIA_API + "/items/" + id);
-      if (state.selectedId !== id) return;
+      const item = await fetchJson(ALGOLIA_API + "/items/" + id,scope.signal);
+      if (!scope.alive || state.selectedId !== id) return;
       mergeConfirmedComments(item);
       state.thread = item;
       renderThread(item);
     } catch (error) {
+      if(!scope.alive || state.selectedId!==id)return;
       const fail = el("div", "harmonova-error");
       fail.append(el("strong", "", "Couldn’t load discussion"), el("span", "", error.message));
       threadPane.replaceChildren(fail);
@@ -3934,6 +3942,8 @@ async function refreshFeed() {
   }
 
   async function renderThread(item) {
+    const scope=threadScope;
+    if(!scope.alive || state.selectedId!==item.id)return;
     threadPane.replaceChildren();
     document.title = (item.title || "Discussion") + " — HarmoNova";
     const header = el("header", "thread-header");
@@ -4176,7 +4186,7 @@ async function refreshFeed() {
     // Once the discussion has been read, its comments are never "new" again.
     if (state.settings.markNewComments && Number.isInteger(item.id)) {
       setTimeout(() => {
-        if (state.selectedId !== item.id) return;
+        if (!scope.alive || state.selectedId !== item.id) return;
         state.seenTimes.set(item.id, Math.floor(Date.now() / 1000));
         persistSeenTimes(item.id);
       }, 4000);
@@ -4189,8 +4199,8 @@ async function refreshFeed() {
 
     if (item.url) {
       const fakeStory = { id: item.id, url: item.url };
-      const preview = await getPreview(fakeStory);
-      if (state.selectedId !== item.id) return;
+      const preview = await getPreview(fakeStory,scope.signal);
+      if (!scope.alive || state.selectedId !== item.id) return;
       const imageSrc = safeImageSrc(preview.image || "");
       if (imageSrc) {
         heroImg.src = imageSrc;
@@ -4713,7 +4723,11 @@ async function refreshFeed() {
   // Best-effort unload flush. The browser may discard in-flight extension
   // messages during navigation; debounced autosave remains the primary path.
   window.addEventListener("pagehide", () => {
+    flushSettings();
+    feedScope.dispose();threadScope.dispose();abortSearch();stopActiveSummary();previewCleanupObserver.disconnect();previewObserver?.disconnect();
+    for(const controller of previewCardScopes.values())controller.abort();previewCardScopes.clear();
     const composer = state.composer;
+    composer?.scope?.dispose();
     if (!composer || composer.submitting || !composer.lastTrustedText?.trim()) return;
     clearTimeout(composer.draftTimer);
     draftSet(composer, composer.lastTrustedText);

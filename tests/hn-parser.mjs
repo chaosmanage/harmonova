@@ -1,6 +1,7 @@
 // HarmoNova parser tests: load redacted/synthetic HN fixtures into Chromium and
 // exercise the hn-session.js parsers through the _internal inspection hooks.
 import { chromium } from "playwright-core";
+import {offlineProxy,installOfflineRoutes} from "./helpers/network.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -8,11 +9,14 @@ import assert from "node:assert/strict";
 import { leakGuard, redactHtml, PLACEHOLDER_TOKEN_A, PLACEHOLDER_TOKEN_B } from "../scripts/redact-fixtures.mjs";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
+const runtimeRoot=path.resolve(process.env.EXTENSION_PATH||repoRoot);
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
 
 const readFixture = (...parts) => fs.readFileSync(path.join(fixtureDir, ...parts), "utf8");
 
+const proxy=await offlineProxy();
 const browser = await chromium.launch({
+  proxy:{server:proxy.url,bypass:"<-loopback>"},
   executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
   headless: true,
 });
@@ -23,6 +27,8 @@ const failures = [];
 
 async function withPage(fn) {
   const context = await browser.newContext();
+  await installOfflineRoutes(context);
+  await context.route("https://news.ycombinator.com/**",r=>r.fulfill({status:200,contentType:"text/html",body:readFixture("news.html")}));
   const page = await context.newPage();
   try {
     await fn(page);
@@ -38,12 +44,14 @@ async function withPage(fn) {
 
 async function loadFixture(page, html) {
   await page.setContent(html, { waitUntil: "domcontentloaded" });
-  await page.addScriptTag({ path: path.join(repoRoot, "hn-session.js") });
+  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,file)});
   return page;
 }
 
 const test = async (name, fn) => {
   const context = await browser.newContext();
+  await installOfflineRoutes(context);
+  await context.route("https://news.ycombinator.com/**",r=>r.fulfill({status:200,contentType:"text/html",body:readFixture("news.html")}));
   const page = await context.newPage();
   try {
     await fn(page, context);
@@ -143,7 +151,7 @@ await test("comment form parses hidden fields", async (page) => {
 await test("list parser reads rows and pagination", async (page) => {
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" }).catch(() => {});
   await page.setContent(readFixture("news.html"), { waitUntil: "domcontentloaded" });
-  await page.addScriptTag({ path: path.join(repoRoot, "hn-session.js") });
+  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,file)});
   const list = await page.evaluate(() => window.HarmoNovaHN._internal.parseList(document));
   assert.equal(list.ids.length, 30, "front page holds 30 stories");
   assert.ok(list.morePath, "front page has a morelink");
@@ -152,7 +160,7 @@ await test("list parser reads rows and pagination", async (page) => {
   // resolves "?…" hrefs against the requested list path instead.
   assert.equal(list.morePath, "?p=2", "morelink href returned verbatim: " + list.morePath);
   await page.setContent(readFixture("item-thread.html"), { waitUntil: "domcontentloaded" });
-  await page.addScriptTag({ path: path.join(repoRoot, "hn-session.js") });
+  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,file)});
   const threadList = await page.evaluate(() => window.HarmoNovaHN._internal.parseList(document));
   assert.ok(threadList.ids.length > 1000, "large thread parses every comment row: " + threadList.ids.length);
   // Modern HN renders whole threads on one page; morePath stays null there but
@@ -239,6 +247,7 @@ await test("no committed fixture contains a live-looking 40-hex token outside pl
 });
 
 await browser.close();
+await proxy.close();
 console.log(`\nhn-parser: ${passed} passed, ${failed} failed`);
 if (failed) {
   process.exit(1);

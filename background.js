@@ -604,6 +604,7 @@ async function streamOpenRouter(response, onProgress) {
   let finished = false;
 
   const consumeEvent = (event) => {
+    if(new TextEncoder().encode(event).byteLength>128*1024)throw new Error("Streaming event exceeded size limit");
     eventCount++;
     if (eventCount > 10000) throw new Error("Streaming event count exceeded size limit");
     const data = event.split("\n")
@@ -652,7 +653,7 @@ async function streamOpenRouter(response, onProgress) {
     if (!summary.trim()) throw emptySummaryError(finishReason, usage);
     return summary;
   } finally {
-    if (!finished) try { await reader.cancel(); } catch {}
+    if (!finished)reader.cancel().catch(()=>{});
     try { reader.releaseLock(); } catch {}
   }
 }

@@ -48,6 +48,9 @@
       ],
       "js": [
         "settings-schema.js",
+        "resource-policy.js",
+        "lifecycle.js",
+        "hn-queue.js",
         "url-policy.js",
         "hn-session.js",
         "hn-search.js",

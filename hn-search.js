@@ -150,17 +150,18 @@
     if (built.error) return { hits: [], page: 0, nbPages: 1, error: built.error };
     let response;
     try {
-      response = await fetch(built.url, { credentials: "omit", signal: signal || undefined });
+      response = await HarmoNovaResourcePolicy.request(fetch,built.url,{signal,headers:{Accept:"application/json"}},HarmoNovaResourcePolicy.Limits.publicJson,["application/json"]);
     } catch (error) {
       if (signal?.aborted || error?.name === "AbortError") return { hits: [], aborted: true };
       return { hits: [], page: 0, nbPages: 1, error: "Search request failed: " + String(error?.message || error) };
     }
     if (!response.ok) {
+      await response.body?.cancel();
       return { hits: [], page: 0, nbPages: 1, error: "Search failed (HTTP " + response.status + ")" };
     }
     let payload;
     try {
-      payload = await response.json();
+      payload = HarmoNovaLifecycle.validateTree(JSON.parse(await HarmoNovaResourcePolicy.readText(response,4*1024*1024,signal)));
     } catch {
       return { hits: [], page: 0, nbPages: 1, error: "Search response was not valid JSON" };
     }
@@ -170,6 +171,7 @@
     const page = Number.isInteger(payload.page) && payload.page >= 0 ? payload.page : 0;
     const nbPages = Number.isInteger(payload.nbPages) && payload.nbPages >= page + 1 ? payload.nbPages : page + 1;
     const hits = [];
+    if(payload.hits.length>1000)return {hits:[],page:0,nbPages:1,error:"Too many search results"};
     for (const hit of payload.hits) {
       const safe = validateHit(hit);
       if (safe) hits.push(safe);
@@ -183,7 +185,7 @@
   // ---------------------------------------------------------------------------
 
   function buildHighlightSegments(value) {
-    const text = typeof value === "string" ? value : "";
+    const text = typeof value === "string" ? value.slice(0,32768) : "";
     // Algolia highlights contain paragraph, link and emphasis markup.
     // Parse in an inert document and copy text nodes, never live HTML.
     if (typeof DOMParser !== "undefined") {

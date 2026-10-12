@@ -122,3 +122,12 @@ gh release create v0.13.10 dist/harmonova-0.13.10.zip \
 ```
 
 Version and tag in the example are illustrative; use the version you're actually publishing. This document and the release notes are not a substitute for testing the archive.
+
+HN requests use a per-tab queue: at least 750 ms between sends, 50 pending jobs,
+a 30-second queue wait and a 15-second active deadline covering headers/body.
+GET vote/favorite/hide/flag/logout jobs are mutations. Ambiguous mutations are
+never automatically replayed; only a definitive expired-token rejection may
+refresh once. HN's native form redirects remain supported with a final-origin
+check; HN is a trusted authenticated service, and that check does not prevent
+all intermediary redirect side effects. The spacing is not a cross-tab rate
+limit. Feed/thread/composer disposal aborts obsolete consumers and timers.
