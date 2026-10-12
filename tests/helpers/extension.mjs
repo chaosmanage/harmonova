@@ -40,19 +40,15 @@ export async function launchExtension({ destinations = new Map(), args = [], inc
       const toggle = settings.locator("#allow-incognito");
       await toggle.waitFor({state:"visible"});
       if (await toggle.getAttribute("checked") === null) await toggle.click();
+      await settings.waitForFunction(id=>new Promise(resolve=>chrome.developerPrivate.getExtensionInfo(id,info=>resolve(info.state==='ENABLED'&&!info.disableReasons.reloading))),extensionId,{timeout:30000,polling:100});
       await context.close();
       context = await chromium.launchPersistentContext(profile, launchOptions);
     }
     if(restartedExtensionId) {
-      // MV3 may remain dormant after browser restart. A read-only owned popup
-      // wakes it without initializing reader history, migrations or AI.
-      const wake=await context.newPage();
-      await wake.goto('chrome://extensions/?id='+restartedExtensionId);
-      await wake.locator('#allow-incognito').waitFor({state:'visible'});
-      if(await wake.locator('#allow-incognito').getAttribute('checked')===null)throw new Error('Incognito permission did not persist');
-      await wake.close();
-      const popup=await context.newPage();await popup.goto('chrome-extension://'+restartedExtensionId+'/popup.html');
-      await popup.waitForFunction(()=>document.querySelector('#status')?.textContent.length>0);await popup.close();
+      const ready=await context.newPage();await ready.goto('chrome://extensions/?id='+restartedExtensionId);
+      await ready.waitForFunction(id=>new Promise(resolve=>chrome.developerPrivate.getExtensionInfo(id,info=>resolve(info.state==='ENABLED'&&!info.disableReasons.reloading))),restartedExtensionId,{timeout:30000,polling:100});
+      if(await ready.locator('#allow-incognito').getAttribute('checked')===null)throw new Error('Incognito permission did not persist');
+      await ready.close();
     }
     const browserSession=await context.browser().newBrowserCDPSession();
     const processes=await browserSession.send('SystemInfo.getProcessInfo');
