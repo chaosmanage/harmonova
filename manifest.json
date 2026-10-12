@@ -1,11 +1,13 @@
 {
   "manifest_version": 3,
   "name": "HarmoNova for Hacker News",
-  "version": "0.13.10",
+  "version": "0.14.0",
   "description": "A modern Hacker News reading experience, inspired by Harmonic.",
+  "incognito": "spanning",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "alarms"
   ],
   "host_permissions": [
     "http://*/*",
@@ -35,9 +37,30 @@
         "https://news.ycombinator.com/*"
       ],
       "js": [
+        "settings-schema.js",
+        "resource-policy.js",
+        "lifecycle.js",
+        "hn-queue.js",
         "url-policy.js",
         "hn-session.js",
         "hn-search.js",
+        "incognito-state.js",
+        "content/runtime.js",
+        "content/state.js",
+        "content/composer.js",
+        "content/settings.js",
+        "content/summary-ui.js",
+        "content/previews.js",
+        "content/search-ui.js",
+        "content/comments.js",
+        "content/feed.js",
+        "content/reader.js",
+        "content/actions.js",
+        "content/dom.js",
+        "content/links.js",
+        "content/sanitize.js",
+        "content/toolbar.js",
+        "content/release-notice.js",
         "content.js"
       ],
       "css": [
@@ -52,6 +75,18 @@
       "resources": [
         "fonts/GoogleSansFlexRounded-wght.ttf",
         "fonts/GoogleSansFlexRounded-Italic-wght.ttf"
+      ],
+      "matches": [
+        "https://news.ycombinator.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "ai-settings.html",
+        "ai-settings.css",
+        "ai-settings.js",
+        "ai-policy.js",
+        "icons/icon48.png"
       ],
       "matches": [
         "https://news.ycombinator.com/*"

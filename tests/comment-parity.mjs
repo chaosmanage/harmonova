@@ -4,7 +4,7 @@
 // navigation, user tags, blocked users, and bookmark/user-data export+import
 // with schema validation. Drives the real Chromium extension against mocked
 // HN + Firebase + Algolia documents.
-import { chromium } from "playwright-core";
+import {launchExtension} from "./helpers/extension.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -115,18 +115,7 @@ function createDataMocks() {
   };
 }
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  acceptDownloads: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let browser;
 
 let passed = 0;
 let failed = 0;
@@ -146,20 +135,27 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 
 async function test(name, fn) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
+  const harness=await launchExtension();browser=harness.context;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
     if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
+    if(parsed.protocol==="chrome-extension:")return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   page.on("pageerror", (error) => console.error("  pageerror:", String(error).slice(0, 160)));
   try {
-    const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
-    if (sw) await sw.evaluate(() => chrome.storage.sync.clear().catch(() => {}) && chrome.storage.local.clear().catch(() => {})).catch(() => {});
+    // This suite tests comment display/interaction only. General previews
+    // default on in production, but synthetic article hosts are not routed
+    // here; isolate the independent preview preference explicitly.
+    await harness.worker.evaluate(()=>chrome.storage.local.set({
+      harmonovaNetworkPolicyV1:{version:1,externalPreviewsEnabled:false}
+    }));
     await fn({ page, hn });
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -167,12 +163,7 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    // Close stray popup pages (article tabs opened by earlier flows) so they
-    // never accumulate across the persistent context.
-    for (const stray of browser.pages()) {
-      if (stray !== page) await stray.close().catch(() => {});
-    }
-    await page.close();
+    await harness.close();
   }
 }
 
@@ -181,6 +172,7 @@ const gotoFeed = async (page, seedSeen) => {
   // harmonova keys once at document start so every test starts clean, while
   // in-test reloads keep whatever the extension persisted.
   await page.addInitScript(() => {
+    if (location.hostname !== "news.ycombinator.com") return;
     if (sessionStorage.getItem("harmonovaWipeDone")) return;
     sessionStorage.setItem("harmonovaWipeDone", "1");
     for (const key of Object.keys(localStorage)) if (key.startsWith("harmonova")) localStorage.removeItem(key);
@@ -190,6 +182,7 @@ const gotoFeed = async (page, seedSeen) => {
     // applies on the first load only and the app's own seen-times win after.
     await page.addInitScript(
       (seed) => {
+        if (location.hostname !== "news.ycombinator.com") return;
         if (sessionStorage.getItem("harmonovaSeedDone")) return;
         sessionStorage.setItem("harmonovaSeedDone", "1");
         localStorage.setItem("harmonovaSeenComments", seed);
@@ -444,8 +437,8 @@ await test("user data import merges valid files and refuses bad schemas", async 
   assert.ok(await readCard.evaluate((node) => node.classList.contains("is-read")), "imported read id applied to the feed card");
   const stored = await browser.serviceWorkers()
     .find((worker) => worker.url().startsWith("chrome-extension://"))
-    .evaluate(() => chrome.storage.local.get("harmonovaBookmarks"));
-  assert.deepEqual(stored.harmonovaBookmarks, [777001, 777002], "imported bookmarks persisted through the worker");
+    .evaluate(() => chrome.storage.local.get("harmonovaReaderStateV1"));
+  assert.deepEqual(stored.harmonovaReaderStateV1.bookmarks, [777001, 777002], "imported bookmarks persisted through the worker");
 
   // Bad schema: non-integer bookmark id must be refused wholesale.
   const badFile = path.join(os.tmpdir(), "harmonova-bad-" + Date.now() + ".json");
@@ -463,11 +456,11 @@ await test("user data import merges valid files and refuses bad schemas", async 
   assert.ok(toast.includes("refused"), "bad schema refused with a message: " + toast);
   const stored2 = await browser.serviceWorkers()
     .find((worker) => worker.url().startsWith("chrome-extension://"))
-    .evaluate(() => chrome.storage.local.get("harmonovaBookmarks"));
-  assert.deepEqual(stored2.harmonovaBookmarks, [777001, 777002], "refused import changed nothing");
+    .evaluate(() => chrome.storage.local.get("harmonovaReaderStateV1"));
+  assert.deepEqual(stored2.harmonovaReaderStateV1.bookmarks, [777001, 777002], "refused import changed nothing");
 });
 
-await browser.close();
+
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

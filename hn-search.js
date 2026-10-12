@@ -4,7 +4,7 @@
 //   /search          — relevance-sorted results
 //   /search_by_date  — newest-first results
 //
-// Rules from docs/implementation-plan.md §Phase S:
+// Search input and response handling rules:
 //   - queries are trimmed and capped at 200 characters
 //   - tags are validated against a strict allowlist; author_* names must match
 //     ^[A-Za-z0-9_-]{1,32}$
@@ -25,7 +25,7 @@
   const MAX_HITS_PER_PAGE = 50;
   const TAGS = new Set(["story", "comment", "ask_hn", "show_hn", "poll", "front_page"]);
   const AUTHOR_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-  const NUMERIC_FIELDS = new Set(["created_at_i", "points", "num_comments"]);
+
 
   // ---------------------------------------------------------------------------
   // Query construction
@@ -150,17 +150,18 @@
     if (built.error) return { hits: [], page: 0, nbPages: 1, error: built.error };
     let response;
     try {
-      response = await fetch(built.url, { credentials: "omit", signal: signal || undefined });
+      response = await HarmoNovaResourcePolicy.request(fetch,built.url,{signal,headers:{Accept:"application/json"}},HarmoNovaResourcePolicy.Limits.publicJson,["application/json"]);
     } catch (error) {
       if (signal?.aborted || error?.name === "AbortError") return { hits: [], aborted: true };
       return { hits: [], page: 0, nbPages: 1, error: "Search request failed: " + String(error?.message || error) };
     }
     if (!response.ok) {
+      await response.body?.cancel();
       return { hits: [], page: 0, nbPages: 1, error: "Search failed (HTTP " + response.status + ")" };
     }
     let payload;
     try {
-      payload = await response.json();
+      payload = HarmoNovaLifecycle.validateTree(JSON.parse(await HarmoNovaResourcePolicy.readText(response,4*1024*1024,signal)));
     } catch {
       return { hits: [], page: 0, nbPages: 1, error: "Search response was not valid JSON" };
     }
@@ -170,6 +171,7 @@
     const page = Number.isInteger(payload.page) && payload.page >= 0 ? payload.page : 0;
     const nbPages = Number.isInteger(payload.nbPages) && payload.nbPages >= page + 1 ? payload.nbPages : page + 1;
     const hits = [];
+    if(payload.hits.length>1000)return {hits:[],page:0,nbPages:1,error:"Too many search results"};
     for (const hit of payload.hits) {
       const safe = validateHit(hit);
       if (safe) hits.push(safe);
@@ -183,10 +185,10 @@
   // ---------------------------------------------------------------------------
 
   function buildHighlightSegments(value) {
-    const text = typeof value === "string" ? value : "";
+    const text = typeof value === "string" ? value.slice(0,32768) : "";
     // Algolia highlights contain paragraph, link and emphasis markup.
     // Parse in an inert document and copy text nodes, never live HTML.
-    if (typeof DOMParser !== "undefined") {
+    {
       const doc = new DOMParser().parseFromString(text, "text/html");
       const segments = [];
       const add = (value, highlighted) => {
@@ -195,13 +197,15 @@
         if (last && last.highlighted === highlighted) last.text += value;
         else segments.push({ text: value, highlighted });
       };
-      const walk = (node, marked = false) => {
+      let visited = 0;
+      const walk = (node, marked = false, depth = 0) => {
+        if (++visited > 5000 || depth > 64) return;
         if (node.nodeType === 3) return add(node.nodeValue || "", marked);
         if (node.nodeType !== 1) return;
         const tag = node.localName.toLowerCase();
         if (["script", "style", "template", "svg", "iframe"].includes(tag)) return;
         if (tag === "br" || tag === "p" && segments.length) add("\n", false);
-        for (const child of node.childNodes) walk(child, marked || tag === "em");
+        for (const child of node.childNodes) walk(child, marked || tag === "em", depth + 1);
         if (tag === "p") add("\n", false);
       };
       for (const child of doc.body.childNodes) walk(child);
@@ -209,31 +213,6 @@
       if (segments[segments.length - 1]?.text === "\n") segments.pop();
       return segments;
     }
-    // DOMParser is absent in the Node VM tests; browser rendering always uses
-    // the inert parser above.
-    const segments = [];
-    let plain = "";
-    let highlighted = "";
-    let inside = false;
-    for (let i = 0; i < text.length; i++) {
-      if (!inside && text.startsWith("<em>", i)) {
-        if (plain) { segments.push({ text: plain, highlighted: false }); plain = ""; }
-        inside = true;
-        i += 3;
-        continue;
-      }
-      if (inside && text.startsWith("</em>", i)) {
-        if (highlighted) { segments.push({ text: highlighted, highlighted: true }); highlighted = ""; }
-        inside = false;
-        i += 4;
-        continue;
-      }
-      if (inside) highlighted += text[i];
-      else plain += text[i];
-    }
-    if (plain) segments.push({ text: plain, highlighted: false });
-    if (highlighted) segments.push({ text: highlighted, highlighted: true });
-    return segments;
   }
 
   globalThis.HarmoNovaSearch = {

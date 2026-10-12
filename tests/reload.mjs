@@ -3,14 +3,20 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import {offlineProxy,installOfflineRoutes} from './helpers/network.mjs';
 
 const extensionPath = path.resolve(process.env.EXTENSION_PATH || '.');
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'harmonova-reload-'));
-const launch = () => chromium.launchPersistentContext(profile, {
+const proxy=await offlineProxy();
+const launch = async () => {const context=await chromium.launchPersistentContext(profile, {
+  proxy:{server:proxy.url,bypass:'<-loopback>'},
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-extensions-except=' + extensionPath, '--load-extension=' + extensionPath],
 });
+  await installOfflineRoutes(context);
+  return context;
+};
 let context = await launch();
 try {
   let worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
@@ -46,5 +52,6 @@ try {
   console.log(JSON.stringify({ browserRestart: 'passed', preferencesPersisted: true, persistentKeyRetained: true, sessionKeyCleared: true }));
 } finally {
   await context.close();
+  await proxy.close();
   fs.rmSync(profile, { recursive: true, force: true });
 }

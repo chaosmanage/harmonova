@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {withExtension} from './helpers/extension.mjs';
+await withExtension(async({context,worker})=> {
+  let previews=0;
+  await context.route('https://news.ycombinator.com/**',r=>r.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(new URL('./fixtures/hn/news.html',import.meta.url),'utf8')}));
+  const story={id:910001,type:'story',title:'Provider fixture',url:'https://en.wikipedia.org/wiki/Fixture',by:'fixture',score:1,time:1700000000,descendants:0};
+  await context.route('https://hacker-news.firebaseio.com/v0/**',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(r.request().url().endsWith('stories.json')?[910001]:story)}));
+  await context.route('https://hn.algolia.com/**',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:910001,title:story.title,url:story.url,author:'fixture',children:[]})}));
+  await context.route('https://en.wikipedia.org/api/rest_v1/page/summary/**',r=>{previews++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({title:'Fixture',extract:'Public provider extract',type:'standard'})});});
+  const page=await context.newPage();await page.goto('https://news.ycombinator.com/news');await page.locator('.story-card').first().waitFor();
+  await page.locator('.story-comment-button').first().click();await page.locator('.thread-title').waitFor();
+  await page.locator('.rich-preview').waitFor();
+  assert.ok(previews>0,'fresh install enables supported preview requests');
+  const origins=await worker.evaluate(async()=> (await chrome.permissions.getAll()).origins);
+  assert.ok(origins.includes('https://*/*') && origins.includes('http://*/*'));
+  const settings=await context.newPage();await settings.goto('chrome-extension://'+new URL(worker.url()).host+'/ai-settings.html');
+  const before=previews;
+  await settings.locator('#previews-enabled').uncheck();
+  await settings.waitForFunction(()=>document.querySelector('#previews-status')?.textContent.includes('disabled'));
+  await page.reload();await page.locator('.story-card').first().waitFor();await page.locator('.story-comment-button').first().click();await page.locator('.thread-title').waitFor();
+  await worker.evaluate(async()=>{await getMetadata('https://unapproved.example/story',true);await getMetadata('https://en.wikipedia.org/wiki/Other',true);});
+  assert.equal(previews,before,'off prevents all subsequent preview requests');
+  assert.equal(await worker.evaluate(()=>HarmoNovaResourcePolicy.activeCount),0);
+  console.log('PASS P09 effective permissions, fresh default on, trusted preference save and zero preview requests when off');
+});

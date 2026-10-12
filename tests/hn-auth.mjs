@@ -1,8 +1,9 @@
+import { hnRedirectFixture } from './helpers/network.mjs';
+import { launchExtension } from './helpers/extension.mjs';
 // HarmoNova mocked account e2e suite (Phase 0.5.2 harness; extended per phase).
 // Fully mocks Hacker News documents and actions with fixtures so account flows
 // can be exercised without credentials. Every HN request is recorded and can be
 // asserted for exact method, path, and parameters.
-import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -10,7 +11,6 @@ import assert from "node:assert/strict";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
-const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
@@ -284,7 +284,7 @@ function createDataMocks(feedIds) {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
@@ -361,37 +361,43 @@ async function assertNoTokenLeakage(page, consoleMessages) {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let harness;
+let browser;
 
 let passed = 0;
 let failed = 0;
 const failures = [];
 
 async function test(name, fn) {
+  if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks([910001, 910002, 910003]);
-  await browser.route("**/*", async (route) => {
-    const parsed = new URL(route.request().url());
-    if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
-    if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
-  });
-  const page = await browser.newPage();
-  const consoleMessages = [];
-  page.on("console", (message) => consoleMessages.push(message.text()));
-  page.on("pageerror", (error) => consoleMessages.push("pageerror: " + error.message));
+  const hnServer = await hnRedirectFixture(hn.handle);
   try {
+    harness = await launchExtension({ destinations: new Map([['news.ycombinator.com:443', hnServer]]) });
+    browser = harness.context;
+    const dataMocks = createDataMocks([910001, 910002, 910003]);
+    await browser.route("**/*", async (route) => {
+      const parsed = new URL(route.request().url());
+      if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
+      if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
+      return route.fallback();
+    });
+    await browser.route('https://example.test/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Offline article</title><p>Fixture</p>' }));
+    // Observe completion of the app's automatic item-state update. Initial
+    // optimistic vote buttons are built detached and do not trigger this observer.
+    await browser.addInitScript(() => {
+      window.__initialHnStateApplied = false;
+      new MutationObserver(records => {
+        if (records.some(r => r.type === 'attributes' && r.attributeName === 'title' && r.target.matches?.('[data-thread-vote]')))
+          window.__initialHnStateApplied = true;
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ['title'] });
+    });
+    const page = await browser.newPage();
+    const consoleMessages = [];
+    page.on("console", (message) => consoleMessages.push(message.text()));
+    page.on("pageerror", (error) => consoleMessages.push("pageerror: " + error.message));
     await fn({ page, hn, consoleMessages });
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -399,13 +405,14 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    try { await harness?.close(); } finally { await hnServer.close(); }
   }
 }
 
 const gotoFeed = async (page) => {
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
+  await page.waitForFunction(() => window.__initialHnStateApplied);
 };
 
 await test("session harvests from a logged-in fixture document", async ({ page, hn, consoleMessages }) => {
@@ -584,6 +591,62 @@ await test("logout fetches instead of navigating (SEC-04)", async ({ page, hn })
   const href = await page.evaluate(() => location.href);
   assert.ok(!href.includes("logout"), "token URL must not enter the address bar");
 });
+
+// P04 logout boundary: fetch is replaced only inside the isolated extension
+// world; no live endpoints are reachable, including simulated timeouts.
+for (const scenario of ["no token signed out", "no token signed in", "missing token", "partial top bar", "failed fetch", "timeout", "cross origin", "blank", "verification wall", "login wall", "still signed in", "confirmed", "ambiguous confirmed", "audit four failures", "duplicate"]) {
+  await test("P04 logout " + scenario, async ({ page, hn }) => {
+    await gotoFeed(page);
+    const world = await attachIsolatedWorld(page);
+    const signedIn = fixture("synthetic", "news-in.html");
+    const signedOut = fixture("news.html");
+    const wall = fixture("synthetic", "error-validation.html");
+    const config = { scenario, signedIn, signedOut, wall };
+    const outcome = await world.evaluate(`(async () => {
+      const c = ${JSON.stringify(config)};
+      const originalFetch = window.fetch;
+      const originalTimeout = window.setTimeout;
+      const calls = [];
+      window.setTimeout = (fn, ms, ...args) => originalTimeout(fn, c.scenario === "timeout" && ms === 10000 ? 850 : ms, ...args);
+      if (c.scenario.startsWith("no token") || c.scenario === "missing token" || c.scenario === "partial top bar") {
+        const doc = new DOMParser().parseFromString(c.signedIn, "text/html");
+        doc.querySelector("#logout").setAttribute("href", "logout?auth=invalid");
+        HarmoNovaHN.harvest(doc);
+      }
+      window.fetch = async (url, options) => {
+        const mutation = new URL(url).pathname === "/logout";
+        calls.push({ mutation, cache: options.cache, path: new URL(url).pathname });
+        if (c.scenario === "audit four failures" || (mutation && ["failed fetch", "ambiguous confirmed"].includes(c.scenario))) throw new Error("mock network failure");
+        if (mutation && c.scenario === "timeout") return new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(new Error("mock timeout"))));
+        let html = c.signedOut;
+        if (["still signed in", "failed fetch", "timeout", "no token signed in", "missing token", "duplicate"].includes(c.scenario)) html = c.signedIn;
+        if (c.scenario === "missing token") html = html.replace(/auth=[0-9a-f]{40}/g, "auth=invalid");
+        if (c.scenario === "partial top bar") html = '<span class="pagetop">navigation only</span>';
+        if (c.scenario === "blank") html = "";
+        if (c.scenario === "verification wall" && !mutation) html = c.wall;
+        if (c.scenario === "login wall" && !mutation) html = '<form action="login"><input type="password" name="pw"></form>';
+        const response=new Response(html,{status:200,headers:{"content-type":"text/html"}});
+        Object.defineProperty(response,"url",{value:c.scenario==="cross origin"?"https://example.invalid/news":url});
+        return response;
+      };
+      try {
+        const results = c.scenario === "duplicate" ? await Promise.all([HarmoNovaHN.logout(), HarmoNovaHN.logout()]) : [await HarmoNovaHN.logout()];
+        return { results, calls, session: HarmoNovaHN.session() };
+      } finally { window.fetch = originalFetch; window.setTimeout = originalTimeout; }
+    })()`);
+    const success = ["no token signed out", "no token signed in", "confirmed", "ambiguous confirmed"].includes(scenario);
+    // Fresh-token case uses a signed-out read-back after the single mutation.
+    if (scenario === "no token signed in") {
+      assert.equal(outcome.results[0].status, "signedIn");
+    } else assert.equal(outcome.results[0].status === "success", success, scenario);
+    assert.ok(outcome.calls.filter(c => c.mutation).length <= 1, "at most one mutation GET");
+    assert.ok(outcome.calls.filter(c => c.path === "/news").every(c => c.cache === "no-store"), "read-back bypasses cache " + JSON.stringify(outcome.calls));
+    if (["missing token", "partial top bar", "no token signed out"].includes(scenario)) assert.equal(outcome.calls.filter(c => c.mutation).length, 0);
+    if (scenario === "audit four failures") assert.equal(outcome.calls.length, 2, "one failed mutation and one failed read-back, no retries");
+    if (scenario === "duplicate") assert.equal(outcome.results[1].status, "pending");
+    if (outcome.results[0].status === "success") assert.equal(outcome.session, null);
+  });
+}
 
 await test("reply form opens through the queue and posts once (SEC-34)", async ({ page, hn, consoleMessages }) => {
   hn.state.loggedIn = true;
@@ -834,7 +897,7 @@ await test("HN delete cannot be reported successful when readbacks lack a delete
   assert.equal(hn.requests.filter((r) => r.method === 'POST').length, 1);
 });
 
-await browser.close();
+
 console.log(`\nhn-auth: ${passed} passed, ${failed} failed`);
 if (failed) {
   for (const failure of failures) console.error(failure.stack || failure.message);

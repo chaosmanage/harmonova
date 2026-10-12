@@ -1,3 +1,4 @@
+if(process.env.HARMONOVA_ALLOW_LIVE !== "1") throw new Error("Live suite requires explicit HARMONOVA_ALLOW_LIVE=1");
 import { chromium } from "playwright-core";
 import path from "node:path";
 import fs from "node:fs";
@@ -59,8 +60,8 @@ try {
   assert.ok(layout.refreshWidth >= 40 && layout.refreshWidth <= 46 && layout.refreshHeight >= 40 && layout.refreshHeight <= 46, "refresh button should match the top action buttons");
   const refreshPath = await page.locator('.feed-toolbar-actions .icon-button[aria-label="Refresh"] path').getAttribute("d");
   assert.equal(refreshPath, "M12 20a8 8 0 1 1 5.65-13.65L20 4v7h-7l2.65-2.65A5.15 5.15 0 1 0 17.05 14h2.2A7.35 7.35 0 0 1 12 20z", "refresh icon should use the repaired closed-loop path");
-  assert.ok(layout.cardGaps.every((gap) => Math.abs(gap - 10) <= 0.5), "story cards should keep a consistent 10px gap");
-  assert.ok(layout.cards.every((card) => card.scrollHeight <= card.clientHeight + 1 && card.height >= 64), "story cards should grow with content without clipping");
+  assert.ok(layout.cardGaps.every((gap) => Math.abs(gap - 7) <= 0.5), "story cards should keep a consistent zoom-scaled gap");
+  assert.ok(layout.cards.every((card) => card.scrollHeight <= card.clientHeight + 1 && card.height >= 56), "story cards should grow with content without clipping");
 
   const left = page.locator(".story-list");
   const leftBefore = await left.evaluate((e) => e.scrollTop);
@@ -154,7 +155,7 @@ try {
   await openSettingsCategory("Stories");
   const zoomRow = page.locator(".setting-row").filter({ hasText: "Content zoom" });
   const zoomSlider = zoomRow.locator('input[type="range"]');
-  assert.equal(await zoomSlider.inputValue(), "100", "default desktop content zoom should match HarmoNova at 100%");
+  assert.equal(await zoomSlider.inputValue(), "70", "default content zoom should fit more stories in the feed");
   await zoomSlider.fill("80");
   await page.waitForTimeout(150);
   assert.ok((await zoomRow.textContent()).includes("80%"), "content zoom setting should update live");
@@ -178,10 +179,10 @@ try {
 
   const commentsZoomRow = page.locator(".setting-row").filter({ hasText: "Comment zoom" });
   const commentsZoomSlider = commentsZoomRow.locator('input[type="range"]');
-  assert.equal(await commentsZoomSlider.inputValue(), "100");
+  assert.equal(await commentsZoomSlider.inputValue(), "85");
   await commentsZoomSlider.fill("75");
   assert.ok((await commentsZoomRow.textContent()).includes("75%"));
-  await openSettingsCategory("AI");
+  await openSettingsCategory("AI Summarization");
   const defaultAiModel = await page.locator(".setting-row").filter({ hasText: "OpenRouter model" }).locator("input").inputValue();
   assert.equal(defaultAiModel, "openrouter/free", "AI summarization should default to OpenRouter's free-model router");
 
@@ -212,10 +213,10 @@ try {
 
   // Restore HarmoNova defaults before the visual regression screenshot.
   await openSettingsCategory("Stories");
-  await zoomSlider.fill("100");
+  await zoomSlider.fill("70");
   await openSettingsCategory("Comments");
   await commentSizeSlider.fill("15");
-  await commentsZoomSlider.fill("100");
+  await commentsZoomSlider.fill("90");
   await openSettingsCategory("Stories");
   const cardClickRow = page.locator(".setting-row").filter({ hasText: "Card click opens comments" });
   const cardClickInput = cardClickRow.locator('input[type="checkbox"]');
@@ -524,8 +525,8 @@ try {
     threadScroll: [rightBefore, rightAfter],
     selectedStoryId: secondId,
     settingsRows: settingRows,
-    contentZoom: 100,
-    commentTextSize: 15,
+    contentZoom: 70,
+    commentTextSize: 15.5,
     commentSort: "Newest first",
     commentCollapse: true,
     quoteBlocks: quoteCount,

@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {withExtension} from './helpers/extension.mjs';
+
+await withExtension(async({context,worker})=>{
+  const html=fs.readFileSync(new URL('./fixtures/hn/news.html',import.meta.url),'utf8');
+  await context.route('https://news.ycombinator.com/**',r=>r.fulfill({status:200,contentType:'text/html',body:html}));
+  const story={id:910061,type:'story',title:'Public website fixture',url:'https://public.example/story',by:'fixture',score:11,time:1700000000,descendants:0};
+  await context.route('https://hacker-news.firebaseio.com/v0/**',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(r.request().url().endsWith('stories.json')?[story.id]:story)}));
+  await context.route('https://hn.algolia.com/**',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:story.id,title:story.title,url:story.url,author:'fixture',children:[]})}));
+  let publicRequests=0;
+  await context.route('https://public.example/story',r=>{
+    publicRequests++;
+    assert.equal(r.request().headers()['cookie'],undefined);
+    return r.fulfill({status:200,contentType:'text/html',body:`<!doctype html><html><head><meta property="og:title" content="Full public headline"><meta name="description" content="Preview of this public website"></head><body><article><h1>Full public headline</h1><p>The entire article content goes into the summarizer rather than just its metadata.</p></article></body></html>`});
+  });
+  let aiPayload=null;
+  await context.route('https://openrouter.ai/api/v1/chat/completions',r=>{
+    aiPayload=r.request().postDataJSON();
+    const body=['data: {"choices":[{"delta":{"content":"Summary of complete article"}}]}','data: [DONE]'].join("\n\n")+"\n\n";
+    return r.fulfill({status:200,contentType:'text/event-stream',body});
+  });
+  const page=await context.newPage();
+  await page.goto('https://news.ycombinator.com/news');
+  await page.locator('.story-card').first().waitFor();
+  await page.evaluate(()=>{location.hash='#harmonova-settings';});
+  await page.locator('.settings-overlay').waitFor({state:'visible'});
+  await page.locator('.settings-category').filter({hasText:'AI'}).click();
+  assert.equal(await page.locator('.settings-header h2').innerText(),'AI Summarization');
+  const frame=page.frameLocator('.ai-settings-frame');
+  await frame.locator('#previews-enabled').waitFor();
+  assert.equal(await frame.locator('#previews-enabled').isChecked(),true,'previews should default on in sidebar');
+  assert.ok((await frame.locator('body').getAttribute('class')).includes('embedded'));
+  const buttonOffset=await frame.locator('#policy-save').evaluate(button=>
+    button.getBoundingClientRect().left-button.closest('.group').getBoundingClientRect().left);
+  assert.ok(buttonOffset>=13 && buttonOffset<=20,'save permissions button aligns with group in embedded layout');
+  assert.equal(await frame.locator('#policy-prompt').inputValue(),
+    'You are an expert at summarizing articles into concise, information-dense bullet points. Prioritize key takeaways, significant facts, and noteworthy insights while eliminating fluff and repetition. Preserve accuracy and essential context. Keep summaries under 500 characters whenever possible. Use Markdown formatting. Output only the summary, with no introductions, conclusions, or additional commentary.');
+  const actualFrame=page.frames().find(f=>f.url().includes('/ai-settings.html'));
+  assert.ok(actualFrame,'trusted extension page is embedded in sidebar');
+  assert.ok(actualFrame.url().startsWith('chrome-extension://'));
+  assert.equal(await page.evaluate(()=>document.querySelector('.ai-settings-frame').contentDocument),null,'HN document cannot inspect extension-owned key form');
+  const pagesBefore=context.pages().length;
+  await frame.locator('#previews-enabled').uncheck();
+  await frame.locator('#previews-status').getByText('Previews disabled.').waitFor();
+  assert.equal((await worker.evaluate(async()=> (await chrome.storage.local.get('harmonovaNetworkPolicyV1')).harmonovaNetworkPolicyV1.externalPreviewsEnabled)),false);
+  await frame.locator('#previews-enabled').check();
+  await frame.locator('#previews-status').getByText('Previews enabled.').waitFor();
+  await frame.locator('#policy-enabled').check();
+  assert.equal(await frame.locator('#ai-privacy-notice').isVisible(),true,'enabling AI discloses provider text transfer and charges');
+  // Keyboard activation avoids Chromium's flaky cross-origin mouse coordinates
+  // when the tall extension iframe is inside a scrolled settings sidebar.
+  await frame.locator('#policy-save').focus();
+  await frame.locator('#policy-save').press('Enter');
+  await frame.locator('#policy-message').getByText(/saved/i).waitFor();
+  const policy=await worker.evaluate(async()=> (await chrome.storage.local.get('harmonovaAiPolicyV1')).harmonovaAiPolicyV1);
+  assert.equal(policy.enabled,true);
+  await frame.locator('#api-key').fill('sk-or-v1-synthetic-sidebar-fixture');
+  await frame.locator('#save').click();
+  await frame.locator('#message').getByText(/saved/i).waitFor();
+  assert.equal(await worker.evaluate(async()=>Boolean((await chrome.storage.local.get('harmonovaAiApiKey')).harmonovaAiApiKey)),true);
+  assert.equal(context.pages().length,pagesBefore,'sidebar configuration should not open another tab');
+  assert.equal(await page.evaluate(()=>Object.values(localStorage).some(x=>String(x).includes('synthetic-sidebar-fixture'))),false);
+  const info=await worker.evaluate(async()=>getMetadata('https://public.example/story',true));
+  assert.equal(info.rich.title,'Full public headline','general website metadata restored');
+  assert.equal(info.rich.lines[0],'Preview of this public website');
+  const fullText=await worker.evaluate(async()=>fetchArticleText('https://public.example/story'));
+  assert.ok(fullText.includes('entire article content'),'full article text is extracted');
+  assert.ok(publicRequests>=2,'website was fetched for metadata and article');
+  await page.locator('.settings-header .icon-button').click();
+  await page.locator('.settings-overlay').waitFor({state:'detached'});
+  await page.locator('.story-comment-button').first().click();
+  await page.locator('.thread-title').waitFor();
+  await page.locator('[data-summary-action-id="910061"][data-summary-source="article"]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-summary-story-id="910061"]')?.dataset.status==='success',{},{timeout:15000});
+  assert.ok(aiPayload?.messages?.[1]?.content.includes('entire article content'),'OpenRouter receives actual full article, not provider excerpt');
+  console.log('PASS secure inline AI UI, defaults, consent, key storage and generic full-article metadata');
+});

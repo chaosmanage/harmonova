@@ -1,3 +1,12 @@
+## v0.14.0 — Security, reader controls, and reliability
+
+- Require fresh extension-owned consent for AI; keep provider keys out of page storage and exports, and protect HN actions and drafts from uncertain retries.
+- Bound and validate external requests, reject redirects, sanitize preview images, and isolate private-window reader data. Public website previews and article extraction return with broad HTTP(S) host permissions.
+- Move AI and preview controls into the in-page Settings sidebar. Show the first 20 feed stories promptly, keep successful items when one request fails, and improve queue deadlines.
+- Scale story and comment layouts independently with 70% story zoom, 85% comment zoom, and 15.5 px comment text defaults; preserve saved preferences.
+- Add quiet release notices and recovery prompts for tabs left open across extension reloads.
+- Split runtime ownership into focused modules and add offline source, browser, package, and integrity gates.
+
 ## v0.13.10 — Google Sans Flex Rounded default font
 
 - Made Google's official **Google Sans Flex Rounded** the default for new installations, while retaining System UI and Serif as options.

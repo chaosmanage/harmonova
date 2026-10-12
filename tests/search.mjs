@@ -2,7 +2,7 @@
 // Part 1: hn-search.js unit tests in a Node vm (query construction, hit
 //         validation, SEC-40 highlight tokenization, paging, errors, aborts).
 // Part 2: browser end-to-end tests with a fully mocked Algolia API.
-import { chromium } from "playwright-core";
+import { launchExtension } from "./helpers/extension.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -29,7 +29,7 @@ function makeVm() {
     URLSearchParams,
     setTimeout,
     clearTimeout,
-    AbortController,
+    AbortController,AbortSignal,TextEncoder,TextDecoder,Response,ReadableStream,
     fetch: (url, options) => {
       unitCalls.push({ url, options });
       if (unitDeferred) {
@@ -40,19 +40,14 @@ function makeVm() {
         });
       }
       const payload = unitResponder ? unitResponder(url, options) : { ok: false, status: 500 };
-      return Promise.resolve({
-        ok: payload.ok ?? false,
-        status: payload.status ?? 500,
-        json: async () => {
-          if (payload.jsonThrows) throw new Error("Invalid JSON");
-          return payload.json;
-        },
-      });
+      return Promise.resolve(new Response(payload.jsonThrows ? 'not json' : JSON.stringify(payload.json ?? null),{
+        status:payload.status??500,headers:{'content-type':'application/json'},
+      }));
     },
   };
   context.globalThis = context;
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(repoRoot, "hn-search.js"), "utf8"), context);
+  for(const file of ["resource-policy.js","lifecycle.js","hn-search.js"])vm.runInContext(fs.readFileSync(path.join(repoRoot,file),"utf8"),context);
   return context;
 }
 
@@ -183,36 +178,6 @@ runUnit("validateHit: keeps SEC-40 highlight strings verbatim", () => {
     _highlightResult: { comment_text: { value: "<em>hi</em> <img onerror=alert(1) src=x>" } },
   });
   assert.equal(hit.highlight, "<em>hi</em> <img onerror=alert(1) src=x>");
-});
-
-runUnit("buildHighlightSegments: tokenizes literal <em> only (SEC-40)", () => {
-  const segments = (value) => JSON.parse(JSON.stringify(HarmoNovaSearch.buildHighlightSegments(value)));
-  assert.deepEqual(segments("plain <em>bold</em> tail"), [
-    { text: "plain ", highlighted: false },
-    { text: "bold", highlighted: true },
-    { text: " tail", highlighted: false },
-  ]);
-  // Hostile markup stays text.
-  assert.deepEqual(segments("<em><img onerror=alert(1) src=x></em>"), [
-    { text: "<img onerror=alert(1) src=x>", highlighted: true },
-  ]);
-  assert.deepEqual(segments("<em><script>alert(1)</script></em>"), [
-    { text: "<script>alert(1)</script>", highlighted: true },
-  ]);
-  // Unbalanced tags degrade to plain text.
-  assert.deepEqual(segments("<em>never closed"), [
-    { text: "never closed", highlighted: true },
-  ]);
-  assert.deepEqual(segments("stray </em> here"), [
-    { text: "stray </em> here", highlighted: false },
-  ]);
-  assert.deepEqual(segments(""), []);
-  // Real-world nested-ish highlight values split on every pair.
-  assert.deepEqual(segments("<em>a</em> and <em>b</em>"), [
-    { text: "a", highlighted: true },
-    { text: " and ", highlighted: false },
-    { text: "b", highlighted: true },
-  ]);
 });
 
 const runAsyncUnit = async (name, fn) => {
@@ -357,16 +322,13 @@ function createAlgoliaMock() {
 }
 
 async function withBrowser(fn) {
-  const browser = await chromium.launchPersistentContext("", {
-    executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-    headless: true,
-    viewport: { width: 1919, height: 872 },
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-extensions-except=" + extensionPath, "--load-extension=" + extensionPath],
-  });
+  const harness = await launchExtension();
+  const browser = harness.context;
   try {
     await fn(browser);
+    harness.assertOffline();
   } finally {
-    await browser.close();
+    await harness.close();
   }
 }
 
@@ -418,7 +380,7 @@ await runBrowser("browser: site search renders story and comment hits with safe 
     if (parsed.hostname === "example.test") {
       return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>x</body></html>" });
     }
-    return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
@@ -489,7 +451,7 @@ await runBrowser("browser: filters, paging, empty and error states work", async 
     if (parsed.hostname === "example.test") {
       return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>x</body></html>" });
     }
-    return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
@@ -581,7 +543,7 @@ await runBrowser("browser: stale in-flight searches are cancelled (AbortControll
     if (parsed.hostname === "example.test") {
       return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>x</body></html>" });
     }
-    return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
@@ -627,7 +589,7 @@ await runBrowser("browser: comment hits open the thread and scroll to the commen
     if (parsed.hostname === "example.test") {
       return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>x</body></html>" });
     }
-    return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
@@ -670,7 +632,7 @@ await runBrowser("browser: recent searches are offered and memory-only", async (
     if (parsed.hostname === "example.test") {
       return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>x</body></html>" });
     }
-    return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });

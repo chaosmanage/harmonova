@@ -1,3 +1,5 @@
+import { hnRedirectFixture } from './helpers/network.mjs';
+import { launchExtension, nativeWindowPage, synchronizeNativeTabCreation } from './helpers/extension.mjs';
 // HarmoNova Phase 4+5 UI suite: favorites, hide-with-undo, flag, bookmark bulk
 // favorite (SEC-37), and the story-submission modal — driven through the real
 // Chromium extension against fully mocked Hacker News documents. Companion to
@@ -5,7 +7,6 @@
 // asserts confirm-refetch favorites, undo toasts, confirmation-gated flagging
 // (SEC-36), serial cancellable bulk actions, and the exact POST /r submit
 // payload with every outcome branch.
-import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -13,7 +14,6 @@ import assert from "node:assert/strict";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
-const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
@@ -297,7 +297,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
@@ -305,17 +305,8 @@ function createDataMocks() {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let harness;
+let browser;
 
 let passed = 0;
 let failed = 0;
@@ -336,16 +327,24 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 async function test(name, fn) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks();
-  await browser.route("**/*", async (route) => {
-    const parsed = new URL(route.request().url());
-    if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
-    if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
-  });
-  const page = await browser.newPage();
+  const hnServer = await hnRedirectFixture(hn.handle);
   try {
-    await fn({ page, hn });
+    harness = await launchExtension({ destinations: new Map([['news.ycombinator.com:443', hnServer]]) });
+    browser = harness.context;
+    const dataMocks = createDataMocks();
+    await browser.route("**/*", async (route) => {
+      const parsed = new URL(route.request().url());
+      if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
+      if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
+      return route.fallback();
+    });
+    const nativeHandoff = name.includes('hands off to HN') || name.startsWith('Edit shows') || name.startsWith('Delete prompts');
+    const page = nativeHandoff ? await nativeWindowPage(browser,harness.worker) : await browser.newPage();
+    if(nativeHandoff)await synchronizeNativeTabCreation(browser,harness.worker);
+    let timer;
+    try {await Promise.race([fn({page,hn}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error("Offline action case exceeded 120 seconds")),120000);})]);}
+    finally {clearTimeout(timer);}
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -353,7 +352,7 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    try { await harness?.close(); } finally { await hnServer.close(); }
   }
 }
 
@@ -366,8 +365,8 @@ const openThreadFully = async (page) => {
   await page.locator('.story-card[data-story-id="' + STORY_ID + '"]').click();
   await page.locator("[data-thread-vote]").waitFor({ state: "visible", timeout: 20000 });
   await page.waitForFunction(
-    () => document.querySelector("[data-thread-vote]")?.classList.contains("active"),
-    { timeout: 20000 }
+    id => document.querySelector('.comment-row[data-comment-id="' + id + '"] [data-comment-vote-mark]')?.hidden === false,
+    VOTED_COMMENT, { timeout: 20000 }
   );
 };
 
@@ -392,7 +391,7 @@ const toastText = async (page) =>
 await test("favorite toggles through HN's token with a confirmation re-fetch", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await storyMenuAction(page, "Favorite");
+  await page.locator("[data-thread-favorite]").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/fave")), 20000, 150, "GET /fave");
   const fave = hn.requests.find((request) => request.path.startsWith("/fave"));
   assert.equal(fave.params.id, String(STORY_ID));
@@ -402,17 +401,17 @@ await test("favorite toggles through HN's token with a confirmation re-fetch", a
   const itemFetches = hn.requests.filter((request) => request.path.startsWith("/item")).length;
   assert.ok(itemFetches >= 2, "confirmRefetch re-reads the item document after the favorite");
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  assert.ok(await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).count(), "menu reflects favorite state");
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).count(), 0, "toolbar favorite has no redundant menu action");
   const toast = await toastText(page);
   assert.ok(toast.includes("Favorited"), "favorite toast: " + toast);
 
-  await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).click();
+  await page.locator("[data-thread-favorite]").click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 2, 20000, 150, "unfavorite");
   const unfave = hn.requests.filter((request) => request.path.startsWith("/fave"))[1];
   assert.equal(unfave.params.un, "t", "unfavorite sends un=t");
   await new Promise((resolve) => setTimeout(resolve, 1500));
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  assert.ok(await page.locator('.harmonova-popup .popup-item', { hasText: "Favorite" }).count(), "menu reverts to favorite");
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: "Favorite" }).count(), 0, "favorite remains toolbar-only");
   const toast2 = await toastText(page);
   assert.ok(toast2.includes("Removed from favorites"), "unfavorite toast: " + toast2);
 });
@@ -542,35 +541,13 @@ await test("comment flag appears only when HN offers the link and cancels safely
 // SEC-37: bookmarks → favorites bulk
 // ---------------------------------------------------------------------------
 
-await test("bookmarks bulk-favorite runs serially with progress and is cancellable", async ({ page, hn }) => {
+await test("obsolete bookmark commands do not appear in story menus", async ({ page }) => {
   await gotoFeed(page);
-  // Bookmark all three feed stories via their card menus.
-  for (const id of [STORY_ID, STORY_2, STORY_3]) {
-    const card = page.locator('.story-card[data-story-id="' + id + '"]');
-    await card.click({ button: "right" });
-    await page.locator(".harmonova-popup .popup-item", { hasText: "Bookmark" }).click();
-  }
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
-  await page.locator(".harmonova-popup .popup-item", { hasText: "Add bookmarks to HN favorites" }).click();
-  await page.locator(".harmonova-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
-  const dialogMessage = await page.locator(".harmonova-confirm-message").textContent();
-  assert.ok(dialogMessage.includes("3 bookmarked stories"), "dialog counts the bookmarks: " + dialogMessage);
-  await page.locator(".harmonova-confirm-confirm").click();
-  await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 1, 30000, 200, "first bulk favorite");
-
-  // Cancel during the second item's in-flight window.
-  const cancelButton = page.locator(".harmonova-toast .harmonova-toast-action", { hasText: "Cancel" });
-  await cancelButton.waitFor({ state: "visible", timeout: 5000 });
-  await cancelButton.click();
-  const toast = await toastText(page);
-  assert.ok(toast.includes("cancelled"), "cancel toast: " + toast);
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-  const faveCount = hn.requests.filter((request) => request.path.startsWith("/fave")).length;
-  assert.ok(faveCount >= 1 && faveCount <= 2, "cancellation stops the bulk run early (sent " + faveCount + " of 3)");
-  const faves = hn.requests.filter((request) => request.path.startsWith("/fave"));
-  for (let i = 1; i < faves.length; i++) {
-    assert.ok(faves[i].t - faves[i - 1].t >= 600, "SEC-37: bulk favorites are serially spaced (gap " + (faves[i].t - faves[i - 1].t) + "ms)");
-  }
+  await page.locator('.story-card').first().click({button:'right'});
+  assert.equal(await page.locator('.harmonova-popup .popup-item', {hasText:'Bookmark'}).count(),0);
+  await page.mouse.click(4,4);
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  assert.equal(await page.locator('.harmonova-popup .popup-item', {hasText:'Add bookmarks'}).count(),0);
 });
 
 // ---------------------------------------------------------------------------
@@ -660,12 +637,13 @@ await test("validationRequired on POST keeps the values and hands off to HN's st
   await page.locator(".submit-hn-open").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await page.locator(".submit-title").inputValue()), "Verification wall story", "values kept");
   // HN's stock form opens in a new original-mode tab (never auto-filled).
-  const hnTabPromise = page.context().waitForEvent("page");
   await page.locator(".submit-hn-open").click();
-  const hnTab = await hnTabPromise;
+  // Find the committed HN page, rather than racing the first blank target
+  // event during Chromium's popup initialization.
+  await waitFor(()=>browser.pages().some(p=>p!==page && p.url().startsWith("https://news.ycombinator.com/submit")),20000,50,"native submit navigation");
+  const hnTab=browser.pages().find(p=>p!==page && p.url().startsWith("https://news.ycombinator.com/submit"));
   // A native HN handoff succeeds once navigation commits; the public login
   // page may stall during network load on CI or in a headless browser.
-  await hnTab.waitForURL(/\/submit/, { timeout: 20000, waitUntil: "commit" });
   assert.ok(hnTab.url().startsWith("https://news.ycombinator.com/submit"), "stock HN submit form opens (never auto-filled)");
   await hnTab.close();
 });
@@ -704,7 +682,7 @@ await test("untrusted scripted clicks never favorite, hide, flag, or open submit
   assert.equal(await page.locator(".harmonova-submit").count(), 0, "no submit modal from scripted clicks");
 });
 
-await browser.close();
+
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

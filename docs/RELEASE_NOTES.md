@@ -1,19 +1,18 @@
-**HarmoNova for Hacker News** brings a modern, Harmonic-inspired reading experience to Hacker News in Chrome—right on the website.
+# HarmoNova 0.14.0
 
-### Features
+## What's new
 
-- Side-by-side story cards and threaded discussions.
-- Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
-- Customizable themes, typography, and story/comment layouts.
-- Vote, reply, submit, and save favorites with your Hacker News account.
-- Optional AI summaries of articles or discussions using your own OpenRouter API key.
+- Stronger security for HN actions, AI consent, drafts, redirects, and external requests. Private windows keep reader data and drafts in memory and disable AI and previews.
+- Faster feeds show the first 20 stories promptly. Story and comment zoom now scale their full layouts independently; defaults are 70% and 85%.
+- Public website previews and bounded article summaries return, with AI and preview controls in the in-page Settings sidebar. GitHub, Wikipedia, and arXiv retain enriched previews. AI requires explicit consent and your own OpenRouter key.
+- Quiet notices for new releases, better handling of extension reloads, and broader offline browser and package checks.
 
-### Install
+Public website previews and article extraction require broad HTTP(S) host permissions. See [Privacy](PRIVACY.md) for the request safeguards and DNS limitation.
 
-Download **harmonova-0.13.10.zip** below and extract it. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted `harmonova` folder. Then open or refresh [Hacker News](https://news.ycombinator.com/).
+## Install or update
 
-Inspired by [Harmonic for Hacker News](https://github.com/SimonHalvdansson/Harmonic-HN) by Simon Halvdansson. Independently developed and not affiliated with Harmonic, Hacker News, or Y Combinator.
+1. Download `harmonova-0.14.0.zip` from this release's **Assets** and extract it.
+2. Open `chrome://extensions`, enable **Developer mode**, and select **Load unpacked**.
+3. Choose the inner `harmonova` folder containing `manifest.json`, then open or refresh Hacker News.
 
----
-
-*What changed in v0.13.10:* Google Sans Flex Rounded is now the locally bundled default font (existing font choices remain available); read stories are dimmed more clearly to 25% opacity; an invalid Chrome manifest entry was removed; and the README AI screenshot now shows a short summary of the actual linked article.
+For an existing unpacked installation, replace the contents of the same folder, click **Reload** on `chrome://extensions`, and refresh your HN tabs. Keeping the folder path preserves the extension's storage identity. See [Troubleshooting](TROUBLESHOOTING.md) if Chrome does not load the folder.

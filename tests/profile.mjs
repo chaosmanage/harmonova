@@ -6,7 +6,7 @@
 // the /user HTML page is never fetched), own lists through the account chip
 // with pagination and dedupe, the threads reply inbox via Algolia, public
 // lists for other users, and the loginRequired branch.
-import { chromium } from "playwright-core";
+import { launchExtension } from "./helpers/extension.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -251,7 +251,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.fallback();
   };
 }
 
@@ -259,17 +259,8 @@ function createDataMocks() {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+const harness = await launchExtension();
+const browser = harness.context;
 
 let passed = 0;
 let failed = 0;
@@ -295,7 +286,7 @@ async function test(name, fn) {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
     if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
+    return route.fallback();
   });
   const page = await browser.newPage();
   try {
@@ -633,7 +624,8 @@ await test("untrusted scripted clicks open no user panel or list view", async ({
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/upvoted")).length, 1, "no reload of the list from scripted clicks");
 });
 
-await browser.close();
+harness.assertOffline();
+await harness.close();
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

@@ -6,13 +6,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const extensionPath = path.resolve(process.env.EXTENSION_PATH || root);
 const newsHtml = fs.readFileSync(path.join(root, "tests/fixtures/hn/synthetic/news-in.html"), "utf8");
 const storyId = 50022292;
 const story = { id: storyId, type: "story", by: "tester", title: "Context reload test", score: 22, time: Math.floor(Date.now() / 1000), descendants: 1, url: "https://example.com/story" };
 const ctx = await chromium.launchPersistentContext("", {
   executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
   headless: true,
-  args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-extensions-except=" + root, "--load-extension=" + root],
+  args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-extensions-except=" + extensionPath, "--load-extension=" + extensionPath],
 });
 const page = await ctx.newPage();
 const errors = [];
@@ -44,10 +45,12 @@ try {
   await worker.evaluate(() => { setTimeout(() => chrome.runtime.reload(), 50); });
   await page.waitForTimeout(600);
 
-  // An old content-script event handler sends the same message as line 400 in
-  // the reported stack trace. The wrapper must catch Chrome's sync exception.
+  // A setting change sends a worker message from the stale modular content
+  // script. The shared runtime guard must catch Chrome's sync exception.
   await page.locator('.feed-toolbar-actions button[aria-label="More"]').click();
   await page.locator(".harmonova-popup .popup-item", { hasText: "Settings" }).click();
+  await page.locator('.settings-category', { hasText: 'Stories' }).click();
+  await page.locator('.settings-overlay .setting-row', { hasText: 'Tint cards from images' }).click();
   const notice = page.locator("#harmonova-context-reload");
   await notice.waitFor({ state: "visible", timeout: 10000 });
   assert.match(await notice.innerText(), /Refresh this tab to reconnect/);

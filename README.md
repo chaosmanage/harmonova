@@ -25,7 +25,7 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 - Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
 - Customizable themes, typography, and story/comment layouts.
 - Vote, reply, submit, and save favorites with your Hacker News account.
-- Optional AI summaries of articles or discussions using your own OpenRouter API key.
+- Optional full-article and discussion AI summaries using your own OpenRouter API key.
 
 ## Install in Chrome
 
@@ -52,6 +52,8 @@ Then follow **steps 3–6 above**, selecting the downloaded or cloned **reposito
 
 To update an unpacked installation, keep the same folder location, replace its contents (or run `git pull`), click **Reload** on `chrome://extensions`, and refresh Hacker News. [Having trouble?](docs/TROUBLESHOOTING.md)
 
+HarmoNova quietly checks the official GitHub releases feed approximately once a day. If a newer version is published, a small notice appears inside Hacker News with a link to the release; it does **not** download or install anything automatically. Ignore that version to stop seeing it, or turn off **Settings → Appearance → Notify about new releases** (also available directly from the notice). No Chrome desktop notifications are used.
+
 ## Why I made this
 
 I really enjoy using [**Harmonic for Hacker News on Android**](https://github.com/SimonHalvdansson/Harmonic-HN). Compared with Harmonic, the regular Hacker News website never felt particularly appealing or intuitive to me. I wanted to bring that same reading experience to my computer.
@@ -70,7 +72,7 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 - **Search all of Hacker News.** Find stories or comments and filter by date, author, and more.
 - **Make it yours.** Dark themes, fonts, story previews, comment styles, and other settings.
 - **Use your HN account.** Vote, reply, submit stories, and manage favorites, using Hacker News's own login.
-- **Summarize with AI (optional).** Use your own OpenRouter key to summarize an article or its HN discussion.
+- **Summarize with AI (optional).** Use your own OpenRouter key to summarize a public article or its HN discussion.
 
 ### A closer look
 
@@ -84,18 +86,17 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 
 [Explore the full feature guide, including more screenshots →](docs/FEATURES.md)
 
-## AI summaries: articles or discussions
+## Optional previews and AI
 
-Sometimes I want the main points of an article before reading it. Other times the **Hacker News comments** are the interesting part. HarmoNova has a separate button for each:
+External previews start enabled for public websites. Toggle them in the sidebar under **Settings → AI**, alongside summary consent, the model, prompt, streaming preferences and OpenRouter key. Websites that refuse metadata or image access fall back to placeholders. Article summaries read capped public article HTML/text when available and send that text to OpenRouter only after you explicitly enable AI permissions. Browser host permissions cover HTTP(S) websites for these features; see [Privacy](docs/PRIVACY.md) for safeguards and limitations.
 
-- **Article** reads the linked page and summarizes its content.
-- **Discussion** summarizes the public Hacker News conversation instead.
+The **Article** summary button reads bounded public article text when the site permits it; **Discussion** summarizes public HN comments. Save an OpenRouter key and fresh AI permission in Settings → AI. Saving a key alone enables nothing. Automatic summaries need separate consent and a real story selection. The selected public text is sent to OpenRouter and may incur charges.
 
-Both use [OpenRouter](https://openrouter.ai/) and are optional. Add your own API key in **Settings → AI** and select a model. Nothing is summarized unless you request it (unless you choose to enable automatic summaries in Settings). The text being summarized is sent to OpenRouter; not every article site allows automatic reading.
+In private windows, reader data and drafts stay only in the current document and disappear on reload, navigation or closure. Private AI and external previews are disabled. See [Privacy](docs/PRIVACY.md) for exact storage and request behavior.
 
 ![AI summary of the Nanolathe Total Annihilation article in the discussion reader](docs/assets/ai-summary-demo.png)
 
-*Example summary of the [Nanolathe article](https://nanolathe.gg/). The screenshot uses a prepared response for demonstration, not a live API request.*
+*Illustrative mocked summary; actual results depend on the linked site's access policy and the selected AI model.*
 
 ## A couple of things to know
 

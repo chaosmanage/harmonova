@@ -2,7 +2,7 @@
 // Chromium extension against fully mocked Hacker News documents. Companion to
 // tests/hn-auth.mjs (module-level flows); this file asserts what the user sees
 // and clicks: chips, menus, vote buttons, optimistic states, and toasts.
-import { chromium } from "playwright-core";
+import { launchExtension } from "./helpers/extension.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -151,6 +151,7 @@ function createHnMock() {
       return route.fulfill(documentFor(targetPath, targetSearch));
     }
     if (pathname === "/logout") {
+      state.loggedIn = false;
       return route.fulfill(serveHtml(fixture("news.html")));
     }
     return route.fulfill(documentFor(pathname, parsed.search));
@@ -220,7 +221,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
@@ -228,17 +229,8 @@ function createDataMocks() {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+const harness = await launchExtension();
+const browser = harness.context;
 
 let passed = 0;
 let failed = 0;
@@ -264,7 +256,7 @@ async function test(name, fn) {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
     if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
+    return route.abort();
   });
   const page = await browser.newPage();
   const consoleMessages = [];
@@ -364,8 +356,7 @@ await test("signed-in account menu lists profile destinations and logout", async
 
 await test("logout through the chip fetches, never navigates to /logout, and reloads signed out", async ({ page, hn }) => {
   await gotoFeed(page);
-  // Simulate HN invalidating the session on logout.
-  hn.state.loggedIn = false;
+  // Mock invalidates HN session on the actual /logout request, not before click.
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
   await page.locator(".harmonova-popup .popup-item").first().click();
   await page.locator(".harmonova-popup .popup-item", { hasText: "Log out" }).click();
@@ -606,7 +597,8 @@ await test("comment overlay excludes downvote without an offered token", async (
   assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: "Vote down" }).count(), 0);
 });
 
-await browser.close();
+harness.assertOffline();
+await harness.close();
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

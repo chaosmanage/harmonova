@@ -9,7 +9,7 @@
 // Route handlers are registered once and dispatch through a mutable
 // activeMocks object so per-test fixtures can never be shadowed by handlers
 // from earlier tests.
-import { chromium } from "playwright-core";
+import { launchExtension } from "./helpers/extension.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -121,7 +121,7 @@ function createDataMocks({ storyUrl, commentText }) {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.fallback();
   };
 }
 
@@ -210,23 +210,14 @@ const ARXIV_XML = () => [
 
 const TWEET_URL = "https://twitter.com/seabass/status/987654";
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+const harness = await launchExtension();
+const browser = harness.context;
 
 let activeMocks = null;
 
 await browser.route("**/*", async (route) => {
   const parsed = new URL(route.request().url());
-  if (!activeMocks) return route.continue();
+  if (!activeMocks) return route.fallback();
   if (parsed.hostname === "news.ycombinator.com") return activeMocks.hn.handle(route);
   if (parsed.hostname === "hacker-news.firebaseio.com" || parsed.hostname === "hn.algolia.com") return activeMocks.data(route);
   for (const spec of activeMocks.providers) {
@@ -238,7 +229,7 @@ await browser.route("**/*", async (route) => {
   if (ARTICLE_HOSTS.includes(parsed.hostname)) {
     return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: GENERIC_HTML });
   }
-  return route.continue();
+  return route.fallback();
 });
 
 let passed = 0;
@@ -260,6 +251,7 @@ async function test(name, fixtures, fn) {
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
     if (sw) {
       await sw.evaluate(() => Promise.all([chrome.storage.sync.clear(), chrome.storage.local.clear()])).catch(() => {});
+      await sw.evaluate(()=>chrome.storage.local.set({harmonovaNetworkPolicyV1:{version:1,externalPreviewsEnabled:true}}));
       if (fixtures.settings) await sw.evaluate((value) => chrome.storage.sync.set({ harmonovaSettings: value }), fixtures.settings);
     }
     await fn({ page, providers: activeMocks.providers });
@@ -298,6 +290,13 @@ await test("GitHub rich preview renders validated text facts", { storyUrl: "http
   const box = richBox(page);
   await box.waitFor({ state: "visible", timeout: 20000 });
   assert.equal(await box.locator(".rich-preview-provider").textContent(), "GitHub", "provider chip says GitHub");
+  const widths = await box.evaluate(element => {
+    const parent = element.parentElement;
+    const padding = getComputedStyle(parent);
+    return { actual: element.getBoundingClientRect().width,
+      available: parent.getBoundingClientRect().width - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight) };
+  });
+  assert.ok(Math.abs(widths.actual - widths.available) < 2, "rich preview fills story header width");
   assert.equal(await box.locator(".rich-preview-title").textContent(), "octocat/harmonova", "repo full_name rendered");
   const text = await box.textContent();
   assert.ok(text.includes("★ 12,345"), "star count rendered: " + text);
@@ -451,7 +450,8 @@ await test("default theme and font are AMOLED black + Google Sans Flex Rounded",
   assert.equal(bodyBg, "rgb(0, 0, 0)", "default body background is pure black");
 });
 
-await browser.close();
+harness.assertOffline();
+await harness.close();
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

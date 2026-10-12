@@ -1,77 +1,55 @@
 # How HarmoNova works
 
-[← Back to README](../README.md) · [Development](DEVELOPMENT.md) · [Privacy & security](PRIVACY.md)
+[← README](../README.md) · [Development](DEVELOPMENT.md) · [Privacy](PRIVACY.md)
 
-HarmoNova is a **Manifest V3 browser extension**, not a separate website or a port of the Android app. Open HN as usual and the extension replaces the reading interface. Stories and discussion content still come from HN-related APIs; signing in still happens on Hacker News. There is no project-owned backend or build step.
-
-The content script draws the UI and an extension service worker handles cross-origin requests. That separation keeps optional OpenRouter credentials out of the Hacker News page.
-
-## At a glance
+HarmoNova is a classic-script Manifest V3 extension with no runtime npm dependencies, build framework, or project backend. The manifest orders isolated-world module definitions before `content.js`; `background.js` loads worker definitions with `importScripts()`. Entry points compose explicit dependencies and restricted field facades. Runtime modules are not web-accessible; only the two bundled font files are exposed to HN.
 
 ```mermaid
-flowchart LR
-    HN[Hacker News tab] --> UI[Content script<br/>Feed & discussion UI]
-    UI --> Session[HN session client]
-    Session --> HNSite[HN pages & action forms]
-    UI --> Public[HN Firebase & Algolia APIs]
-    UI <-->|validated messages| Worker[MV3 background worker]
-    Worker --> Preview[Public metadata / images]
-    Worker --> AI[OpenRouter, only on request]
-    Popup[Extension toolbar popup] --> Worker
-    Options[AI key settings page] --> Worker
+flowchart TD
+    Page[HN shared page DOM] --> UI[Isolated-world content modules]
+    UI --> Public[Bounded public Firebase / Algolia client]
+    UI --> Session[hn-session: private token closures]
+    Session --> Queue[Per-tab HN queue: identity, deadlines, no mutation replay]
+    Queue --> HN[Trusted authenticated HN]
+    UI --> State[content/state: normal/private adapter]
+    State --> Private[Private document memory]
+    State --> Messages[worker/messages: sender and schema validation]
+    Options[Extension options: trusted consent/key controls] --> Messages
+    Popup[Extension popup: verified active tab] --> Messages
+    Messages --> Storage[Versioned serialized reader / draft / preferences stores]
+    Storage --> Local[Trusted local + sanitized sync mirror]
+    Storage --> SessionStore[Trusted session drafts / bypass tabs]
+    Messages --> AI[worker/ai: stored consent / key / bounded SSE]
+    Messages --> Network[worker/network: exact provider operation policy]
+    AI --> Network
+    Network --> Resources[resource-policy: slots, bytes, deadlines, cancellation]
+    Resources --> Providers[Fixed HTTPS providers; redirects rejected]
+    Network --> Images[image-policy: dimensions / serialized decode / small PNG]
+    Images --> UI
 ```
 
-The Mermaid diagram renders on GitHub. The important boundary is between the **HN page reader** and the **extension-owned background worker**. A web page shouldn't be able to retrieve stored credentials or make the worker send arbitrary privileged requests.
+## Ownership
 
-## Where the code lives
-
-| File | Responsibility |
+| Modules | Responsibility |
 | --- | --- |
-| `manifest.json` | Chrome permissions, HN-only content-script match, background worker, popup, and options page. |
-| `content.js` | Rendering and interaction: story feeds, thread reader, panels, settings, menus, and summary display. |
-| `styles.css` | Desktop layout, cards, comment depth, reader themes, typography, and overlays. |
-| `hn-session.js` | HN login/session detection, bounded form parsing, voting, replies, submissions, account actions, and a serialized HN request queue. |
-| `hn-search.js` | Algolia site-wide search, query validation, pagination, and safe result highlights. |
-| `background.js` | Metadata fetching, previews, URL-checked fetches, storage, original-HN tab mode, and streaming AI requests. |
-| `url-policy.js` | Validates external HTTP(S) targets and redirects to avoid unsafe destinations. |
-| `popup.*` | Extension icon popup for toggling HarmoNova, opening settings, and original-HN tabs. |
-| `ai-settings.*` | Extension-owned OpenRouter API-key editor, isolated from the Hacker News page. |
-| `icons/` | Four Chrome icon sizes and their exact attribution record. |
-| `tests/` | Node and Chromium regression tests, including mocked HN forms and sanitized fixtures. |
-| `scripts/` | Packaging and test-fixture tooling. |
+| `message-boundary`, `settings-schema`, `ai-policy`, `url-policy`, `provider-policy` | Pure caller/data/policy validation; no caller-supplied authority. |
+| `worker/storage`, `reader-store`, `preferences-store` | Trusted storage access, one-time migrations, serialized patches, draft revisions/generations, best-effort revision broadcasts. A stalled tab receiver cannot hold the storage lock. |
+| `worker/messages` | Synchronous listener registration, fail-closed initialization, exact sender/field dispatch and per-document preview cancellation. |
+| `worker/network`, `resource-policy`, `image-policy` | Exact provider operations, credential-free redirect rejection, bounded streams, shared consumers, bounded caches and raster sanitization. |
+| `worker/ai` | Stored key/consent, verified story URL, one active paid request per tab, stream framing/output bounds, explicit retry consent and port cleanup. |
+| `content/state`, `incognito-state` | Worker-backed normal state and separate per-document private memory. |
+| `content/feed`, `reader`, `comments`, `search-ui`, `previews` | Reader rendering, bounded lazy previews, generation/lifecycle ownership and DOM cleanup. |
+| `content/composer`, `actions`, `summary-ui` | Trusted final actions, captured composer identity/text, honest outcomes and one-use summary intent. |
+| `content/settings`, `toolbar`, `dom`, `links`, `sanitize` | Cosmetic controls, narrow exports/imports, owned DOM helpers, safe anchors and bounded inert HTML copying. |
+| `hn-session`, `hn-queue` | Private HN tokens/forms, explicit read/mutation classification, account checks, queue disposal and bounded authenticated HTML. |
+| `hn-search`, `lifecycle` | Bounded public queries/tree validation, real inert DOM highlight parser, scoped abort/disposal. |
 
-There are no npm runtime dependencies required to **use** the unpacked source. `playwright-core` is a development dependency for the Chromium tests.
+HN is a separately trusted authenticated client. Native HN redirects remain supported with final-origin verification. External provider requests use `redirect:error`, omit credentials/referrers and reject arbitrary origins. Required host permissions are exact origins, and pure URL validation does not claim to enforce DNS destinations.
 
-## From page load to reader
+## Budgets and lifetime
 
-1. A browser opens `https://news.ycombinator.com/news` or another HN URL.
-2. Chrome injects `url-policy.js`, `hn-session.js`, `hn-search.js`, `content.js`, and `styles.css` at `document_start`.
-3. HarmoNova checks the enabled preference and whether the tab was explicitly marked for original HN. If either check says not to replace the page, it leaves the native site visible.
-4. Otherwise the content script builds the feed, queries HN's Firebase API for public stories, and loads discussion trees from Algolia. Original HN pages remain authoritative for account actions.
-5. Optional metadata and image fetches go through the background worker, which applies URL rules before touching external hosts. Preview results are short-lived and cached.
-6. UI state remains in the tab while non-secret preferences and optional account-related local reader state persist in their appropriate Chrome storage areas.
+External transport has six active slots, two per origin, and 100 queued jobs. A slot lasts through headers and body consumption. Metadata/rich text use 6-second deadlines; image input is 2 MiB, 4096 pixels per edge and 8,388,608 total pixels. Re-encoded PNG output is at most 256 KiB with a 1024-pixel longest edge. Metadata caches are limited to 200 entries/4 MiB; image caches to 40 entries/8 MiB. Failed cache entries expire sooner. AI streams are capped at 2 MiB/120 seconds, 10,000 events, 128 KiB per event and 64 KiB output characters.
 
-The feed and discussion pane have separate scrolling behavior. An offsite article link opens a normal browser tab; the extension's content script doesn't follow it into that site.
+HN HTML and public JSON are capped at 4 MiB/15 seconds. Public trees have 64-level, 5,000-element-array and 50,000-value limits. The HN queue has 50 waiting jobs, a 30-second wait deadline and 15-second active deadline including 750 ms spacing, per tab. Mutation ambiguity is never converted into an automatic replay.
 
-## Account requests and state
-
-The session client obtains action links and hidden form values from HN itself rather than making up authentication tokens. It uses a serial queue for HN requests, validates the active account, and avoids accidentally repeating operations that could duplicate a post or reply. HN can reject an action or demand validation; the UI must not announce success without confirmation.
-
-For new comments and story submissions, the extension performs follow-up checks where needed while preserving drafts if the result is ambiguous. **Existing-comment edit/delete** currently bypasses this machinery: the user sees an explicit notice before being sent to HN's original edit or delete form.
-
-The original-HN action creates a separate tab identified as a bypass tab in session storage *before* navigating to HN. This prevents the content script from immediately replacing that untouched site as it loads.
-
-## AI request path
-
-1. The user explicitly selects **Article** or **Discussion** in the thread header.
-2. The worker obtains the selected public content. For articles it extracts readable text from the linked webpage; for discussions the source is public HN comments.
-3. Article text is bounded, normalized, and sent to OpenRouter with the chosen prompt/model and the user's key. Generated tokens stream over a Chrome extension port into a summary card.
-4. The user can stop the request. Summary text stays in the current page's memory rather than Chrome Sync.
-
-The options page owns API-key entry and storage. The HN document does not receive the key. External previews use validated credential-free worker fetches.
-
-## Testing philosophy
-
-HN's real HTML, session forms, and edge cases matter. The test suite uses sanitized captures and realistic synthetic logged-in fixtures so Chromium can assert the **actual outgoing request shape**, not just a mocked JavaScript handler. Security tests exercise message origins, URL rejection, and escaping. Tests that require real credentials are opt-in; never commit raw HN captures, credentials, or traces.
-
-The detailed test commands, package format, and release checklist are in [Development](DEVELOPMENT.md).
+Feed, thread, composer and search scopes abort obsolete consumers; generation guards reject late results. Preview card removal prunes consumers/observers and queues. Private state is destroyed with its document. Worker storage/consent initialize before sensitive dispatch; unavailable or newer unknown schemas fail closed. Source and release use the same offline browser entry points and actual module loaders, checked against an explicit package allowlist.

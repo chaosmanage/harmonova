@@ -1,6 +1,6 @@
 // HarmoNova HN session and account-action client (isolated content-script world).
 //
-// Implements the Hacker News protocol rules from docs/implementation-plan.md §7:
+// Implements the Hacker News account-action protocol with these constraints:
 //   SEC-04 logout via fetch, never navigation
 //   SEC-10/11 tokens live only in this closure; nothing outside can read them
 //   SEC-12 every cached token is tagged with the username it was fetched under
@@ -22,12 +22,14 @@
 
   const HN_ORIGIN = "https://news.ycombinator.com";
   const MIN_SPACING_MS = 750;
+  let lastHnRequestAt=0;
   const MAX_QUEUE_ATTEMPTS = 4;
 
   // ---------------------------------------------------------------------------
   // Session state
   // ---------------------------------------------------------------------------
 
+  let sessionGeneration=0;
   let currentSession = null; // { username, karma } | null
   const sessionListeners = new Set();
 
@@ -42,6 +44,7 @@
     const next = username ? { username, karma: Number.isFinite(karma) ? karma : null } : null;
     const changed = (next?.username || null) !== (currentSession?.username || null);
     if (changed) {
+      sessionGeneration++;
       // SEC-12: username changed (or logged out) — drop every token and handle.
       tokenCache.clear();
       formHandles.clear();
@@ -59,30 +62,29 @@
   // Serial HN fetch queue (SEC-25)
   // ---------------------------------------------------------------------------
 
-  const queue = [];
-  let queueRunning = false;
-  let lastHnRequestAt = 0;
-
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  function enqueue(path, options = {}) {
-    return new Promise((resolve, reject) => {
-      queue.push({ path, options, resolve, reject });
-      if (!queueRunning) runQueue();
-    });
+  const mutations=new Set(["/vote","/fave","/hide","/flag","/logout"]);
+  function validRequestPath(path) {
+    if(typeof path!=="string" || path.length>4096 || !path.startsWith("/") || path.startsWith("//") || /[\\\r\n\x00]/.test(path))return false;
+    try {const u=new URL(path,HN_ORIGIN);return u.origin===HN_ORIGIN&&!u.hash&&!u.username&&!u.password&&/^\/[a-z-]*$/.test(u.pathname);}catch{return false;}
   }
-
-  async function runQueue() {
-    queueRunning = true;
-    while (queue.length) {
-      const job = queue.shift();
-      try {
-        job.resolve(await performHnRequest(job.path, job.options));
-      } catch (error) {
-        job.reject(error);
+  const identity=()=> (currentSession?.username || "")+":"+sessionGeneration;
+  const requestQueue=HarmoNovaHnQueue.create({execute:performHnRequest,identity,
+    validCredential:(path,options)=> {
+      if(options.handle && formHandles.get(options.handle)!==options.handleEntry)return false;
+      const u=new URL(path,HN_ORIGIN);
+      if(mutations.has(u.pathname) && u.pathname!=="/logout") {
+        const token=getToken(u.pathname.slice(1),Number(u.searchParams.get("id")));
+        if(!token || token.auth!==u.searchParams.get("auth"))return false;
       }
-    }
-    queueRunning = false;
+      return true;
+    },
+  });
+  function enqueue(path,options={}) {
+    if(!validRequestPath(path))return Promise.reject({status:"failure",message:"Invalid Hacker News path"});
+    const kind=(options.method && options.method!=="GET" || options.mutation || mutations.has(path.split("?")[0]))?"mutation":"read";
+    if(options.operationKind && options.operationKind!==kind)return Promise.reject({status:"failure",message:"Invalid operation kind"});
+    return requestQueue.add(path,{...options,operationKind:kind,expectedUsername:currentSession?.username||null,expectedIdentity:identity()});
   }
 
   function parseDocument(html) {
@@ -114,24 +116,27 @@
     return "ok";
   }
 
-  const RATE_LIMIT_MESSAGES = [
-    "Sorry, we're not able to serve your requests this quickly.",
-    "Please slow down",
-    "You're posting too fast",
-  ];
+
 
   async function performHnRequest(path, options) {
     const method = options.method || "GET";
-    const isMutation = method !== "GET";
+    if(!validRequestPath(path))throw {status:"failure",message:"Invalid Hacker News path"};
+    const isMutation = options.operationKind === "mutation";
     let attempt = 0;
+    const maxAttempts = options.singleAttempt ? 1 : MAX_QUEUE_ATTEMPTS;
     while (true) {
+      if(options.signal?.aborted)throw {status:isMutation?"indeterminate":"failure",message:"Request cancelled"};
       const wait = Math.max(0, MIN_SPACING_MS - (Date.now() - lastHnRequestAt));
       if (wait) await sleep(wait);
       lastHnRequestAt = Date.now();
       let response;
+      const controller = {signal:options.signal};
+      const timeout = null;
       try {
         response = await fetch(HN_ORIGIN + path, {
           method,
+          signal: controller.signal,
+          ...(options.cache ? { cache: options.cache } : {}),
           credentials: "same-origin", // SEC-20
           redirect: "follow",
           headers: { Accept: "text/html,application/xhtml+xml" },
@@ -142,20 +147,23 @@
           ...(options.body ? { body: new URLSearchParams(options.body) } : {}),
         });
       } catch (error) {
-        if (!isMutation && attempt < MAX_QUEUE_ATTEMPTS - 1) { attempt++; await sleep(1000 * attempt); continue; }
-        throw { status: "failure", message: "Network request to Hacker News failed", detail: String(error?.message || "") };
+        clearTimeout(timeout);
+        if (!isMutation && !options.signal?.aborted && attempt < maxAttempts - 1) { attempt++; await sleep(1000 * attempt); continue; }
+        throw { status: isMutation?"indeterminate":"failure", message: "Network request to Hacker News failed", detail: "" };
       }
       // SEC-21: the response must come from the HN origin.
       let responseUrl = "";
       try { responseUrl = new URL(response.url).href; } catch {}
       if (!responseUrl || new URL(responseUrl).origin !== HN_ORIGIN) {
+        clearTimeout(timeout);
         throw { status: "indeterminate", message: "Hacker News response came from an unexpected origin", detail: "mutation outcome unknown" };
       }
-      const html = await response.text();
+      let html;
+      try { html = await HarmoNovaResourcePolicy.readText(response,4*1024*1024,options.signal); } finally { clearTimeout(timeout); }
       const doc = parseDocument(html);
       const classification = classifyDoc(doc);
       if (classification === "rateLimited" || response.status === 503) {
-        if (!isMutation && attempt < MAX_QUEUE_ATTEMPTS - 1) {
+        if (!isMutation && !options.signal?.aborted && attempt < maxAttempts - 1) {
           attempt++;
           await sleep(1000 * Math.pow(2, attempt)); // 2s, 4s, 8s
           continue;
@@ -212,7 +220,7 @@
   }
 
   function accountChangedOutcome(message) {
-    clearCaches();
+    sessionGeneration++;clearCaches();
     return { status: "accountChanged", message: message || "You're now signed in as a different account.", detail: "" };
   }
 
@@ -361,12 +369,12 @@
   // and return its item ids plus the next-page path. SEC-05: list pages only —
   // profile HTML is never fetched; user data comes from the public Firebase
   // API. The first path segment must be on a fixed allowlist (no /user).
-  async function fetchListPage(path) {
+  async function fetchListPage(path,{signal}={}) {
     const safePath = validateListPath(path);
     if (!safePath) {
       return { status: "failure", message: "That Hacker News list is not available in HarmoNova." };
     }
-    const page = await enqueue(safePath);
+    const page = await enqueue(safePath,{signal});
     if (page.classification === "loginPage") {
       setSession(null, null);
       return { status: "loginRequired", message: "Sign in to see this list" };
@@ -417,9 +425,9 @@
   // Item state (Phase 2)
   // ---------------------------------------------------------------------------
 
-  async function fetchItemDoc(itemId) {
+  async function fetchItemDoc(itemId,{signal}={}) {
     if (!Number.isInteger(itemId) || itemId <= 0) throw { status: "failure", message: "Invalid item id" };
-    return enqueue("/item?id=" + itemId);
+    return enqueue("/item?id=" + itemId,{signal});
   }
 
   function harvest(doc) {
@@ -430,6 +438,7 @@
       setSession(top.username, top.karma); // clears caches when the account changed
       const logout = parseLogoutToken(top.logoutHref);
       if (logout) tokenCache.set("logout:", { auth: logout.auth, goto: logout.goto, username: top.username, fetchedAt: Date.now() });
+      else tokenCache.delete("logout:");
     }
     // Feed documents also carry vote links for every visible story. Cache
     // their tokens in memory (SEC-35) and record which stories are already
@@ -445,8 +454,9 @@
     return currentSession ? { ...currentSession } : null;
   }
 
-  async function ensureItemState(itemId) {
-    const page = await fetchItemDoc(itemId);
+  async function ensureItemState(itemId,{signal}={}) {
+    const page = await fetchItemDoc(itemId,{signal});
+    if(signal?.aborted)throw {status:"failure",message:"Request cancelled"};
     if (page.classification === "loginPage") {
       setSession(null, null);
       return { status: "loginRequired", session: null };
@@ -473,6 +483,7 @@
       setSession(top.username, top.karma ?? null); // clears caches when the account changed
       const logout = parseLogoutToken(top.logoutHref);
       if (logout) tokenCache.set("logout:", { auth: logout.auth, goto: logout.goto, username: top.username, fetchedAt: Date.now() });
+      else tokenCache.delete("logout:");
     } else {
       setSession(null, null);
     }
@@ -709,24 +720,44 @@
     labels: { loginRequired: "Sign in to flag", unavailable: "Flagging is not available for this item" },
   });
 
+  let logoutPending = false;
   async function logout() {
-    const token = getToken("logout", "");
-    if (!token) {
-      setSession(null, null);
-      return { status: "success", message: "Signed out" };
-    }
-    // SEC-04: fetch, never navigate — the token URL must not enter history.
-    try {
-      const page = await enqueue("/logout?" + new URLSearchParams({ auth: token.auth, goto: token.goto || "news" }).toString());
+    if (logoutPending) return { status: "pending", message: "Sign-out already in progress" };
+    logoutPending = true;
+    let username = currentSession?.username || null;
+    const unknown = () => ({ status: "indeterminate", message: "Could not confirm sign-out", username });
+    const readSession = async () => {
+      const page = await enqueue("/news", { cache: "no-store", singleAttempt: true, timeoutMs: 10000 });
+      if (page.classification === "validationRequired" || page.classification === "loginPage")
+        return { status: page.classification === "loginPage" ? "loginRequired" : "validationRequired", message: "Could not confirm sign-out", username };
+      if (page.classification !== "ok" || page.status !== 200) return unknown();
+      const top = parseTopBar(page.doc);
+      if (!top.definitive) return unknown();
       refreshSessionFromDoc(page.doc);
-      if (currentSession) {
-        return { status: "indeterminate", message: "Hacker News did not confirm sign-out. Try again.", detail: "" };
+      return top.username ? { status: "signedIn", username: top.username, message: "Still signed in to Hacker News" }
+        : { status: "success", username, message: "Signed out" };
+    };
+    try {
+      let token = getToken("logout", "");
+      if (!token) {
+        const initial = await readSession();
+        if (initial.status !== "signedIn") return initial;
+        if (username && initial.username !== username) return accountChangedOutcome();
+        username = initial.username;
+        token = getToken("logout", "");
+        if (!token) return unknown();
       }
+      // GET is a mutation here: never replay an ambiguous logout.
+      try {
+        await enqueue("/logout?" + new URLSearchParams({ auth: token.auth, goto: "news" }),
+          { mutation: true, singleAttempt: true, timeoutMs: 10000 });
+      } catch { /* Only a fresh read-back can establish the outcome. */ }
+      return await readSession();
     } catch {
-      setSession(null, null);
+      return unknown();
+    } finally {
+      logoutPending = false;
     }
-    clearCaches();
-    return { status: "success", message: "Signed out" };
   }
 
   // ---------------------------------------------------------------------------
@@ -755,14 +786,14 @@
       const cached = storyCommentForms.get(storyId);
       if (cached?.username === currentSession.username) return makeCommentHandle(cached.form, parentId, storyId);
       // Top-level replies use the form already present on /item, not /reply.
-      const state = await ensureItemState(storyId);
+      const state = await ensureItemState(storyId,{signal:options.signal});
       if (state.status === "ok") {
         const form = storyCommentForms.get(storyId);
         if (form?.username === currentSession.username) return makeCommentHandle(form.form, parentId, storyId);
       }
     }
     const goto = options.goto || gotoForItem(storyId);
-    const page = await enqueue("/reply?" + new URLSearchParams({ id: String(parentId), goto }).toString());
+    const page = await enqueue("/reply?" + new URLSearchParams({ id: String(parentId), goto }).toString(),{signal:options.signal});
     if (page.classification === "loginPage") { setSession(null, null); return { status: "loginRequired", message: "Sign in to reply" }; }
     if (page.classification === "validationRequired") return { status: "validationRequired", message: "Hacker News asks for verification before this reply. Open the reply on Hacker News to continue.", detail: "draft kept" };
     if (page.classification !== "ok") return { status: "failure", message: "Could not open a reply form on Hacker News.", detail: page.classification };
@@ -846,7 +877,7 @@
     if (entry === null) return { status: "failure", message: "This reply form is no longer valid. Refresh and try again." };
     if (entry === "changed") return accountChangedOutcome();
     const body = { parent: entry.fields.parent, goto: entry.fields.goto, hmac: entry.fields.hmac, text };
-    const page = await enqueue("/" + (entry.action || "comment"), { method: "POST", body }); // SEC-34: never retry a POST
+    const page = await enqueue("/" + (entry.action || "comment"), { method: "POST", body, handle,handleEntry:entry }); // SEC-34: never retry a POST
     // A redirect can contain a cached item page. Read back the result safely
     // instead of re-POSTing the comment or claiming it failed immediately.
     let verified = page;
@@ -918,7 +949,7 @@
     if (entry === null) return { status: "failure", message: "This edit form is no longer valid. Refresh and try again." };
     if (entry === "changed") return accountChangedOutcome();
     const body = { ...entry.fields, text };
-    const page = await enqueue("/" + (entry.action || "xedit"), { method: "POST", body });
+    const page = await enqueue("/" + (entry.action || "xedit"), { method: "POST", body, handle,handleEntry:entry });
     let verified = page;
     let edited = page.classification === "ok" && redirectedToItem(page)
       ? findOwnComment(page.doc, entry.username, null, text, entry.commentId) : null;
@@ -995,7 +1026,7 @@
     const entry = getHandle(handle, "delete");
     if (entry === null) return { status: "failure", message: "This delete form is no longer valid. Refresh and try again." };
     if (entry === "changed") return accountChangedOutcome();
-    const page = await enqueue("/" + entry.action, { method: "POST", body: { ...entry.fields } });
+    const page = await enqueue("/" + entry.action, { method: "POST", body: { ...entry.fields },handle,handleEntry:entry });
     let verified = page;
     let deleted = page.classification === "ok" && redirectedToItem(page)
       ? isDeletedComment(page.doc, entry.commentId) : false;
@@ -1075,7 +1106,7 @@
     const body = { ...entry.fields, title: cleanTitle };
     if (urlText) body.url = String(urlText).trim();
     if (text) body.text = String(text);
-    const page = await enqueue("/" + (entry.action || "r"), { method: "POST", body });
+    const page = await enqueue("/" + (entry.action || "r"), { method: "POST", body, handle,handleEntry:entry });
     let path = "";
     try { path = new URL(page.url).pathname; } catch {}
     if (path === "/item") {
@@ -1213,7 +1244,7 @@
       },
       cachedTokenCount: () => tokenCache.size,
       pendingHandles: () => formHandles.size,
-      queueDepth: () => queue.length,
+      queueDepth: () => requestQueue.depth,
       clearCaches,
       // Test hook (SEC-35 staleness verification): force every cached token to
       // look stale so the next mutation must re-verify against a fresh page.
@@ -1224,6 +1255,6 @@
   };
 
   // SEC-12: clear everything when the page goes away.
-  window.addEventListener("pagehide", clearCaches, { once: true });
+  window.addEventListener("pagehide", ()=>{requestQueue.dispose();clearCaches();}, { once: true });
   window.addEventListener("beforeunload", clearCaches, { once: true });
 })();

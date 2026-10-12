@@ -14,7 +14,7 @@ Choose a feed from the title menu: Top, New, Best, Ask HN, Show HN, Jobs, and ad
 
 ![Feed switcher with Top, New, Best, Ask HN, Show HN, Jobs and Manage feeds](assets/feeds.png)
 
-Each story card can show its title, points, domain, age, reply count, favicon, and an optional preview image. Card tints help stories stand apart without turning the entire page into a grid of boxes. Story settings let you change density, preview sizing, points display, dimming for read stories, keyword/domain filters, and whether a card click opens the article or its comments.
+Each story card can show its title, points, domain, age, reply count, local domain marker, and an optional preview image. Card tints help stories stand apart without turning the entire page into a grid of boxes. Story settings let you change density, preview sizing, points display, dimming for read stories, keyword/domain filters, and whether a card click opens the article or its comments.
 
 Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; HarmoNova doesn't trap external links in its own reader.
 
@@ -45,7 +45,7 @@ When HN supplies the appropriate signed-in controls, you can upvote stories and 
 
 ### Replies, drafts, and limits
 
-**Add reply** and the reply action on individual comments open the built-in composer. It includes a preview, character counter, and `Ctrl+Enter` to submit. Drafts are saved temporarily for the current browser session, keyed to the current account and comment, so closing and reopening a composer doesn't throw away what you typed. If Hacker News requires additional validation, HarmoNova preserves the draft and offers the original HN form.
+**Add reply** and the reply action on individual comments open the built-in composer. It includes a preview, character counter, and `Ctrl+Enter` to submit. Normal drafts are saved temporarily for the current browser session, keyed to the current account and comment, so closing and reopening a composer doesn't throw away what you typed. Private drafts stay only in the current document and disappear on reload or navigation. If Hacker News requires additional validation, HarmoNova preserves the draft and offers the original HN form.
 
 **Editing or deleting an existing comment is not yet supported inside HarmoNova.** Choose Edit or Delete on one of your own comments, review the notice, and continue to the actual Hacker News form in a separate original-HN tab. Cancelling leaves the comment alone. HN's own anti-automation and rate-limit checks can also prevent other account actions; do not assume a failed confirmation means HN accepted the action.
 
@@ -55,7 +55,7 @@ Open **Settings** from HarmoNova's menu or the extension toolbar popup.
 
 ![HarmoNova's settings panel organized by category](assets/settings.png)
 
-Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; use Google Sans Flex Rounded by default or switch to System UI or Serif; adjust zoom and story display; change comment treatment; control preview images and favicons; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
+Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; use Google Sans Flex Rounded by default or switch to System UI or Serif; adjust zoom and story display; change comment treatment; control preview images; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
 
 | Appearance | Story settings |
 | --- | --- |
@@ -65,24 +65,24 @@ Tags and blocking are **private local reading preferences**, not HN account feat
 
 ### Link extras
 
-- **Rich link previews** add a small information panel for supported GitHub repositories, Wikipedia pages, and arXiv papers.
+- **Rich link previews**, enabled by default and controlled under the sidebar’s AI settings, show public metadata for general websites and enriched facts for GitHub, Wikipedia and arXiv.
 - **View on archive** opens the Wayback Machine when you want to look for an older copy of an article.
 - **Nitter redirect** is opt-in. If enabled, Twitter/X links point to your configured Nitter instance instead.
 
-You can turn these extras off in Settings. Not every external site provides metadata or accepts automated fetches.
+You can turn these extras off in Settings. External previews are on by default but can be turned off at any time in Settings → AI.
 
 ## Optional AI summaries
 
-The **Article** and **Discussion** buttons are separate for a reason: one summarizes a linked article, the other summarizes public conversation on HN. They are not interchangeable sources.
+The **Article** and **Discussion** buttons summarize different sources: bounded public article text and public conversation on HN, respectively.
 
 1. Open Settings → **AI** and configure an [OpenRouter](https://openrouter.ai/) API key through the extension's own settings page.
 2. Choose a model (the initial default is `openrouter/free`). Availability and pricing are determined by OpenRouter, not this project.
-3. Open a story and click **Article** or **Discussion**. The request runs only when you click.
+3. Open a story and click **Article** or **Discussion**. The request runs on a real click, or after a real story selection if you separately enable automatic summaries.
 4. You can stop a running summary or regenerate it. The summary appears in the current reader, not in a new service.
 
 ![AI settings and OpenRouter configuration in the HarmoNova settings pane](assets/ai-settings.png)
 
-For an article summary, HarmoNova fetches and extracts readable article text. Some websites block this; you may then choose to summarize public HN discussion separately. For a discussion summary, the source is the public comments rather than the external article. **Extracted source text is sent to OpenRouter** along with the configured summary prompt. Generated summaries can be inaccurate, especially on ambiguous threads.
+For an Article summary, HarmoNova extracts bounded readable text from the linked public page when the site permits it; provider metadata can supply an excerpt when available. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model and prompt. Saving a key alone does not enable summaries; save fresh consent in Settings → AI. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate.
 
 ![AI summary presentation in HarmoNova using test-only sample output](assets/ai-summary-demo.png)
 

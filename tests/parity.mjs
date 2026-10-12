@@ -5,7 +5,7 @@
 // and the favicon provider choice. Drives the real Chromium extension against
 // fully mocked HN list pages + Firebase + Algolia. Companion to
 // tests/profile.mjs; same harness shape.
-import { chromium } from "playwright-core";
+import {launchExtension} from "./helpers/extension.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -182,17 +182,7 @@ function createDataMocks() {
 // Test runner (chrome.storage.sync is shared across pages — reset per test)
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let browser;
 
 let passed = 0;
 let failed = 0;
@@ -212,13 +202,16 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 
 async function test(name, fn) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
+  const harness=await launchExtension();browser=harness.context;
   const hn = createHnMock();
   const dataMocks = createDataMocks();
   await browser.route("**/*", async (route) => {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
     if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
+    if(parsed.protocol==="chrome-extension:")return route.continue();
+    if(parsed.hostname==="mocked-source.com" && route.request().resourceType()==="document")return route.fulfill({status:200,contentType:"text/html",body:"<p>Offline article fixture</p>"});
+    return route.fallback();
   });
   const page = await browser.newPage();
   page.on("pageerror", (error) => console.error("  pageerror:", String(error).slice(0, 160)));
@@ -227,9 +220,14 @@ async function test(name, fn) {
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
     if (sw) await sw.evaluate(async () => {
       await chrome.storage.sync.clear();
+      // Feed-parity fixtures deliberately omit remote article responses;
+      // exercise the user's explicit preview opt-out here. Default-on and
+      // public-web metadata are checked by settings-sidebar-browser.
+      await chrome.storage.local.set({harmonovaNetworkPolicyV1:{version:1,externalPreviewsEnabled:false}});
       await chrome.storage.sync.set({ harmonovaSettings: { feedHidden: [], feedOrder: [] } });
     }).catch(() => {});
     await page.addInitScript(() => {
+      if (location.hostname !== "news.ycombinator.com") return;
       if (sessionStorage.getItem("harmonovaParityInit")) return;
       sessionStorage.setItem("harmonovaParityInit", "1");
       try {
@@ -240,6 +238,7 @@ async function test(name, fn) {
       } catch {}
     });
     await fn({ page, hn });
+    harness.assertOffline();
     assert.equal(hn.state.userPageRequests || 0, 0, "SEC-05: the /user HTML page was never requested");
     passed++;
     console.log("ok -", name);
@@ -248,7 +247,7 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    await harness.close();
   }
 }
 
@@ -530,18 +529,16 @@ await test("show domain toggle removes the domain from card metadata", async ({ 
   );
 });
 
-await test("favicon provider setting switches the icon source", async ({ page, hn }) => {
+await test("unsupported favicons have no remote image fallback",async({page})=> {
+  const requests=[];page.on('request',r=>{if(r.resourceType()==='image'&&new URL(r.url()).hostname!=='news.ycombinator.com'&&/^https?:/.test(r.url()))requests.push(r.url());});
   await gotoFeed(page);
-  const panel = await settingsPath(page);
-  await settingRow(panel, "Favicon provider", "select").selectOption("duckduckgo");
-  await panel.locator(".settings-header .icon-button").first().click();
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='Refresh']").click();
-  await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
-  const src = await page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-favicon').getAttribute("src");
-  assert.ok(src.includes("icons.duckduckgo.com"), "DuckDuckGo icon endpoint used: " + src);
+  assert.equal(await page.locator('.story-favicon').first().getAttribute('src'),null);
+  const panel=await settingsPath(page);
+  assert.equal(await panel.locator('.setting-row',{hasText:'Favicon provider'}).count(),0);
+  assert.deepEqual(requests,[],'there is no credentialed favicon fallback');
 });
 
-await browser.close();
+
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);

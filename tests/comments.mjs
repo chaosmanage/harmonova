@@ -1,3 +1,6 @@
+import {stopExtensionWorker} from "./helpers/worker-lifecycle.mjs";
+import { hnRedirectFixture } from './helpers/network.mjs';
+import { launchExtension, nativeWindowPage, synchronizeNativeTabCreation } from './helpers/extension.mjs';
 // HarmoNova Phase 3 UI suite: commenting, replies, edits, deletes, and drafts,
 // driven through the real Chromium extension against fully mocked Hacker News
 // documents. Companion to tests/hn-auth.mjs (module flows) and tests/voting.mjs
@@ -5,7 +8,6 @@
 // and restore, the exact POST /comment payload, no-retry POSTs, native
 // Hacker News edit/delete handoffs (without mutations), and trusted-click
 // gating (SEC-30).
-import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -13,7 +15,6 @@ import assert from "node:assert/strict";
 
 const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
 const fixtureDir = path.join(repoRoot, "tests", "fixtures", "hn");
-const extensionPath = path.resolve(process.env.EXTENSION_PATH || repoRoot);
 
 const TOKEN_A = "0".repeat(40);
 const TOKEN_B = "1".repeat(40);
@@ -247,7 +248,7 @@ function createDataMocks() {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.abort();
   };
 }
 
@@ -255,17 +256,8 @@ function createDataMocks() {
 // Test runner
 // ---------------------------------------------------------------------------
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+let harness;
+let browser;
 
 let passed = 0;
 let failed = 0;
@@ -286,16 +278,22 @@ const waitFor = async (fn, timeout = 30000, step = 150, label = "condition") => 
 async function test(name, fn) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks();
-  await browser.route("**/*", async (route) => {
-    const parsed = new URL(route.request().url());
-    if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
-    if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
-    return route.continue();
-  });
-  const page = await browser.newPage();
+  const hnServer = await hnRedirectFixture(hn.handle);
   try {
+    harness = await launchExtension({ destinations: new Map([['news.ycombinator.com:443', hnServer]]) });
+    browser = harness.context;
+    const dataMocks = createDataMocks();
+    await browser.route("**/*", async (route) => {
+      const parsed = new URL(route.request().url());
+      if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
+      if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
+      return route.fallback();
+    });
+    const nativeHandoff = name.includes('hands off to HN') || name.startsWith('Edit shows') || name.startsWith('Delete prompts');
+    const page = nativeHandoff ? await nativeWindowPage(browser,harness.worker) : await browser.newPage();
+    if(nativeHandoff)await synchronizeNativeTabCreation(browser,harness.worker);
     await fn({ page, hn });
+    harness.assertOffline();
     passed++;
     console.log("ok -", name);
   } catch (error) {
@@ -303,7 +301,7 @@ async function test(name, fn) {
     failures.push(error);
     console.error("not ok -", name, "\n  ", error.message);
   } finally {
-    await page.close();
+    try { await harness?.close(); } finally { await hnServer.close(); }
   }
 }
 
@@ -336,7 +334,7 @@ const swDrafts = async () => {
   const worker = browser.serviceWorkers().find((sw) => sw.url().includes("background"));
   if (!worker) throw new Error("background service worker not running");
   return worker.evaluate(
-    () => new Promise((resolve) => chrome.storage.session.get(["harmonovaDrafts"], (data) => resolve(data.harmonovaDrafts || {})))
+    () => new Promise((resolve) => chrome.storage.session.get(["harmonovaDraftsV2"], (data) => resolve(data.harmonovaDraftsV2?.drafts || {})))
   );
 };
 
@@ -492,8 +490,7 @@ await test("drafts are cleared on logout", async ({ page, hn }) => {
   await openStoryReply(page);
   await composer(page).waitFor({ state: "visible", timeout: 10000 });
   await typeInto(page, "Doomed draft");
-  await new Promise((resolve) => setTimeout(resolve, 1100));
-  assert.ok(Object.values(await swDrafts()).length > 0, "draft exists before logout");
+  await waitFor(async () => Object.values(await swDrafts()).some(d => d?.text === "Doomed draft"), 20000, 150, "logout draft persisted");
 
   hn.state.loggedIn = false; // HN invalidates the session on logout
   await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
@@ -558,9 +555,7 @@ await test("validationRequired on open keeps the draft and offers the HN escape 
     "'Open this reply on Hacker News' button appears"
   );
   assert.equal(await composer(page).count(), 1, "composer stays open");
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  const drafts = await swDrafts();
-  assert.ok(Object.values(drafts).some((draft) => draft?.text === "Kept while HN verifies"), "draft kept on validationRequired");
+  await waitFor(async () => Object.values(await swDrafts()).some(d => d?.text === "Kept while HN verifies"), 20000, 150, "verification draft persisted");
 });
 
 await test("tooFast on post keeps the draft and never retries the POST", async ({ page, hn }) => {
@@ -600,6 +595,7 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
   assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: 'Edit' }).count(), 0, "others have no edit action");
   assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: 'Delete' }).count(), 0, "others have no delete action");
   await page.mouse.click(3, 3);
+  await page.locator(".harmonova-popup").waitFor({state:"hidden"});
 
   // The compact UI exposes Edit in the comment's right-click More menu.
   await openCommentAction(page, ownRow, "Edit");
@@ -613,12 +609,12 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
 
   await openCommentAction(page, ownRow, "Edit");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
-  const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  const native = await nativePagePromise;
-  await native.waitForURL(url => url.pathname === '/edit' && url.searchParams.get('id') === String(OWN_COMMENT), { timeout: 15000, waitUntil: 'commit' });
+  await waitFor(()=>browser.pages().some(p=>p.url().startsWith('https://news.ycombinator.com/edit?')),30000,50,'committed native edit page');
+  const native=browser.pages().find(p=>p.url().startsWith('https://news.ycombinator.com/edit?'));
+  assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
   assert.equal(await native.locator('#harmonova-app').count(), 0, "stock HN edit page is not replaced by HarmoNova");
-  assert.ok(await native.locator('form[action="xedit"] textarea[name="text"]').count(), "HN form owns the edit");
+  await native.locator('form[action="xedit"] textarea[name="text"]').waitFor();
   assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, "HarmoNova sends no edit POST");
   assert.equal(hn.state.editedText, null, "comment is unchanged locally");
   await native.close();
@@ -638,15 +634,13 @@ await test("Delete prompts for a native HN confirmation; cancel and handoff neve
 
   await openCommentAction(page, ownRow, "Delete");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
-  const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  const native = await nativePagePromise;
-  await native.waitForURL(url => url.pathname === '/delete-confirm' &&
-    url.searchParams.get('id') === String(OWN_COMMENT) &&
-    url.searchParams.get('goto') === 'item?id=' + STORY_ID,
-  { timeout: 15000, waitUntil: 'commit' });
+  await waitFor(()=>browser.pages().some(p=>p.url().startsWith('https://news.ycombinator.com/delete-confirm?')),30000,50,'committed native delete page');
+  const native=browser.pages().find(p=>p.url().startsWith('https://news.ycombinator.com/delete-confirm?'));
+  assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
+  assert.equal(new URL(native.url()).searchParams.get('goto'),'item?id='+STORY_ID);
   assert.equal(await native.locator('#harmonova-app').count(), 0, 'stock HN delete page is not replaced by HarmoNova');
-  assert.match(await native.locator('body').textContent(), /Do you want to delete this comment\?/);
+  await native.getByText('Do you want to delete this comment?',{exact:false}).waitFor();
   assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, 'HarmoNova sends no delete POST');
   assert.equal(hn.state.deleted, false, 'comment has not been deleted');
   assert.equal(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]').count(), 1, 'comment remains on HarmoNova');
@@ -673,6 +667,56 @@ await test("untrusted scripted clicks never open the composer or hit /reply (SEC
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/delete-confirm")).length, 0, "no /delete-confirm traffic");
 });
 
+await test("P04 open composer rejects page-world click, Ctrl/Cmd+Enter and discard", async ({ page, hn }) => {
+  await gotoFeed(page);
+  await openThreadFully(page);
+  await openStoryReply(page);
+  await typeInto(page, "Preserved trusted draft");
+  await waitFor(async () => Object.values(await swDrafts()).some(d => d?.text === "Preserved trusted draft"), 20000, 150, "trusted draft persisted");
+  await page.evaluate(() => {
+    const input = document.querySelector(".composer-input");
+    input.value = "Page-world synthetic text";
+    document.querySelector(".composer-submit").click();
+    for (const modifier of ["ctrlKey", "metaKey"]) input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", [modifier]: true, bubbles: true }));
+    document.querySelector(".composer-discard").click();
+  });
+  await page.waitForTimeout(1200);
+  assert.equal(hn.requests.filter(r => r.method === "POST").length, 0);
+  assert.equal(await page.locator(".composer-input").inputValue(), "Page-world synthetic text");
+  assert.ok(Object.values(await swDrafts()).some(d => d.text === "Preserved trusted draft"), "draft state: " + JSON.stringify(await swDrafts()));
+  await typeInto(page, "Real trusted button text");
+  await page.locator(".composer-submit").dblclick();
+  await page.locator(".composer").waitFor({ state: "hidden", timeout: 15000 });
+  const posts = hn.requests.filter(r => r.method === "POST" && r.path === "/comment");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].params.text, "Real trusted button text");
+});
+
+await test("P04 trusted Cmd+Enter submits exactly once", async ({ page, hn }) => {
+  await gotoFeed(page);
+  await openThreadFully(page);
+  await openStoryReply(page);
+  await typeInto(page, "Trusted command keyboard");
+  await page.locator(".composer-input").press("Meta+Enter");
+  await page.locator(".composer").waitFor({ state: "hidden", timeout: 15000 });
+  assert.equal(hn.requests.filter(r => r.method === "POST").length, 1);
+});
+
+await test("P13 worker termination during an ambiguous comment never replays the mutation",async({page})=>{
+ await gotoFeed(page);await openThreadFully(page);await openStoryReply(page);
+ let posts=0,held;
+ await browser.route('https://news.ycombinator.com/comment',route=>{posts++;held=route;});
+ await page.locator('.composer-input').fill('Synthetic draft survives worker restart');
+ await page.locator('.composer-submit').click();
+ await waitFor(()=>Boolean(held),10000,50,'single pending POST');
+ const scriptURL=harness.worker.url();await stopExtensionWorker(browser,page,scriptURL);
+ await held.abort();
+ await page.waitForFunction(()=>document.querySelector('.composer-status')?.textContent.length>0);
+ await page.reload();await page.locator('.story-card').first().waitFor();await openThreadFully(page);await openStoryReply(page);
+ await page.waitForFunction(()=>document.querySelector('.composer-input')?.value==='Synthetic draft survives worker restart');
+ assert.equal(posts,1,'restart/reload never sends another comment POST');
+});
+
 await test("signed out, replying asks for sign-in and opens no HN forms", async ({ page, hn }) => {
   hn.state.loggedIn = false;
   await gotoFeed(page);
@@ -687,7 +731,7 @@ await test("signed out, replying asks for sign-in and opens no HN forms", async 
   assert.equal(hn.requests.filter((request) => request.path.startsWith("/reply")).length, 0, "no /reply traffic signed out");
 });
 
-await browser.close();
+
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);
