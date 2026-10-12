@@ -76,3 +76,14 @@ export async function withExtension(fn, options) {
   try { await fn(fixture); fixture.assertOffline(); }
   finally { await fixture.close(); }
 }
+
+// Native tab controls require a Chrome window, not a CDP virtual window.
+export async function nativeWindowPage(context,worker,{incognito=false}={}) {
+  const url='about:blank#harmonova-native-'+crypto.randomUUID();
+  const window=await worker.evaluate(options=>chrome.windows.create(options),{incognito,url});
+  if(window.incognito!==incognito)throw new Error('Native window privacy mismatch');
+  let page;
+  for(let i=0;i<300&&!page;i++){page=context.pages().find(p=>p.url()===url);if(!page)await new Promise(r=>setTimeout(r,50));}
+  if(!page)throw new Error('Native window page did not attach');
+  return page;
+}

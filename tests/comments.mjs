@@ -1,6 +1,6 @@
 import {stopExtensionWorker} from "./helpers/worker-lifecycle.mjs";
 import { hnRedirectFixture } from './helpers/network.mjs';
-import { launchExtension } from './helpers/extension.mjs';
+import { launchExtension, nativeWindowPage } from './helpers/extension.mjs';
 // HarmoNova Phase 3 UI suite: commenting, replies, edits, deletes, and drafts,
 // driven through the real Chromium extension against fully mocked Hacker News
 // documents. Companion to tests/hn-auth.mjs (module flows) and tests/voting.mjs
@@ -289,7 +289,8 @@ async function test(name, fn) {
       if (["hacker-news.firebaseio.com", "hn.algolia.com"].includes(parsed.hostname)) return dataMocks(route);
       return route.fallback();
     });
-    const page = await browser.newPage();
+    const nativeHandoff = name.includes('hands off to HN') || name.startsWith('Edit shows') || name.startsWith('Delete prompts');
+    const page = nativeHandoff ? await nativeWindowPage(browser,harness.worker) : await browser.newPage();
     await fn({ page, hn });
     harness.assertOffline();
     passed++;
