@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test:reload": "node tests/reload.mjs",
+    "test:context-invalidation": "node tests/context-invalidation.mjs",
     "test:ai": "node --test tests/ai-worker.mjs",
     "test:security": "node --test tests/security.mjs",
     "test:security:browser": "node tests/security-browser.mjs",

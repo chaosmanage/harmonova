@@ -15,7 +15,7 @@
     signal?.addEventListener("abort",cancel,{once:true});
     const timer = setTimeout(cancel,7000);
     const wantRich = model.settings.richPreviews !== false;
-    chrome.runtime.sendMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich, requestId }, (response) => {
+    void dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich, requestId }).then((response) => {
       clearTimeout(timer); signal?.removeEventListener("abort",cancel);
       const value = response?.ok ? response : { image: null, tint: null, favicon: null };
       // Without rich facts the response stays uncached while the toggle is

@@ -205,7 +205,14 @@
     const storyId = Number(item.id);
     model.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
     updateSummarySurface(storyId);
-    const port = chrome.runtime.connect({ name: "harmonova-ai" });
+    let port;
+    try { port = chrome.runtime.connect({ name: "harmonova-ai" }); }
+    catch (error) {
+      HarmoNovaContentRuntime.handleError(error);
+      model.summaries.set(storyId, { status: "error", source, text: "", error: "Summary connection unavailable. Reload this tab." });
+      updateSummarySurface(storyId);
+      return;
+    }
     const requestId = "summary-" + storyId + "-" + generation;
     model.activeSummary = { storyId, port, source, requestId };
 
@@ -233,13 +240,19 @@
       model.summaries.set(storyId, { status: "error", text: "", error: "Summary connection closed. Try again." });
       updateSummarySurface(storyId);
     });
-    port.postMessage({
+    try { port.postMessage({
       type: "summarize",
       requestId,
       storyId,
       source,
       ...(source === "discussion" ? { discussionText } : {}),
-    });
+    }); } catch (error) {
+      HarmoNovaContentRuntime.handleError(error);
+      model.activeSummary = null;
+      model.summaries.set(storyId, { status: "error", source, text: "", error: "Summary connection unavailable. Reload this tab." });
+      updateSummarySurface(storyId);
+      try { port.disconnect(); } catch {}
+    }
   }
 
 

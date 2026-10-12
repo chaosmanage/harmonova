@@ -3,12 +3,7 @@
 (() => {
   'use strict';
   function create(dependencies,model) {
-  const runtimeMessage = (message) => new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) return resolve({ ok: false, message: chrome.runtime.lastError.message });
-      resolve(response || { ok: false });
-    });
-  });
+  const runtimeMessage = HarmoNovaContentRuntime.send;
 
   function pageStorageGet(key) {
     if (dependencies.INCOGNITO) return undefined; // never read page-origin storage in private mode
@@ -41,11 +36,8 @@
 
   async function isOriginalTab() {
     if (location.hash === dependencies.ORIGINAL_HASH) return true;
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "HARMONOVA_TAB_MODE" }, (response) => {
-        resolve(Boolean(response?.original));
-      });
-    });
+    const response = await runtimeMessage({ type: "HARMONOVA_TAB_MODE" });
+    return Boolean(response?.original);
   }
 
   const pendingSettings={};

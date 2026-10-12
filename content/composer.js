@@ -42,7 +42,8 @@ const draftClear = async (composer) => {
 const draftClearAll = (username) => new Promise((resolve) => {
   if (!username) return resolve(true);
   if (dependencies.INCOGNITO) return resolve(dependencies.privateReader.clearAccountDrafts(username).ok);
-  chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL", username }, (response) => resolve(!chrome.runtime.lastError && response?.ok === true));
+  void dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL", username })
+    .then(response => resolve(response?.ok === true));
 });
 
 // SEC-36: destructive actions (delete comment) run only behind a real

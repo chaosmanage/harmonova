@@ -4,8 +4,7 @@
   const RELEASES='https://github.com/chaosmanage/harmonova/releases/latest';
   function create({app,settings,saveSettings,el}) {
     const valid=tag=>typeof tag==='string' && /^v?\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(tag);
-    const send=message=>new Promise(resolve=>
-      chrome.runtime.sendMessage(message,response=>resolve(chrome.runtime.lastError?null:response)));
+    const send=HarmoNovaContentRuntime.send;
     async function ignore(tag) {
       await send({type:'HARMONOVA_RELEASE_IGNORE',tag});
       document.querySelector('.harmonova-release-notice')?.remove();
@@ -46,10 +45,10 @@
         if(response?.ok&&response.available&&valid(response.tag))show(response.tag);
       });
     }
-    chrome.runtime.onMessage.addListener((message,sender)=>{
+    try { chrome.runtime.onMessage.addListener((message,sender)=>{
       if(sender.id===chrome.runtime.id&&message?.type==='HARMONOVA_RELEASE_AVAILABLE')
         refresh();
-    });
+    }); } catch (error) { HarmoNovaContentRuntime.handleError(error); }
     refresh();
     return {refresh};
   }

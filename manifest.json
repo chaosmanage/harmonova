@@ -45,6 +45,7 @@
         "hn-session.js",
         "hn-search.js",
         "incognito-state.js",
+        "content/runtime.js",
         "content/state.js",
         "content/composer.js",
         "content/settings.js",

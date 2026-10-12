@@ -187,7 +187,8 @@
     const aiSection = dependencies.el("div", "settings-section ai-settings-section");
     const aiFrame = dependencies.el("iframe", "ai-settings-frame");
     aiFrame.title = "Secure AI and preview preferences";
-    aiFrame.src = chrome.runtime.getURL("ai-settings.html");
+    const aiFrameUrl = HarmoNovaContentRuntime.getURL("ai-settings.html");
+    if (aiFrameUrl) aiFrame.src = aiFrameUrl;
     aiFrame.setAttribute("referrerpolicy", "no-referrer");
     aiFrame.setAttribute("loading", "lazy");
     aiSection.append(
@@ -195,7 +196,7 @@
       dependencies.el("p", "settings-note ai-settings-intro", "Control article and discussion summaries, OpenRouter access, and website previews here. Credentials and consent stay inside HarmoNova’s secure extension panel."),
       ...(dependencies.INCOGNITO
         ? [dependencies.el("p", "settings-note", "AI and external previews are unavailable in private tabs. Configure these preferences from a normal HarmoNova tab.")]
-        : [aiFrame])
+        : aiFrameUrl ? [aiFrame] : [])
     );
 
     const behaviorSection = dependencies.el("div", "settings-section");

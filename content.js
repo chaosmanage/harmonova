@@ -292,7 +292,7 @@ function openFeedMenu(anchor) {
 
   function openOriginalHackerNews(path) {
     const url = "https://news.ycombinator.com" + path;
-    chrome.runtime.sendMessage({ type: "HARMONOVA_OPEN_ORIGINAL", url }, (response) => {
+    void HarmoNovaContentRuntime.send({ type: "HARMONOVA_OPEN_ORIGINAL", url }).then((response) => {
       if (response?.ok) return;
       showToast("Could not open this page on Hacker News.");
     });
@@ -524,7 +524,7 @@ function openFeedMenu(anchor) {
   },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","seenTimes","settings","thread","userTags"]));
   function openSettings(...args){return settingsUI.openSettings(...args);}
   function handleSettingsHash(...args){return settingsUI.handleSettingsHash(...args);}
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  try { chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if(message?.type==="HARMONOVA_PREFERENCES_SNAPSHOT") {
       if(INCOGNITO || sender?.id!==chrome.runtime.id || message.value?.version!==1)return;
       const settings=HarmoNovaSettingsSchema.normalize(message.value.settings);
@@ -553,7 +553,7 @@ function openFeedMenu(anchor) {
     }
     openSettings();
     sendResponse({ ok: true });
-  });
+  }); } catch (error) { HarmoNovaContentRuntime.handleError(error); }
 
   // Resolve bundled font URLs from Chrome's extension origin, not the HN page.
   // Best-effort unload flush. The browser may discard in-flight extension
@@ -570,9 +570,15 @@ function openFeedMenu(anchor) {
   });
 
   function installRoundedFont() {
-    if (document.getElementById("harmonova-rounded-fonts")) return;
-    const normal = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-wght.ttf");
-    const italic = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-Italic-wght.ttf");
+    if (document.getElementById("harmonova-rounded-fonts")) return true;
+    let normal, italic;
+    try {
+      normal = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-wght.ttf");
+      italic = chrome.runtime.getURL("fonts/GoogleSansFlexRounded-Italic-wght.ttf");
+    } catch (error) {
+      HarmoNovaContentRuntime.handleError(error);
+      return false;
+    }
     const sheet = document.createElement("style");
     sheet.id = "harmonova-rounded-fonts";
     sheet.textContent = `
@@ -580,10 +586,11 @@ function openFeedMenu(anchor) {
       @font-face {font-family:"Google Sans Flex Rounded";src:url("${italic}") format("truetype");font-style:italic;font-weight:100 900;font-display:swap;}
     `;
     (document.head || document.documentElement).appendChild(sheet);
+    return true;
   }
 
   function mount() {
-    installRoundedFont();
+    if (HarmoNovaContentRuntime.invalidated || !installRoundedFont()) return;
     document.body.className = "harmonova-body";
     document.body.replaceChildren();
     app = domUI.el("div", "harmonova-app");
