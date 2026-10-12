@@ -38,6 +38,8 @@ test("P02 rejects malformed fields and unknown operations before side effects", 
     { type: "HARMONOVA_SET_BOOKMARK", id: -1, desired: true },
     { type: "HARMONOVA_SET_BOOKMARK", id: 2, desired: true, userGesture: true },
     { type: "HARMONOVA_MARK_READ", id: [1,2] },
+    { type: "HARMONOVA_MARK_UNREAD", id: -1 },
+    { type: "HARMONOVA_MARK_UNREAD", id: 5, desired: false },
     { type: "HARMONOVA_DRAFT_SET", parentId: 3, username: "alice", text: "a".repeat(20001) },
     { type: "HARMONOVA_DRAFT_SET", parentId: "3", username: "alice", text: "a" },
     { type: "HARMONOVA_DRAFT_SET", parentId: 3, username: {}, text: "a" },
@@ -69,7 +71,7 @@ test("P02 permits normal reader snapshots but refuses all private persistence", 
   assert.equal((await invoke(listeners, { type: "HARMONOVA_SET_BOOKMARK", id: 5, desired: true })).ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1?.bookmarks)), [5]);
   const privateSender = sender({ tab: { ...good.tab, incognito: true } });
-  for (const type of ["HARMONOVA_SET_BOOKMARK", "HARMONOVA_MARK_READ",
+  for (const type of ["HARMONOVA_SET_BOOKMARK", "HARMONOVA_MARK_READ", "HARMONOVA_MARK_UNREAD",
     "HARMONOVA_DRAFT_SET", "HARMONOVA_DRAFT_GET", "HARMONOVA_LOCAL_STATE_GET"]) {
     const result = await invoke(listeners, { type, ids: [9], username: "alice",
       parentId: 3, text: "private" }, privateSender);

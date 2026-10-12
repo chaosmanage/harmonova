@@ -169,8 +169,8 @@ export const runBrowserTests = async () => {
     const cdp=await context.newCDPSession(page);let versions=[];
     cdp.on('ServiceWorker.workerVersionUpdated',event=>{versions=event.versions;});
     await cdp.send('ServiceWorker.enable');
-    for(let i=0;i<100&&!versions.some(v=>v.scriptURL===`chrome-extension://${extensionId}/background.js`&&v.runningStatus==='running');i++)await page.waitForTimeout(50);
-    const active=versions.find(v=>v.scriptURL===`chrome-extension://${extensionId}/background.js`&&v.runningStatus==='running');assert.ok(active);
+    for(let i=0;i<100&&!versions.some(v=>v.scriptURL===`chrome-extension://${extensionId}/src/background.js`&&v.runningStatus==='running');i++)await page.waitForTimeout(50);
+    const active=versions.find(v=>v.scriptURL===`chrome-extension://${extensionId}/src/background.js`&&v.runningStatus==='running');assert.ok(active);
     await cdp.send('ServiceWorker.stopWorker',{versionId:active.versionId});
     await policyPage.reload();await policyPage.waitForFunction(()=>!document.querySelector('#key-status').textContent.includes('Checking'));
     await page.reload();await page.locator('.story-card').first().waitFor();

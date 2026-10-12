@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Development](DEVELOPMENT.md) · [Privacy](PRIVACY.md)
 
-HarmoNova is a classic-script Manifest V3 extension with no runtime npm dependencies, build framework, or project backend. The manifest orders isolated-world module definitions before `content.js`; `background.js` loads worker definitions with `importScripts()`. Entry points compose explicit dependencies and restricted field facades. Runtime modules are not web-accessible; only the two bundled font files are exposed to HN.
+HarmoNova is a classic-script Manifest V3 extension with no runtime npm dependencies, build framework, or project backend. The root `manifest.json` orders isolated-world module definitions in `src/content/` before `src/content.js`; `src/background.js` loads definitions from `src/worker/` with `importScripts()`. CSS, the runtime entry points, and policy modules live in `src/`, while the root retains the manifest, extension HTML and project metadata. Entry points compose explicit dependencies and restricted field facades. Privileged worker modules are not web-accessible; the bundled fonts and tightly scoped extension settings resources are available to the Hacker News page for its embedded Settings iframe.
 
 ```mermaid
 flowchart TD

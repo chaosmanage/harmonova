@@ -4,7 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { loadBackground } from "./helpers/worker.mjs";
 
-const source = fs.readFileSync(new URL("../incognito-state.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../src/incognito-state.js", import.meta.url), "utf8");
 const extensionId = "test-extension-id";
 const HN = "https://news.ycombinator.com/news";
 function privateSender(windowId = 44) {
@@ -33,6 +33,8 @@ test("P06 private reader data and drafts live only for this document", () => {
   assert.equal(privateA.saveDraft("alice", 6, old.token, 0, "private-only").ok, true);
   assert.equal(privateA.beginDraft("alice", 6).text, "private-only");
   assert.deepEqual([...privateA.snapshot().readStoryIds], [9, 11]);
+  privateA.markUnread(9);
+  assert.deepEqual([...privateA.snapshot().readStoryIds], [11]);
   assert.deepEqual([...privateA.snapshot().harmonovaBookmarks], [8, 10]);
   assert.equal(privateA.snapshot().userTags.alice, "private tag");
   const privateB = newPrivateStore();
@@ -67,6 +69,7 @@ test("P06 private sender cannot access normal storage, preview or AI port", asyn
   const attempts = [
     {type:"HARMONOVA_LOCAL_STATE_GET"},
     {type:"HARMONOVA_MARK_READ",id:2},
+    {type:"HARMONOVA_MARK_UNREAD",id:2},
     {type:"HARMONOVA_SET_BOOKMARK",id:2,desired:true},
     {type:"HARMONOVA_IMPORT_READER_DATA",data:{bookmarks:[4],readStoryIds:[7]}},
     {type:"HARMONOVA_MIGRATE_PAGE_DATA",data:{}},
@@ -116,8 +119,8 @@ test("P06 private original-HN handoff uses the sender incognito window", async (
 test("P06 source declares spanning and private module; browser gate separate", () => {
   const manifest = JSON.parse(fs.readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
   assert.equal(manifest.incognito,"spanning");
-  assert.ok(manifest.content_scripts[0].js.includes("incognito-state.js"));
-  assert.ok(!manifest.web_accessible_resources.some(entry => entry.resources.includes("incognito-state.js")));
+  assert.ok(manifest.content_scripts[0].js.includes("src/incognito-state.js"));
+  assert.ok(!manifest.web_accessible_resources.some(entry => entry.resources.includes("src/incognito-state.js")));
 });
 
 test('P10 private cosmetic snapshot does not migrate or write legacy normal stores',async()=> {

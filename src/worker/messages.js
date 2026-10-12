@@ -39,6 +39,7 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
       readStoryIds: record.readIds, harmonovaBookmarks: record.bookmarks,
       userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
   if (message.type === "HARMONOVA_MARK_READ") return reply(dependencies.readerStore.markRead(message.id));
+  if (message.type === "HARMONOVA_MARK_UNREAD") return reply(dependencies.readerStore.markUnread(message.id));
   if (message.type === "HARMONOVA_SET_BOOKMARK") return reply(dependencies.readerStore.setBookmark(message.id, message.desired));
   if (message.type === "HARMONOVA_IMPORT_READER_DATA") return reply(dependencies.readerStore.importData(message.data));
   if (message.type === "HARMONOVA_MIGRATE_PAGE_DATA") return reply(dependencies.readerStore.migratePageData(message.data));

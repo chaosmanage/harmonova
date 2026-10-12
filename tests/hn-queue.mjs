@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 const c=vm.createContext({AbortController,Promise,Date,setTimeout,clearTimeout});
-vm.runInContext(fs.readFileSync(new URL('../hn-queue.js',import.meta.url),'utf8'),c);
+vm.runInContext(fs.readFileSync(new URL('../src/hn-queue.js',import.meta.url),'utf8'),c);
 const options={operationKind:'read',expectedIdentity:'alice:1',timeoutMs:25};
 const make=(execute,extra={})=>c.HarmoNovaHnQueue.create({execute,identity:()=> 'alice:1',now:()=>Date.now()+100000,sleep:async()=>{},...extra});
 test('P11 hung request releases queue; ambiguous mutation is sent once',async()=> {
@@ -30,7 +30,7 @@ test('P11 pending queue is bounded, cancellation removes jobs and dispose releas
   await assert.rejects(read,e=>e.code==='REQUEST_CANCELLED');assert.equal(canceled.depth,0);canceled.dispose();await hold;
 });
 test('P11 disposal and deep/large public data fail without recursively rendering',async()=> {
-  const realm=vm.createContext({AbortController});vm.runInContext(fs.readFileSync(new URL('../lifecycle.js',import.meta.url),'utf8'),realm);
+  const realm=vm.createContext({AbortController});vm.runInContext(fs.readFileSync(new URL('../src/lifecycle.js',import.meta.url),'utf8'),realm);
   const module=realm.HarmoNovaLifecycle;const scope=module.create();let cleaned=0;scope.own(()=>cleaned++);scope.dispose();scope.dispose();assert.equal(cleaned,1);assert.equal(scope.signal.aborted,true);
   let tree={children:[]};for(let i=0;i<70;i++)tree={children:[tree]};assert.throws(()=>module.validateTree(tree),/deeply/);
   assert.throws(()=>module.validateTree(new Array(5001)),/Too many/);

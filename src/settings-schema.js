@@ -44,8 +44,6 @@
     faviconProvider: "google",
     // Phase 7 part 3 (0.12.2): links & appearance
     richPreviews: true,
-    nitterRedirect: false,
-    nitterInstance: "nitter.net",
     uiTheme: "amoled",
     uiFont: "rounded",
   });
@@ -62,7 +60,7 @@
     if(typeof defaults[key]==='boolean')return typeof value==='boolean';
     if(key==='feedOrder'||key==='feedHidden')return Array.isArray(value)&&value.length<=feeds.length&&value.every(v=>feeds.includes(v));
     if(key==='frontDate')return typeof value==='string' && (value==='' || /^\d{4}-\d{2}-\d{2}$/.test(value));
-    if(typeof defaults[key]==='string')return typeof value==='string'&&new TextEncoder().encode(value).byteLength<=(key==='nitterInstance'?255:2000);
+    if(typeof defaults[key]==='string')return typeof value==='string'&&new TextEncoder().encode(value).byteLength<=2000;
     return false;
   }
   function normalize(value,complete=true) {

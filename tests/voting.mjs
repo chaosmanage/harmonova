@@ -354,6 +354,19 @@ await test("signed-in account menu lists profile destinations and logout", async
   }
 });
 
+await test("Settings Account keeps the same actions as the toolbar", async ({ page }) => {
+  await gotoFeed(page);
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: 'Settings' }).click();
+  await page.locator('.settings-category', { hasText: 'Account' }).click();
+  assert.match(await page.locator('.settings-section:not([hidden]) .settings-note').first().innerText(), /harmonic_test|512 karma/);
+  const buttons = await page.locator('.settings-account-actions button').allTextContents();
+  assert.deepEqual(buttons, ['Profile','Threads','Upvoted','Favorites','Submissions','Hidden','Log out']);
+  await page.locator('.settings-account-actions button', { hasText: 'Upvoted' }).click();
+  await page.locator('.settings-overlay').waitFor({ state: 'detached' });
+  await page.locator('.list-view-header h2').getByText('Your upvoted').waitFor();
+});
+
 await test("logout through the chip fetches, never navigates to /logout, and reloads signed out", async ({ page, hn }) => {
   await gotoFeed(page);
   // Mock invalidates HN session on the actual /logout request, not before click.

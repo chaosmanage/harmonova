@@ -72,6 +72,12 @@
       state.readIds = cappedIds([...state.readIds, id], 1500);
       return { changed: true };
     });
+    const markUnread = id => mutateState(state => {
+      if (!validId(id)) throw new Error("INVALID_ID");
+      if (!state.readIds.includes(id)) return { ok: true, changed: false };
+      state.readIds = state.readIds.filter(item => item !== id);
+      return { changed: true };
+    });
     const setBookmark = (id, desired) => mutateState(state => {
       if (!validId(id) || typeof desired !== "boolean") throw new Error("INVALID_BOOKMARK");
       const present = state.bookmarks.includes(id);
@@ -235,7 +241,7 @@
       await sessionSet({ [TAB_KEY]: retained });
       return { ok: true, tabs: retained };
     });
-    return Object.freeze({ stateSnapshot, markRead, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
+    return Object.freeze({ stateSnapshot, markRead, markUnread, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
       beginDraft, saveDraft, clearDraft, clearAccountDrafts, retireDraft,
       getOriginalTabs, setOriginalTab, reconcileOriginalTabs });
   }

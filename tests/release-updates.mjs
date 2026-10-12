@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context=vm.createContext({AbortSignal,TextDecoder});
-vm.runInContext(fs.readFileSync(new URL('../release-updates.js',import.meta.url),'utf8'),context);
+vm.runInContext(fs.readFileSync(new URL('../src/release-updates.js',import.meta.url),'utf8'),context);
 const {create,newer}=context.HarmoNovaReleaseUpdates;
 test('GitHub versions compare numerically and reject invalid versions',()=>{
   assert.equal(newer('v0.15.0','0.14.9'),true);

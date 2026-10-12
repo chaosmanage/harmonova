@@ -54,36 +54,7 @@
   // SEC-41: every external link resolves through safeHref, falling back to the HN item.
   const articleHref = (story) => safeHref(story?.url) || "https://news.ycombinator.com/item?id=" + story.id;
 
-  // Phase 7 part 3: optional Nitter redirect for X/Twitter links.
-  const NITTER_HOSTS = new Set(["twitter.com", "www.twitter.com", "mobile.twitter.com", "m.twitter.com", "x.com", "www.x.com"]);
-  const nitterInstanceHost = () => {
-    const raw = String(model.settings.nitterInstance || "nitter.net").trim().replace(/^https?:\/\//i, "").replace(/[\/?#].*$/, "");
-    return /^[a-z0-9][a-z0-9.-]{2,79}$/i.test(raw) ? raw.toLowerCase() : null;
-  };
-  const nitterize = (href) => {
-    if (!model.settings.nitterRedirect || typeof href !== "string") return href;
-    try {
-      const url = new URL(href);
-      if (!NITTER_HOSTS.has(url.hostname)) return href;
-      // An unparseable instance falls back to the default rather than dropping the redirect.
-      const instance = nitterInstanceHost() || "nitter.net";
-      return "https://" + instance + url.pathname + url.search + url.hash;
-    } catch {
-      return href;
-    }
-  };
-  // Anchors remember the un-rewritten article URL so a settings change can
-  // refresh every visible link without re-rendering the feed.
-  const setStoryLink = (anchor, story) => {
-    const raw = articleHref(story);
-    anchor.dataset.rawHref = raw;
-    anchor.href = nitterize(raw);
-  };
-  const refreshStoryLinks = () => {
-    document.querySelectorAll("a[data-raw-href]").forEach((anchor) => {
-      anchor.href = nitterize(anchor.dataset.rawHref);
-    });
-  };
+  const setStoryLink = (anchor, story) => { anchor.href = articleHref(story); };
   // "View on archive": the article URL on the Wayback Machine (never HN fallbacks).
   const archiveHref = (story) => {
     const raw = safeHref(story?.url);
@@ -103,10 +74,7 @@ get hashTint(){return hashTint;},
 get safeHref(){return safeHref;},
 get safeImageSrc(){return safeImageSrc;},
 get articleHref(){return articleHref;},
-get nitterInstanceHost(){return nitterInstanceHost;},
-get nitterize(){return nitterize;},
 get setStoryLink(){return setStoryLink;},
-get refreshStoryLinks(){return refreshStoryLinks;},
 get archiveHref(){return archiveHref;},
 get openArchive(){return openArchive;}});
   }

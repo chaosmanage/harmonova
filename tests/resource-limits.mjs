@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
 import vm from "node:vm";
-const script = fs.readFileSync(new URL("../resource-policy.js", import.meta.url), "utf8");
+const script = fs.readFileSync(new URL("../src/resource-policy.js", import.meta.url), "utf8");
 const realm = vm.createContext({ URL, ArrayBuffer, TextEncoder, TextDecoder, Date, Promise, console,
   Uint8Array, Set, Map, AbortController, setTimeout, clearTimeout, ReadableStream });
 vm.runInContext(script, realm);

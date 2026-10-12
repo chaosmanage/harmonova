@@ -40,8 +40,9 @@
       event.stopPropagation();
       dependencies.openPopup(card, [
         { label: "Open discussion", icon: "comment", action: (event) => dependencies.selectStory(story, true, true, event) },
-        ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(dependencies.nitterize(dependencies.articleHref(story)), "_blank", "noopener") }] : []),
+        ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(dependencies.articleHref(story), "_blank", "noopener") }] : []),
         ...(dependencies.archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => dependencies.openArchive(story) }] : []),
+        ...(model.readIds.has(story.id) ? [{ label: "Mark as unread", icon: "eyeOff", action: () => dependencies.markUnread(story.id) }] : []),
         { label: model.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
         ...(window.HarmoNovaHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => dependencies.hideFromFeed(e, story.id) }] : []),
         ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => dependencies.hideDomain(story) }] : []),

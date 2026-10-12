@@ -31,6 +31,8 @@
     HARMONOVA_LOCAL_STATE_GET: { from: ["hn"], fields: [], reader: true },
     HARMONOVA_MARK_READ: { from: ["hn"], fields: ["id"], reader: true,
       valid: m => id(m.id) },
+    HARMONOVA_MARK_UNREAD: { from: ["hn"], fields: ["id"], reader: true,
+      valid: m => id(m.id) },
     HARMONOVA_SET_BOOKMARK: { from: ["hn"], fields: ["id", "desired"], reader: true,
       valid: m => id(m.id) && typeof m.desired === "boolean" },
     HARMONOVA_IMPORT_READER_DATA: { from: ["hn"], fields: ["data"], reader: true,

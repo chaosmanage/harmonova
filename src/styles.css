@@ -1997,3 +1997,7 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
   font-weight: 600;
   cursor: pointer;
 }
+
+.settings-account-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+.settings-account-action{width:100%;text-align:left}
+@media(max-width:430px){.settings-account-actions{grid-template-columns:1fr}}

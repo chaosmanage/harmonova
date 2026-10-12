@@ -1,5 +1,8 @@
 name: Offline security and release gate
-on: [push, pull_request, workflow_dispatch]
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
 concurrency:
   group: offline-security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -23,6 +26,7 @@ jobs:
           npx playwright-core install --with-deps chromium
           node -e 'console.log("CHROMIUM_PATH="+require("playwright-core").chromium.executablePath())' >> "$GITHUB_ENV"
       - run: npm test
+      - run: npm run test:extended
       - run: npm run test:package
       - run: npm audit
       - run: git diff --check

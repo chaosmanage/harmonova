@@ -15,8 +15,7 @@
       await dependencies.saveSettings(key);
       dependencies.applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
-      if (model.thread && ["markNewComments", "hideDelayed", "showAvatars", "nitterRedirect", "richPreviews"].includes(key)) dependencies.renderThread(model.thread);
-      if (key === "nitterRedirect" || key === "nitterInstance") dependencies.refreshStoryLinks();
+      if (model.thread && ["markNewComments", "hideDelayed", "showAvatars", "richPreviews"].includes(key)) dependencies.renderThread(model.thread);
     });
     row.append(text, input);
     return row;
@@ -174,14 +173,7 @@
     linksSection.append(
       dependencies.el("h3", "", "Links"),
       settingToggle("Rich link previews", "richPreviews", "Show website metadata and provider facts in link previews"),
-      settingToggle("Open X/Twitter links via Nitter", "nitterRedirect", "Rewrite twitter.com and x.com links (story titles and comment links) to a Nitter instance"),
-      settingText("Nitter instance", "nitterInstance", "Bare hostname only, e.g. nitter.net", {
-        onChange: () => {
-          dependencies.refreshStoryLinks();
-          if (model.settings.nitterInstance && !dependencies.nitterInstanceHost()) dependencies.showToast("That doesn't look like a hostname — Nitter links keep the default");
-        },
-      }),
-      dependencies.el("p", "settings-note", "Website previews are enabled by default and can be controlled under AI Summarization. Sites that block metadata or images use placeholders. Nitter links open the instance you select.")
+      dependencies.el("p", "settings-note", "Website previews are enabled by default and can be controlled under AI Summarization. Sites that block metadata or images use placeholders.")
     );
 
     const aiSection = dependencies.el("div", "settings-section ai-settings-section");
@@ -208,16 +200,27 @@
       dependencies.el("p", "settings-note", "By default, clicking a story card opens the article and its comments button opens the discussion. Turn off card clicks to use only the explicit title and comments controls.")
     );
 
-    // Phase 1: Account explainer. HarmoNova has no password field (SEC-01);
-    // sign-in happens on Hacker News's own page and the session lives in
-    // Hacker News's cookie.
+    // Reuse the account chip's actions; both entry points remain available.
+    // Authentication still happens exclusively on Hacker News.
     const session = window.HarmoNovaHN?.session?.() || null;
     const accountSection = dependencies.el("div", "settings-section");
+    const accountActions = dependencies.el("div", "settings-account-actions");
+    for (const item of dependencies.accountActions()) {
+      const action = dependencies.el("button", "setting-button settings-account-action", item.label);
+      action.type = "button";
+      action.addEventListener("click", async (event) => {
+        if (!event.isTrusted || !await dependencies.flushSettings()) return;
+        overlay.remove();
+        item.action(event);
+      });
+      accountActions.appendChild(action);
+    }
     accountSection.append(
       dependencies.el("h3", "", "Account"),
       dependencies.el("p", "settings-note", session?.username
-        ? "Signed in to Hacker News as " + session.username + (session.karma !== null && session.karma !== undefined ? " (" + dependencies.compact(session.karma) + " karma)" : "") + ". Use the account chip in the toolbar to open your profile or log out."
-        : "Not signed in to Hacker News. Use the Log in chip in the toolbar — sign-in happens on Hacker News's own page in this tab."),
+        ? "Signed in to Hacker News as " + session.username + (session.karma != null ? " (" + dependencies.compact(session.karma) + " karma)" : "") + "."
+        : "Not signed in to Hacker News. Sign-in happens on Hacker News's own page in this tab."),
+      accountActions,
       dependencies.el("p", "settings-note", "HarmoNova never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, HarmoNova sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach HarmoNova's storage or sync.")
     );
 
