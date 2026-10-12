@@ -26,7 +26,7 @@ jobs:
           npx playwright-core install --with-deps chromium
           node -e 'console.log("CHROMIUM_PATH="+require("playwright-core").chromium.executablePath())' >> "$GITHUB_ENV"
       - run: npm test
-      - run: npm run test:extended
-      - run: npm run test:package
+      - run: npm run package
+      - run: npm run check:package
       - run: npm audit
       - run: git diff --check

@@ -47,6 +47,7 @@ function accountActions() {
     { label: "Create account", icon: "external", action: goToLogin },
   ];
   return [
+    { label: "New post", icon: "plus", action: startNewPost },
     { label: "Profile", icon: "user", action: () => openUserPanel(session.username) },
     { label: "Threads", icon: "comment", action: () => openListView("threads") },
     { label: "Upvoted", icon: "up", action: () => openListView("upvoted") },

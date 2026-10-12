@@ -13,8 +13,9 @@ npm ci
 npx playwright-core install --with-deps chromium
 export CHROMIUM_PATH="$(node -p 'require("playwright-core").chromium.executablePath()')"
 npm test                # fast: validation, unit tests, four browser suites
-npm run test:extended   # release-only extra browser coverage
-npm run test:package    # packaged ZIP parity and browser smoke
+npm run package         # build the release ZIP
+npm run check:package   # package allowlist, runtime references and exact ZIP byte parity
+npm run test:extended   # optional manual compatibility diagnostics
 npm audit
 git diff --check
 ```
@@ -23,7 +24,7 @@ The full Chromium persistent profile supports extension loading; the helper expl
 
 The normal `npm test` gate runs syntax, lint, recursive fixture scanning, all Node tests and four focused browser suites: `security-browser`, `voting`, `links`, and `settings-sidebar-browser`. This is the default development gate; it avoids the former 26 sequential Chromium launches (about 20 minutes). The fast browser gate was measured at 81 seconds on the VPS, while 98 Node tests ran in under six seconds before the latest unread additions. `npm run test:unit` and `npm run test:browser` run just the corresponding tier.
 
-`npm run test:extended` runs six additional non-overlapping suites for broader release coverage (authentication, profile, migration, incognito, network boundaries, and other compatibility paths). `npm run test:full` remains an explicitly opt-in legacy 26-browser-suite diagnostic. Neither is necessary on every edit. Each suite has a ten-minute process-group timeout, isolated synthetic profile, sanitized diagnostic log, and no retries; failures are never ignored. `npm run test:security:browser` is also available for focused security checks.
+`npm run test:extended` runs six additional suites for optional manual compatibility coverage (authentication, profile, migration, incognito, network boundaries, and other compatibility paths). `npm run test:full` remains an explicitly opt-in legacy 26-browser-suite diagnostic. Neither is necessary on every edit. Each suite has a ten-minute process-group timeout, isolated synthetic profile, sanitized diagnostic log, and no retries; failures are never ignored. `npm run test:security:browser` is also available for focused security checks.
 
 `npm run test:package` builds `dist/harmonova` and its versioned ZIP, runs `check:package`, then runs exactly the same browser entry points with `EXTENSION_PATH` pointing to the release and `TEST_OUTPUT_DIR=test-results-packaged`. The checker verifies the explicit copy allowlist, every runtime reference, all source/release/ZIP bytes and credential patterns. Fixtures, plans, audit reports, tooling and node_modules are excluded. Run `npm run check:package` to inspect an existing package.
 
@@ -37,4 +38,4 @@ Live suites are excluded from all offline automation. `npm run test:live` and `n
 
 Do not commit raw HN captures, keys, cookies, form tokens or private drafts. Use forward migration fixes; keep source data until the target write is acknowledged. Refuse unknown newer schemas rather than deleting or downgrading them. Rollback should disable previews/AI while retaining HN reading; never restore redirect following or direct remote images. Export normal reader data before evaluating an older schema.
 
-GitHub Actions runs only when a release is published or the workflow is manually dispatched: there is no push or pull-request trigger. It runs the fast gate, non-overlapping extended suites, then the packaged smoke gate. CI uses pinned checkout/setup-node action commits, read-only repository permissions, no production credentials and a job timeout. It provisions the locked browser, runs source and release gates, and audits dependencies. A package or permission change requires the same complete release checks.
+GitHub Actions runs only when a release is published or the workflow is manually dispatched: there is no push or pull-request trigger. It runs the fast source gate and builds and validates the exact packaged ZIP, without repeating the browser smoke under a second profile. CI uses pinned checkout/setup-node action commits, read-only repository permissions, no production credentials and a job timeout. It provisions the locked browser, runs source and package gates, and audits dependencies. A package or permission change requires the same complete release checks.
