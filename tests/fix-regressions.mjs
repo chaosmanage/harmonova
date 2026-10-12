@@ -1,5 +1,5 @@
 // Chromium regression for the real HN js=t vote protocol and delayed Algolia comments.
-import { chromium } from "playwright-core";
+import { launchExtension } from "./helpers/extension.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -29,11 +29,8 @@ function hnItem() {
   return html;
 }
 
-const ctx = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true, viewport: { width: 1440, height: 900 },
-  args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-extensions-except=" + root, "--load-extension=" + root],
-});
+const harness = await launchExtension();
+const ctx = harness.context;
 const page = await ctx.newPage();
 const pageErrors = [];
 page.on("pageerror", e => pageErrors.push(e.message));
@@ -117,5 +114,6 @@ try {
   await fs.promises.mkdir(path.join(root, "test-results"), { recursive: true });
   await page.screenshot({ path: path.join(root, "test-results", "fix-regression-thread.png") });
 } finally {
-  await ctx.close();
+  harness.assertOffline();
+await harness.close();
 }

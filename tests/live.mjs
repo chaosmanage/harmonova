@@ -1,3 +1,4 @@
+if(process.env.HARMONOVA_ALLOW_LIVE !== "1") throw new Error("Live suite requires explicit HARMONOVA_ALLOW_LIVE=1");
 // HarmoNova LIVE smoke test: drives the real Chromium extension against the
 // REAL Hacker News with a real account. Gated behind environment variables —
 // without them the suite exits cleanly with a skip note. Credentials are read

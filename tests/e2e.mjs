@@ -1,3 +1,4 @@
+if(process.env.HARMONOVA_ALLOW_LIVE !== "1") throw new Error("Live suite requires explicit HARMONOVA_ALLOW_LIVE=1");
 import { chromium } from "playwright-core";
 import path from "node:path";
 import fs from "node:fs";

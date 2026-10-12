@@ -63,26 +63,32 @@ test('P01 transport fixes caller overrides and rejects opaque/readable redirects
       assert.equal(init.redirect, 'error'); assert.equal(init.credentials, 'omit'); assert.equal(init.referrerPolicy, 'no-referrer');
       return response;
     });
-    await assert.rejects(() => worker.fetchPolicy('https://example.com/', { redirect: 'follow', credentials: 'include', referrerPolicy: 'unsafe-url' }), error => error.message === 'REMOTE_FETCH_BLOCKED' && error.code === 'REMOTE_FETCH_BLOCKED');
+    await assert.rejects(() => worker.fetchPolicy('https://api.github.com/repos/fixture/direct', { resourceKind:'richJson', redirect: 'follow', credentials: 'include', referrerPolicy: 'unsafe-url' }), error => error.message === 'REMOTE_FETCH_BLOCKED' && error.code === 'REMOTE_FETCH_BLOCKED');
     assert.equal(calls, 1);
   }
   for (const message of ['Failed to fetch', 'Redirect disallowed', 'sensitive arbitrary network detail']) {
     const worker = load(async () => { throw new TypeError(message); });
-    await assert.rejects(() => worker.fetchPolicy('https://example.com/'), error => error.message === 'REMOTE_FETCH_BLOCKED');
+    await assert.rejects(() => worker.fetchPolicy('https://api.github.com/repos/fixture/direct',{resourceKind:'richJson'}), error => error.message === 'REMOTE_FETCH_BLOCKED');
   }
 });
 
-test('P01 article, metadata, rich preview and image paths never follow redirects', async () => {
-  for (const operation of ['article','metadata','rich','image']) {
-    const calls = [];
-    const worker = load(async (url, init) => { calls.push(init); return opaqueRedirect(); });
-    if (operation === 'article') await assert.rejects(() => worker.fetchArticleText('https://example.com/'), /REMOTE_FETCH_BLOCKED/);
-    if (operation === 'metadata') assert.equal((await worker.getMetadata('https://example.com/')).image, null);
-    if (operation === 'rich') await worker.getRichPreview('https://github.com/user/repo');
-    if (operation === 'image') assert.equal(await worker.imageTint('https://example.com/image'), null);
-    assert.ok(calls.length > 0, operation);
-    for (const init of calls) { assert.equal(init.redirect, 'error'); assert.equal(init.credentials, 'omit'); assert.equal(init.referrerPolicy, 'no-referrer'); }
+test('P01 provider article, metadata and image paths never follow redirects; arbitrary origins never reach fetch', async () => {
+  for (const operation of ['article','metadata','image']) {
+    const calls=[];
+    const worker=load(async (url,init)=>{calls.push(init);return opaqueRedirect();});
+    await worker.saveNetworkPolicy({version:1,externalPreviewsEnabled:true});
+    if(operation==='article')await assert.rejects(()=>worker.fetchArticleText('https://github.com/fixture/repo'),/Provider text unavailable/);
+    if(operation==='metadata')assert.equal((await worker.getMetadata('https://github.com/fixture/repo',true)).image,null);
+    if(operation==='image')assert.equal(await worker.imageTint('https://avatars.githubusercontent.com/u/1?v=4'),null);
+    assert.ok(calls.length>0,operation);
+    for(const init of calls){assert.equal(init.redirect,'error');assert.equal(init.credentials,'omit');assert.equal(init.referrerPolicy,'no-referrer');}
   }
+  let calls=0;const worker=load(async()=>{calls++;throw new Error('Unexpected');});
+  await worker.saveNetworkPolicy({version:1,externalPreviewsEnabled:true});
+  await assert.rejects(()=>worker.fetchArticleText('https://arbitrary.example/article'),/REMOTE_FETCH_BLOCKED/);
+  assert.equal((await worker.getMetadata('https://arbitrary.example/article',true)).image,null);
+  assert.equal(await worker.imageTint('https://arbitrary.example/image'),null);
+  assert.equal(calls,0);
 });
 
 test('P01 AI initial and empty-summary recovery POSTs share the external policy', async () => {
@@ -99,7 +105,7 @@ test('P01 AI initial and empty-summary recovery POSTs share the external policy'
     });
     await worker.saveAiKey('dummy', 'session');
     await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, allowEmptyRetry: true });
-    const summarize = () => worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, url: 'https://example.com/', model: 'openrouter/free', systemPrompt: 'Summarize', streamResponses: true }, new AbortController());
+    const summarize = () => worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, requestId:'fixture',source:'discussion',discussionText:'Public synthetic discussion sufficiently long for a summary.' }, new AbortController());
     if (redirectAt) await assert.rejects(summarize, /REMOTE_FETCH_BLOCKED/); else await summarize();
     assert.equal(posts, redirectAt === 1 ? 1 : 2);
   }

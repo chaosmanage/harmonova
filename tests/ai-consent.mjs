@@ -49,7 +49,7 @@ test("P03 configured discussion uses worker model and refuses caller overrides",
   const network = [], events = [];
   const { context, listeners } = loadBackground({ fetchImpl: async (url, init) => {
     network.push({ url, init });
-    return new Response(JSON.stringify({ choices: [{ message: { content: "- Authorized" } }] }));
+    return new Response(JSON.stringify({ choices: [{ message: { content: "- Authorized" } }] }), {headers:{"content-type":"application/json"}});
   }});
   await context.saveAiKey("dummy-auth-key", "session");
   assert.equal((await ask(listeners, { type: "HARMONOVA_AI_POLICY_SAVE",

@@ -6,9 +6,8 @@
   "scripts": {
     "test:reload": "node tests/reload.mjs",
     "test:ai": "node --test tests/ai-worker.mjs",
-    "test:e2e": "node tests/e2e.mjs",
     "test:security": "node --test tests/security.mjs",
-    "test:security:browser": "SECURITY_BROWSER_TESTS=1 EXTENSION_PATH=\"$PWD/dist/harmonova\" node tests/security.mjs",
+    "test:security:browser": "node tests/security-browser.mjs",
     "test:hn-parser": "node tests/hn-parser.mjs",
     "test:hn-auth": "node tests/hn-auth.mjs",
     "test:search": "node tests/search.mjs",
@@ -18,15 +17,22 @@
     "test:actions": "node tests/actions.mjs",
     "test:profile": "node tests/profile.mjs",
     "test:parity": "node tests/parity.mjs",
-    "test:live": "node tests/live.mjs",
+    "test:live": "HARMONOVA_ALLOW_LIVE=1 node tests/live.mjs",
     "package": "bash scripts/package.sh",
     "test:comment-parity": "node tests/comment-parity.mjs",
     "test:links": "node tests/links.mjs",
-    "test:harness": "node --test tests/harness.mjs"
+    "test:harness": "node --test tests/harness.mjs",
+    "test": "npm run check && node scripts/test-all.mjs",
+    "check": "node scripts/check-syntax.mjs && eslint . && node scripts/redact-fixtures.mjs --check",
+    "test:unit": "node scripts/test-all.mjs unit",
+    "test:browser": "node scripts/test-all.mjs browser",
+    "test:package": "npm run package && npm run check:package && EXTENSION_PATH=\"$PWD/dist/harmonova\" TEST_OUTPUT_DIR=\"$PWD/test-results-packaged\" npm run test:browser",
+    "check:package": "node scripts/check-package.mjs",
+    "test:live:e2e": "HARMONOVA_ALLOW_LIVE=1 node tests/e2e.mjs"
   },
   "devDependencies": {
     "eslint": "9.39.5",
     "eslint-plugin-promise": "7.2.1",
-    "playwright-core": "^1.55.1"
+    "playwright-core": "1.63.0"
   }
 }

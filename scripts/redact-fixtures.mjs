@@ -51,30 +51,29 @@ function main() {
   if (!files.length) console.log("no raw captures found in", rawDir);
 }
 
-function leakGuard() {
+function leakGuard(directory = path.join(repoRoot, "tests", "fixtures")) {
   const problems = [];
-  const files = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => f.endsWith(".html")) : [];
+  const walk = dir => fs.readdirSync(dir,{withFileTypes:true}).flatMap(e => e.name === "raw" ? [] : e.isDirectory() ? walk(path.join(dir,e.name)) : [path.join(dir,e.name)]);
+  const files = fs.existsSync(directory) ? walk(directory) : [];
   const placeholders = new Set([PLACEHOLDER_TOKEN_A, PLACEHOLDER_TOKEN_B]);
-  for (const file of files) {
-    const text = fs.readFileSync(path.join(outDir, file), "utf8");
-    const tokens = text.match(HEX40_PATTERN) || [];
-    for (const token of tokens) {
-      if (!placeholders.has(token)) problems.push(`${file}: non-placeholder 40-hex token ${token}`);
+  for (const absolute of files) {
+    const file = path.relative(directory,absolute);
+    const text = fs.readFileSync(absolute,"utf8");
+    for (const match of text.matchAll(HEX40_PATTERN)) {
+      if (!placeholders.has(match[0])) problems.push(`${file}: line ${text.slice(0,match.index).split("\n").length}: non-placeholder token`);
     }
-    const emails = text.match(EMAIL_PATTERN) || [];
-    for (const email of emails) {
-      if (!email.endsWith("@example.invalid")) problems.push(`${file}: unredacted email ${email}`);
+    for (const match of text.matchAll(EMAIL_PATTERN)) {
+      if (!match[0].endsWith("@example.invalid")) problems.push(`${file}: line ${text.slice(0,match.index).split("\n").length}: unredacted email`);
     }
-    for (const name of privateUsernames) {
-      if (name && text.includes(name)) problems.push(`${file}: private username leaked`);
-    }
+    if (/sk-or-v1-[A-Za-z0-9]{24,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) problems.push(`${file}: credential pattern`);
+    for (const name of privateUsernames) if (name && text.includes(name)) problems.push(`${file}: private username`);
   }
   return problems;
 }
 
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === url.fileURLToPath(import.meta.url);
 if (invokedDirectly) {
-  main();
+  if (!process.argv.includes("--check")) main();
   const problems = leakGuard();
   if (problems.length) {
     console.error("FIXTURE LEAK GUARD FAILED:");

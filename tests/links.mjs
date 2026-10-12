@@ -9,7 +9,7 @@
 // Route handlers are registered once and dispatch through a mutable
 // activeMocks object so per-test fixtures can never be shadowed by handlers
 // from earlier tests.
-import { chromium } from "playwright-core";
+import { launchExtension } from "./helpers/extension.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -121,7 +121,7 @@ function createDataMocks({ storyUrl, commentText }) {
       }
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [] }) });
     }
-    return route.continue();
+    return route.fallback();
   };
 }
 
@@ -210,23 +210,14 @@ const ARXIV_XML = () => [
 
 const TWEET_URL = "https://twitter.com/seabass/status/987654";
 
-const browser = await chromium.launchPersistentContext("", {
-  executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
-  headless: true,
-  viewport: { width: 1919, height: 872 },
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-extensions-except=" + extensionPath,
-    "--load-extension=" + extensionPath,
-  ],
-});
+const harness = await launchExtension();
+const browser = harness.context;
 
 let activeMocks = null;
 
 await browser.route("**/*", async (route) => {
   const parsed = new URL(route.request().url());
-  if (!activeMocks) return route.continue();
+  if (!activeMocks) return route.fallback();
   if (parsed.hostname === "news.ycombinator.com") return activeMocks.hn.handle(route);
   if (parsed.hostname === "hacker-news.firebaseio.com" || parsed.hostname === "hn.algolia.com") return activeMocks.data(route);
   for (const spec of activeMocks.providers) {
@@ -238,7 +229,7 @@ await browser.route("**/*", async (route) => {
   if (ARTICLE_HOSTS.includes(parsed.hostname)) {
     return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: GENERIC_HTML });
   }
-  return route.continue();
+  return route.fallback();
 });
 
 let passed = 0;
@@ -452,7 +443,8 @@ await test("default theme and font are AMOLED black + Google Sans Flex Rounded",
   assert.equal(bodyBg, "rgb(0, 0, 0)", "default body background is pure black");
 });
 
-await browser.close();
+harness.assertOffline();
+await harness.close();
 if (failed) {
   console.error(failed + " test(s) failed");
   for (const failure of failures) console.error(failure.stack || failure.message);
