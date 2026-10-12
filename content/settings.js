@@ -192,7 +192,7 @@
     const linksSection = dependencies.el("div", "settings-section");
     linksSection.append(
       dependencies.el("h3", "", "Links"),
-      settingToggle("Rich link previews", "richPreviews", "Fetch public GitHub, Wikipedia, and arXiv facts for matching articles and show them under the thread title"),
+      settingToggle("Rich link previews", "richPreviews", "Show supported provider facts when external previews are enabled in extension settings"),
       settingToggle("Open X/Twitter links via Nitter", "nitterRedirect", "Rewrite twitter.com and x.com links (story titles and comment links) to a Nitter instance"),
       settingText("Nitter instance", "nitterInstance", "Bare hostname only, e.g. nitter.net", {
         onChange: () => {
@@ -200,7 +200,7 @@
           if (model.settings.nitterInstance && !dependencies.nitterInstanceHost()) dependencies.showToast("That doesn't look like a hostname — Nitter links keep the default");
         },
       }),
-      dependencies.el("p", "settings-note", "Rich previews talk only to api.github.com, wikipedia.org, and export.arxiv.org; responses are validated field-by-field and rendered as plain text. Nitter replaces the host and keeps the path; nothing is sent to HarmoNova.")
+      dependencies.el("p", "settings-note", "External previews start disabled. Enable supported GitHub, Wikipedia and arXiv access through AI → Configure. Other links show placeholders. Nitter links open the instance you select.")
     );
 
     const aiSection = dependencies.el("div", "settings-section ai-settings-section");
@@ -302,10 +302,11 @@
     const payload = {
       version: USER_DATA_VERSION,
       exportedAt: new Date().toISOString(),
-      bookmarks: [...model.bookmarks].filter((id) => Number.isInteger(id) && id > 0).slice(0, 2000),
-      readStoryIds: [...model.readIds].filter((id) => Number.isInteger(id) && id > 0).slice(0, 1500),
+      bookmarks: [...model.bookmarks].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 2000),
+      readStoryIds: [...model.readIds].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 1500),
       userTags: Object.fromEntries([...model.userTags].slice(0, 500)),
       blockedUsers: [...model.blockedUsers].slice(0, 500),
+      seenTimes: Object.fromEntries([...model.seenTimes].slice(-400)),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -321,7 +322,7 @@
 
   const sanitizeIdList = (value, cap) => {
     if (!Array.isArray(value)) return null;
-    const ids = value.filter((id) => Number.isInteger(id) && id > 0);
+    const ids = value.filter((id) => Number.isSafeInteger(id) && id > 0);
     if (ids.length !== value.length) return null; // integers only, no coercion
     return ids.slice(0, cap);
   };
@@ -347,14 +348,15 @@
     }
     const bookmarks = sanitizeIdList(data.bookmarks, 2000);
     const readStoryIds = sanitizeIdList(data.readStoryIds, 1500);
+    let truncated = data.bookmarks?.length > 2000 || data.readStoryIds?.length > 1500;
     let userTags = null;
     if (data.userTags && typeof data.userTags === "object" && !Array.isArray(data.userTags)) {
       userTags = {};
       for (const [author, tag] of Object.entries(data.userTags)) {
         if (!HarmoNovaSettingsSchema.username(author)) return void dependencies.showToast("Import refused — bad author name in tags");
-        if (typeof tag !== "string" || tag.length > 40) return void dependencies.showToast("Import refused — bad tag value");
+        if (typeof tag !== "string" || new TextEncoder().encode(tag).byteLength > 40) return void dependencies.showToast("Import refused — bad tag value");
         userTags[author] = tag;
-        if (Object.keys(userTags).length >= 500) break;
+
       }
     }
     let blockedUsers = null;
@@ -363,8 +365,15 @@
       for (const author of data.blockedUsers) {
         if (!HarmoNovaSettingsSchema.username(author)) return void dependencies.showToast("Import refused — bad blocked user name");
         blockedUsers.push(author);
-        if (blockedUsers.length >= 500) break;
+
       }
+    }
+    if (userTags && Object.keys(userTags).length > 500) {truncated=true;userTags=Object.fromEntries(Object.entries(userTags).slice(0,500));}
+    if (blockedUsers && blockedUsers.length > 500) {truncated=true;blockedUsers=blockedUsers.slice(0,500);}
+    let seenTimes;
+    if(data.seenTimes!==undefined) {
+      if(!data.seenTimes || typeof data.seenTimes!=="object" || Array.isArray(data.seenTimes) || Object.entries(data.seenTimes).some(([id,time])=>! /^[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id)) || !Number.isSafeInteger(time) || time<0))return void dependencies.showToast("Import refused — bad seen times");
+      truncated ||= Object.keys(data.seenTimes).length>400;seenTimes=Object.fromEntries(Object.entries(data.seenTimes).slice(-400));
     }
     if (!bookmarks || !readStoryIds || (data.userTags !== undefined && !userTags) || (data.blockedUsers !== undefined && !blockedUsers)) {
       dependencies.showToast("Import refused — schema validation failed");
@@ -374,22 +383,26 @@
     // committed atomically by the worker before updating this view.
     if (dependencies.INCOGNITO) {
       const outcome = dependencies.privateReader.importData({ bookmarks, readStoryIds,
-        ...(userTags ? { userTags } : {}), ...(blockedUsers ? { blockedUsers } : {}) });
+        ...(userTags ? { userTags } : {}), ...(blockedUsers ? { blockedUsers } : {}), ...(seenTimes ? {seenTimes} : {}) });
       if (!outcome.ok) return void dependencies.showToast("Private import unavailable");
       model.bookmarks = new Set(outcome.value.harmonovaBookmarks);
       model.readIds = new Set(outcome.value.readStoryIds);
       model.userTags = new Map(Object.entries(outcome.value.userTags));
       model.blockedUsers = new Set(outcome.value.blockedUsers);
+      model.seenTimes = new Map(Object.entries(outcome.value.seenTimes).map(([id,time])=>[Number(id),time]));
+      truncated ||= outcome.truncated === true;
     } else {
       const outcome = await dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_IMPORT_READER_DATA", data: {
         bookmarks, readStoryIds, ...(userTags ? { userTags } : {}),
-        ...(blockedUsers ? { blockedUsers } : {}) } });
+        ...(blockedUsers ? { blockedUsers } : {}), ...(seenTimes ? {seenTimes} : {}) } });
       if (!outcome?.ok) return void dependencies.showToast("Import could not be saved. No changes were committed.");
       model.readerRevision = outcome.value.revision;
       model.bookmarks = new Set(outcome.value.bookmarks);
       model.readIds = new Set(outcome.value.readIds);
       model.userTags = new Map(Object.entries(outcome.value.tags));
       model.blockedUsers = new Set(outcome.value.blockedUsers);
+      model.seenTimes = new Map(Object.entries(outcome.value.seenTimes).map(([id,time])=>[Number(id),time]));
+      truncated ||= outcome.truncated === true;
     }
     document.querySelectorAll(".story-card").forEach((card) => {
       if (model.readIds.has(Number(card.dataset.storyId))) card.classList.add("is-read");
@@ -397,7 +410,7 @@
     document.querySelectorAll("[data-bookmark-id]").forEach((node) => {
       node.classList.toggle("active", model.bookmarks.has(Number(node.dataset.bookmarkId)));
     });
-    dependencies.showToast("Imported " + bookmarks.length + " bookmarks, " + readStoryIds.length + " read stories" + (userTags ? ", " + Object.keys(userTags).length + " tags" : "") + (blockedUsers ? ", " + blockedUsers.length + " blocked" : ""));
+    dependencies.showToast("Imported " + bookmarks.length + " bookmarks, " + readStoryIds.length + " read stories" + (userTags ? ", " + Object.keys(userTags).length + " tags" : "") + (blockedUsers ? ", " + blockedUsers.length + " blocked" : "") + (truncated ? ". Some data was truncated to storage limits." : ""));
     dependencies.filterStories();
     if (model.thread) dependencies.renderThread(model.thread);
   }

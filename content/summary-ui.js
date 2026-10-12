@@ -80,7 +80,7 @@
     const body = surface.querySelector(".story-summary-body");
     const heading = surface.querySelector(".story-summary-heading strong");
     if (heading) heading.textContent = current.source === "discussion" ? "Discussion summary" : "Summary";
-    if (current.status === "extracting") status.textContent = current.source === "discussion" ? "Preparing discussion…" : "Reading article…";
+    if (current.status === "extracting") status.textContent = current.source === "discussion" ? "Preparing discussion…" : "Reading provider excerpt…";
     else if (current.status === "generating") status.textContent = current.detail || "Summarizing…";
     else if (current.status === "error") status.textContent = "Summary failed";
     else status.textContent = "";

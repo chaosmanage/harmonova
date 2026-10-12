@@ -85,19 +85,22 @@
         if (!Array.isArray(data[name]) || data[name].length > 10000 || !data[name].every(validId))
           throw new Error("INVALID_IMPORT");
       }
+      let truncated = new Set([...state.bookmarks,...data.bookmarks]).size>2000 || new Set([...state.readIds,...data.readStoryIds]).size>1500;
       state.bookmarks = cappedIds([...state.bookmarks, ...data.bookmarks], 2000);
       state.readIds = cappedIds([...state.readIds, ...data.readStoryIds], 1500);
       if (data.userTags) {
         if (typeof data.userTags !== "object" || Array.isArray(data.userTags) || Object.keys(data.userTags).length>500) throw new Error("INVALID_IMPORT");
         for (const [name, tag] of Object.entries(data.userTags)) {
-          if (!validUsername(name) || typeof tag !== "string" || tag.length > 40) throw new Error("INVALID_IMPORT");
+          if (!validUsername(name) || typeof tag !== "string" || new TextEncoder().encode(tag).byteLength > 40) throw new Error("INVALID_IMPORT");
           state.tags[name] = tag;
         }
+        truncated ||= Object.keys(state.tags).length>500;
         state.tags = Object.fromEntries(Object.entries(state.tags).slice(-500));
       }
       if (data.blockedUsers) {
         if (!Array.isArray(data.blockedUsers) || data.blockedUsers.length>500 || !data.blockedUsers.every(validUsername))
           throw new Error("INVALID_IMPORT");
+        truncated ||= new Set([...state.blockedUsers,...data.blockedUsers]).size>500;
         state.blockedUsers = [...new Set([...state.blockedUsers, ...data.blockedUsers])].slice(-500);
       }
       if (data.seenTimes) {
@@ -106,11 +109,12 @@
           if (!validId(Number(id)) || !Number.isSafeInteger(ts) || ts < 0) throw new Error("INVALID_IMPORT");
           state.seenTimes[id] = ts;
         }
+        truncated ||= Object.keys(state.seenTimes).length>400;
         state.seenTimes = Object.fromEntries(Object.entries(state.seenTimes).slice(-400));
       }
       return { changed: true, counts: { bookmarks: state.bookmarks.length, readIds: state.readIds.length,
         tags: Object.keys(state.tags).length, blockedUsers: state.blockedUsers.length },
-        truncated: state.bookmarks.length === 2000 || state.readIds.length === 1500 };
+        truncated };
     });
     const migratePageData = data => mutateState(state => {
       if (state.pageOriginMigrated) return { ok: true, changed: false };

@@ -510,7 +510,7 @@ function openFeedMenu(anchor) {
     get saveSettings(){return saveSettings;},
     get showToast(){return showToast;},
     get stateUI(){return stateUI;}
-  },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","settings","thread","userTags"]));
+  },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","seenTimes","settings","thread","userTags"]));
   function openSettings(...args){return settingsUI.openSettings(...args);}
   function handleSettingsHash(...args){return settingsUI.handleSettingsHash(...args);}
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -148,3 +148,21 @@ test('P10 newer schemas are never downgraded or deleted',async()=> {
   const f=storeFixture();f.memory.local.harmonovaReaderStateV1={version:99,bookmarks:[1]};await assert.rejects(f.makeReader().stateSnapshot(),/UNSUPPORTED_READER_SCHEMA/);assert.equal(f.memory.local.harmonovaReaderStateV1.version,99);
   const p=preferenceFixture({local:{harmonovaPreferencesV1:{version:99}}});await assert.rejects(p.make().snapshot(),/UNSUPPORTED_PREFERENCES_SCHEMA/);assert.equal(p.local.harmonovaPreferencesV1.version,99);
 });
+
+test('P13 reader import reports actual truncation and optional seen-time roundtrip', async()=>{
+ const f=storeFixture(),repo=f.makeReader();
+ const data={bookmarks:Array.from({length:2001},(_,i)=>i+1),readStoryIds:[],seenTimes:{'12':123456}};
+ const saved=await repo.importData(data);
+ assert.equal(saved.truncated,true);assert.equal(saved.value.bookmarks.length,2000);assert.equal(saved.value.seenTimes['12'],123456);
+ const snapshot=plain(await repo.stateSnapshot());
+ await assert.rejects(repo.importData({bookmarks:[],readStoryIds:[],userTags:{alice:'α'.repeat(21)}}),/INVALID_IMPORT/);
+ assert.deepEqual(plain(await repo.stateSnapshot()),snapshot,'invalid UTF-8 tag import commits nothing');
+ assert.equal((await repo.importData({bookmarks:[],readStoryIds:[]})).truncated,false,'at the exact bound no data was truncated');
+});
+
+test('P13 stalled tab broadcasts never hold the reader transaction lock',async()=>{
+ const realm=vm.createContext({TextEncoder,structuredClone,Date,Math,Promise});vm.runInContext(source,realm);
+ const local={},session={};
+ const repo=realm.HarmoNovaReaderStore.create({localGet:async defaults=>({...defaults,...local}),localSet:async data=>Object.assign(local,structuredClone(data)),sessionGet:async defaults=>({...defaults,...session}),sessionSet:async data=>Object.assign(session,structuredClone(data)),broadcast:()=>new Promise(()=>{})});
+ await repo.setBookmark(1,true);await repo.setBookmark(2,true);assert.deepEqual(plain((await repo.stateSnapshot()).bookmarks),[1,2]);
+});

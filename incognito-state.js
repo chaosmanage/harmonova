@@ -22,9 +22,11 @@
       for (const id of data.bookmarks || []) bookmarks.add(id);
       for (const [name,value] of Object.entries(data.userTags || {})) tags.set(name,value);
       for (const name of data.blockedUsers || []) blocks.add(name);
-      trim(reads,1500); trim(bookmarks,2000); trim(tags,500); trim(blocks,500);
+      for(const [id,time] of Object.entries(data.seenTimes || {}))seen.set(Number(id),time);
+      const truncated = reads.size>1500 || bookmarks.size>2000 || tags.size>500 || blocks.size>500 || seen.size>400;
+      trim(reads,1500); trim(bookmarks,2000); trim(tags,500); trim(blocks,500); trim(seen,400);
       revision++;
-      return { ok: true, value: snapshot() };
+      return { ok: true, truncated, value: snapshot() };
     };
     const beginDraft = (username, parentId) => {
       const k = key(username,parentId);
