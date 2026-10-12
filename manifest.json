@@ -55,6 +55,7 @@
         "hn-session.js",
         "hn-search.js",
         "incognito-state.js",
+        "content/state.js",
         "content.js"
       ],
       "css": [

@@ -83,6 +83,8 @@
     return b;
   };
 
+  function stateFacet(fields){return Object.freeze(Object.defineProperties(Object.create(null),Object.fromEntries(fields.map(key=>[key,{get:()=>state[key],set:value=>{state[key]=value;}}]))));}
+
   const state = {
     feed: PATH_TO_FEED[location.pathname] || "top",
     stories: [],
@@ -324,182 +326,27 @@
     normalizeQuotedParagraphs(target);
   };
 
-  const runtimeMessage = (message) => new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) return resolve({ ok: false, message: chrome.runtime.lastError.message });
-      resolve(response || { ok: false });
-    });
-  });
 
-  function pageStorageGet(key) {
-    if (INCOGNITO) return undefined; // never read page-origin storage in private mode
-    try {
-      let value = localStorage.getItem(key);
-      if (value === null && key.startsWith("harmonova")) {
-        const legacy = key.replace(/^harmonova/, "harmonic");
-        value = localStorage.getItem(legacy);
-
-      }
-      if(value!==null && new TextEncoder().encode(value).byteLength>262144){state.recoveryNotice=true;return undefined;}
-      return value === null ? undefined : JSON.parse(value);
-    } catch {
-      state.recoveryNotice=true;return undefined;
-    }
-  }
-
-  function pageStorageSet(key, value) {
-    if (INCOGNITO) return; // SEC-51: no page-origin backups from incognito
-    try { localStorage.setItem(key, JSON.stringify(key===SETTINGS_BACKUP_KEY ? HarmoNovaSettingsSchema.backup(value) : value)); } catch {}
-  }
-
-  let preferenceSnapshot=null;
-  async function loadEnabledPreference() {
-    const result=await runtimeMessage({type:"HARMONOVA_PREFERENCES_GET"});
-    if(!result?.ok)return false;
-    preferenceSnapshot=result.value;
-    return result.value.enabled!==false;
-  }
-
-  async function isOriginalTab() {
-    if (location.hash === ORIGINAL_HASH) return true;
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "HARMONOVA_TAB_MODE" }, (response) => {
-        resolve(Boolean(response?.original));
-      });
-    });
-  }
-
-  const pendingSettings={};
-  let settingsTimer=null, settingsWrite=Promise.resolve();
-  async function flushSettings() {
-    clearTimeout(settingsTimer);settingsTimer=null;
-    const patch={...pendingSettings};
-    if(!Object.keys(patch).length||INCOGNITO)return true;
-    settingsWrite=settingsWrite.then(async()=> {
-      const result=await runtimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:patch});
-      if(!result?.ok){showToast("Could not save settings. Keep this panel open and retry.");return false;}
-      for(const key of Object.keys(patch))if(JSON.stringify(pendingSettings[key])===JSON.stringify(patch[key]))delete pendingSettings[key];
-      if(result.syncSaved===false)showToast("Settings saved locally. Chrome sync is unavailable.");
-      pageStorageSet(SETTINGS_BACKUP_KEY,state.settings);return true;
-    });
-    return settingsWrite;
-  }
-  async function saveSettings(keys,debounce=false) {
-    const names=Array.isArray(keys)?keys:[keys];
-    const fields=Object.fromEntries(names.filter(Boolean).map(key=>[key,state.settings[key]]));
-    if(!HarmoNovaSettingsSchema.patch(fields)){showToast("Setting value is too large or invalid.");return false;}
-    if(INCOGNITO)return true;
-    Object.assign(pendingSettings,fields);
-    if(debounce){clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>flushSettings(),500);return true;}
-    return flushSettings();
-  }
-  function removeMigratedPageKeys(keys) {
-    if(INCOGNITO)return;
-    for(const key of keys)try {localStorage.removeItem(key);localStorage.removeItem(key.replace(/^harmonova/,"harmonic"));}catch{}
-  }
-
-  async function loadPersistentState() {
-    const synced={harmonovaSettings:preferenceSnapshot?.settings};
-    let stored = INCOGNITO ? privateReader.snapshot()
-      : await runtimeMessage({ type: "HARMONOVA_LOCAL_STATE_GET" });
-    const backedUpSettings = pageStorageGet(SETTINGS_BACKUP_KEY);
-    state.readerRevision = Number.isSafeInteger(stored?.revision) ? stored.revision : 0;
-    const readIds = Array.isArray(stored?.readStoryIds) ? stored.readStoryIds : [];
-    const bookmarks = Array.isArray(stored?.harmonovaBookmarks) ? stored.harmonovaBookmarks : [];
-    if(!INCOGNITO && preferenceSnapshot && !preferenceSnapshot.pageMigrated) {
-      const result=await runtimeMessage({type:"HARMONOVA_MIGRATE_PREFERENCES",appearance:HarmoNovaSettingsSchema.backup(backedUpSettings || {})});
-      if(result?.ok){preferenceSnapshot=result.value;synced.harmonovaSettings=result.value.settings;removeMigratedPageKeys([SETTINGS_BACKUP_KEY,ENABLED_BACKUP_KEY]);}
-    }
-    const settings = HarmoNovaSettingsSchema.normalize(synced.harmonovaSettings);
-    state.readIds = new Set(readIds);
-    state.bookmarks = new Set(bookmarks);
-    state.settings = HarmoNovaSettingsSchema.normalize(settings);
-    // Existing installations may have selected the removed upstream font.
-    if (state.settings.uiFont === "harmonic") state.settings.uiFont = "system";
-    // One-time validated import of legacy page-origin data. Once accepted, the
-    // extension repository is authoritative; stale page backups cannot revive
-    // removed tags, blocks or seen history.
-    if (!INCOGNITO && stored?.ok && !stored.pageOriginMigrated) {
-      const oldTags = pageStorageGet("harmonovaUserTags");
-      const oldBlocked = pageStorageGet("harmonovaBlockedUsers");
-      const oldSeen = pageStorageGet("harmonovaSeenComments");
-      const tags = Object.fromEntries(Object.entries(oldTags && typeof oldTags === "object" && !Array.isArray(oldTags) ? oldTags : {})
-        .filter(([key,value]) => HarmoNovaSettingsSchema.username(key) && typeof value === "string" && value.length <= 40).slice(-500));
-      const blockedUsers = (Array.isArray(oldBlocked) ? oldBlocked : []).filter(value =>
-        typeof value === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(value)).slice(-500);
-      const seenTimes = Object.fromEntries(Object.entries(oldSeen && typeof oldSeen === "object" && !Array.isArray(oldSeen) ? oldSeen : {})
-        .filter(([id,ts]) => Number.isSafeInteger(Number(id)) && Number(id) > 0 && Number.isSafeInteger(ts) && ts >= 0).slice(-400));
-      const outcome = await runtimeMessage({ type: "HARMONOVA_MIGRATE_PAGE_DATA", data: { tags, blockedUsers, seenTimes } });
-      if (outcome?.ok && outcome.value) {
-        stored = { ...stored, revision: outcome.value.revision,userTags: outcome.value.tags, blockedUsers: outcome.value.blockedUsers, seenTimes: outcome.value.seenTimes };
-        removeMigratedPageKeys(["harmonovaUserTags","harmonovaBlockedUsers","harmonovaSeenComments"]);
-      } else state.recoveryNotice=true;
-    }
-    if(!INCOGNITO && stored?.pageOriginMigrated)removeMigratedPageKeys(["harmonovaUserTags","harmonovaBlockedUsers","harmonovaSeenComments"]);
-    state.readerRevision = Number.isSafeInteger(stored?.revision) ? stored.revision : state.readerRevision;
-    state.userTags = new Map(Object.entries(!INCOGNITO ? (stored?.userTags || {}) : {}));
-    state.blockedUsers = new Set(!INCOGNITO ? (stored?.blockedUsers || []) : []);
-    state.seenTimes = new Map(Object.entries(!INCOGNITO ? (stored?.seenTimes || {}) : {})
-      .map(([id,ts]) => [Number(id), ts]));
-    if(preferenceSnapshot?.pageMigrated)pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
-
-  }
-
-  function persistUserTags(author) {
-    if (INCOGNITO) return void privateReader.tag(author, state.userTags.get(author) ?? null);
-    runtimeMessage({ type: "HARMONOVA_SET_TAG", username: author,
-      tag: state.userTags.get(author) ?? null }).then(result => {
-      if (!result?.ok) showToast("Could not save user tag");
-    });
-  }
-
-  function persistBlockedUsers(author) {
-    if (INCOGNITO) return void privateReader.blocked(author, state.blockedUsers.has(author));
-    runtimeMessage({ type: "HARMONOVA_SET_BLOCKED", username: author,
-      desired: state.blockedUsers.has(author) }).then(result => {
-      if (!result?.ok) showToast("Could not save blocked-user setting");
-    });
-  }
-
-  function persistSeenTimes(id) {
-    if (INCOGNITO) return void privateReader.markSeen(id, state.seenTimes.get(id));
-    runtimeMessage({ type: "HARMONOVA_MARK_SEEN", id,
-      timestamp: state.seenTimes.get(id) }).then(() => {});
-  }
-
-  async function markRead(id) {
-    if (!Number.isSafeInteger(id) || id <= 0) return;
-    const previous = state.readIds.has(id);
-    state.readIds.add(id);
-    if (INCOGNITO) privateReader.markRead(id);
-    document.querySelector('[data-story-id="' + id + '"]')?.classList.add("is-read");
-    if (!INCOGNITO) {
-      const result = await runtimeMessage({ type: "HARMONOVA_MARK_READ", id });
-      if (!result?.ok) {
-        if (!previous) state.readIds.delete(id);
-        showToast("Could not save read status");
-      }
-    }
-  }
-
-  async function toggleBookmark(id) {
-    if (!Number.isSafeInteger(id) || id <= 0) return;
-    const desired = !state.bookmarks.has(id);
-    if (desired) state.bookmarks.add(id); else state.bookmarks.delete(id);
-    if (INCOGNITO) privateReader.bookmark(id, desired);
-    document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) =>
-      node.classList.toggle("active", desired));
-    if (!INCOGNITO) {
-      const result = await runtimeMessage({ type: "HARMONOVA_SET_BOOKMARK", id, desired });
-      if (!result?.ok) {
-        if (desired) state.bookmarks.delete(id); else state.bookmarks.add(id);
-        document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) =>
-          node.classList.toggle("active", !desired));
-        showToast("Bookmark could not be saved");
-      }
-    }
-  }
-
+  const stateUI=HarmoNovaContentState.create({
+    get ENABLED_BACKUP_KEY(){return ENABLED_BACKUP_KEY;},
+    get INCOGNITO(){return INCOGNITO;},
+    get ORIGINAL_HASH(){return ORIGINAL_HASH;},
+    get SETTINGS_BACKUP_KEY(){return SETTINGS_BACKUP_KEY;},
+    get localStorage(){return localStorage;},
+    get privateReader(){return privateReader;},
+    get showToast(){return showToast;},
+  },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","recoveryNotice","seenTimes","settings","userTags"]));
+  function pageStorageSet(...args){return stateUI.pageStorageSet(...args);}
+  function loadEnabledPreference(...args){return stateUI.loadEnabledPreference(...args);}
+  function isOriginalTab(...args){return stateUI.isOriginalTab(...args);}
+  function flushSettings(...args){return stateUI.flushSettings(...args);}
+  function saveSettings(...args){return stateUI.saveSettings(...args);}
+  function loadPersistentState(...args){return stateUI.loadPersistentState(...args);}
+  function persistUserTags(...args){return stateUI.persistUserTags(...args);}
+  function persistBlockedUsers(...args){return stateUI.persistBlockedUsers(...args);}
+  function persistSeenTimes(...args){return stateUI.persistSeenTimes(...args);}
+  function markRead(...args){return stateUI.markRead(...args);}
+  function toggleBookmark(...args){return stateUI.toggleBookmark(...args);}
   let nextPreviewRequest=0;
   const getPreview = (story, signal) => new Promise((resolve) => {
     if (INCOGNITO || !story?.url) return resolve({ image: null, tint: null, favicon: null });
@@ -507,7 +354,7 @@
     if (cached?.failedUntil && cached.failedUntil > Date.now()) return resolve(cached);
     if (cached?.failedUntil) state.previewById.delete(story.id);
     const requestId="preview"+ ++nextPreviewRequest;
-    const cancel=()=> {runtimeMessage({type:"HARMONOVA_PREVIEW_CANCEL",requestId});resolve({image:null,tint:null,favicon:null});};
+    const cancel=()=> {stateUI.runtimeMessage({type:"HARMONOVA_PREVIEW_CANCEL",requestId});resolve({image:null,tint:null,favicon:null});};
     if(signal?.aborted) return cancel();
     signal?.addEventListener("abort",cancel,{once:true});
     const timer = setTimeout(cancel,7000);
@@ -1899,7 +1746,7 @@ function updateFeedVoteBadges() {
 // logout and after a successful post. They never touch disk or sync.
 const draftBegin = (parentId, username) => INCOGNITO
   ? Promise.resolve(privateReader.beginDraft(username, parentId))
-  : runtimeMessage({ type: "HARMONOVA_DRAFT_BEGIN", parentId, username });
+  : stateUI.runtimeMessage({ type: "HARMONOVA_DRAFT_BEGIN", parentId, username });
 const draftSet = (composer, text) => {
   // Serial writes from one composer and compare-and-set against other tabs.
   composer.draftWrite = (composer.draftWrite || Promise.resolve()).then(async () => {
@@ -1908,7 +1755,7 @@ const draftSet = (composer, text) => {
     const response = INCOGNITO
       ? privateReader.saveDraft(composer.username, composer.parentId,
         composer.draftToken, composer.draftRevision, text)
-      : await runtimeMessage({ type: "HARMONOVA_DRAFT_SET",
+      : await stateUI.runtimeMessage({ type: "HARMONOVA_DRAFT_SET",
         parentId: composer.parentId, username: composer.username,
         token: composer.draftToken, revision: composer.draftRevision, text });
     if (response?.ok) { composer.draftRevision = response.revision; return true; }
@@ -1928,7 +1775,7 @@ const draftClear = async (composer) => {
   if (!composer.draftToken) return false;
   const result = INCOGNITO
     ? privateReader.clearDraft(composer.username, composer.parentId, composer.draftToken)
-    : await runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR",
+    : await stateUI.runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR",
       username: composer.username, parentId: composer.parentId, token: composer.draftToken });
   if (result?.ok) composer.draftToken = null;
   return result?.ok === true;
@@ -2393,7 +2240,7 @@ async function closeComposer({ keepDraft = true } = {}) {
   }
   if (composer.draftToken) {
     if (INCOGNITO) privateReader.retire(composer.draftToken);
-    else await runtimeMessage({ type: "HARMONOVA_DRAFT_RETIRE", token: composer.draftToken });
+    else await stateUI.runtimeMessage({ type: "HARMONOVA_DRAFT_RETIRE", token: composer.draftToken });
   }
   composer.draftToken = null;
   composer.scope?.dispose();
@@ -2425,7 +2272,7 @@ function openFeedMenu(anchor) {
       showToast("Use the extension popup in a regular window to change enabled state.");
       return;
     }
-    const result=await runtimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:{},enabled:false});
+    const result=await stateUI.runtimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:{},enabled:false});
     if(!result?.ok)return void showToast("Could not save enabled preference");
     location.reload();
   }
@@ -3815,7 +3662,7 @@ async function refreshFeed() {
       if (!automatic) showToast("This story has no linked article to summarize");
       return;
     }
-    const keyStatus = await runtimeMessage({ type: "HARMONOVA_AI_STATUS" });
+    const keyStatus = await stateUI.runtimeMessage({ type: "HARMONOVA_AI_STATUS" });
     if (generation !== state.summaryGeneration || Number(item.id) !== state.selectedId) return;
     if (!keyStatus?.hasKey || !keyStatus.enabled || (automatic && !keyStatus.autoSummarize)) {
       if (!automatic) {
@@ -4372,11 +4219,11 @@ async function refreshFeed() {
     const manage = el("button", "setting-button", "Configure");
     manage.type = "button";
     manage.addEventListener("click", async () => {
-      const result = await runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
+      const result = await stateUI.runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
       if (!result?.ok) showToast("Couldn’t open secure API key settings");
     });
     row.append(text, manage);
-    runtimeMessage({ type: "HARMONOVA_AI_STATUS" }).then((status) => {
+    stateUI.runtimeMessage({ type: "HARMONOVA_AI_STATUS" }).then((status) => {
       summary.textContent = status?.hasKey
         ? status.preview + (status.storage === "session" ? " · session only" : " · saved locally")
         : "Not set · stored separately from synced settings";
@@ -4488,7 +4335,7 @@ async function refreshFeed() {
     openAi.type = "button";
     openAi.addEventListener("click", (event) => {
       if (!event.isTrusted) return;
-      runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
+      stateUI.runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
     });
     aiSection.append(
       el("h3", "", "AI summarization"),
@@ -4661,7 +4508,7 @@ async function refreshFeed() {
       state.userTags = new Map(Object.entries(outcome.value.userTags));
       state.blockedUsers = new Set(outcome.value.blockedUsers);
     } else {
-      const outcome = await runtimeMessage({ type: "HARMONOVA_IMPORT_READER_DATA", data: {
+      const outcome = await stateUI.runtimeMessage({ type: "HARMONOVA_IMPORT_READER_DATA", data: {
         bookmarks, readStoryIds, ...(userTags ? { userTags } : {}),
         ...(blockedUsers ? { blockedUsers } : {}) } });
       if (!outcome?.ok) return void showToast("Import could not be saved. No changes were committed.");
@@ -4692,7 +4539,7 @@ async function refreshFeed() {
     if(message?.type==="HARMONOVA_PREFERENCES_SNAPSHOT") {
       if(INCOGNITO || sender?.id!==chrome.runtime.id || message.value?.version!==1)return;
       const settings=HarmoNovaSettingsSchema.normalize(message.value.settings);
-      for(const key of Object.keys(settings))if(!Object.hasOwn(pendingSettings,key))state.settings[key]=settings[key];
+      for(const key of Object.keys(settings))if(!Object.hasOwn(stateUI.pendingSettings,key))state.settings[key]=settings[key];
       applySettings();return;
     }
     if (message?.type === "HARMONOVA_READER_SNAPSHOT") {
