@@ -103,6 +103,17 @@ export async function incognitoBrowserCheck() {
     await page.locator('.popup-item',{hasText:'Log out'}).click();
     await page.waitForFunction(()=>document.querySelector('.account-chip') && !document.querySelector('.account-chip').classList.contains('logged-in'));
     await validateNoPrivateWrites(h.worker,baseline);
+    await page.locator('.feed-toolbar [aria-label="More"]').click();
+    const opened=privateContext.waitForEvent('page');
+    await page.locator('.popup-item',{hasText:'Open original Hacker News'}).click();
+    const original=await opened;
+    await original.waitForURL('https://news.ycombinator.com/news');
+    assert.equal(original.context(),privateContext,'original HN must stay in actual private context');
+    const originalTab=await h.worker.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://news.ycombinator.com/*'});const ids=await originalTabIds();return tabs.find(t=>ids.includes(t.id));});
+    assert.equal(originalTab.incognito,true);assert.equal(originalTab.windowId,privateTab.windowId);
+    assert.equal(await original.locator('.harmonova-app').count(),0,'bypass recorded before native navigation');
+    await original.close();
+    await validateNoPrivateWrites(h.worker,baseline);
     await privateContext.close(); privateContext=null;
     await validateNoPrivateWrites(h.worker,baseline);
     console.log('PASS P06 real private imports/export/bookmarks/reload: normal stores unchanged');

@@ -80,7 +80,8 @@ if (invokedDirectly) {
     for (const problem of problems) console.error(" -", problem);
     process.exit(1);
   }
-  const committed = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => f.endsWith(".html")).length : 0;
+  const count = dir => fs.readdirSync(dir,{withFileTypes:true}).reduce((n,e)=>n+(e.name === "raw" ? 0 : e.isDirectory() ? count(path.join(dir,e.name)) : 1),0);
+  const committed = count(path.join(repoRoot,"tests","fixtures"));
   console.log("leak guard ok:", committed, "fixtures clean");
 }
 

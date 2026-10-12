@@ -27,3 +27,8 @@ test('P08 decoder failure and inconsistent decoded dimensions release the permit
   realm.createImageBitmap=async()=>({width:2,height:1,close(){closed++;}});
   await assert.rejects(policy.sanitize(png,'image/png'),/UNSUPPORTED/);assert.equal(closed,1);
 });
+
+test('P13 WebP animation flag is refused before any decoder call',()=>{
+ const header=Buffer.alloc(30);header.write('RIFF');header.writeUInt32LE(22,4);header.write('WEBP',8);header.write('VP8X',12);header.writeUInt32LE(10,16);header[20]=2;
+ assert.throws(()=>policy.dimensions(new Uint8Array(header),'image/webp'),/UNSUPPORTED/);
+});

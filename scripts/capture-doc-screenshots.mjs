@@ -1,3 +1,4 @@
+/* global saveAiKey, document -- Playwright callbacks execute in worker/page realms. */
 // Capture genuine HarmoNova UI for the docs. The AI example uses a deterministic
 // response based on the linked article, without a real key or paid request.
 import { chromium } from 'playwright-core';

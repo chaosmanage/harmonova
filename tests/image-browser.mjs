@@ -24,7 +24,11 @@ await withExtension(async({context,worker})=> {
   });
   await context.route('https://api.github.com/repos/fixture/images',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({full_name:'fixture/images',owner:{avatar_url:'https://avatars.githubusercontent.com/u/1?v=4'}})}));
   await worker.evaluate(()=>saveNetworkPolicy({version:1,externalPreviewsEnabled:true}));
-  await context.route('https://news.ycombinator.com/**',route=>route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(new URL('./fixtures/hn/news.html',import.meta.url),'utf8')}));
+  let blockImages=false;
+  await context.route('https://news.ycombinator.com/**',route=> {
+    if(route.request().resourceType()==='script')return route.fulfill({status:200,contentType:'application/javascript',body:''});
+    return route.fulfill({status:200,contentType:'text/html',headers:blockImages?{'content-security-policy':"img-src 'none'"}:{},body:fs.readFileSync(new URL('./fixtures/hn/news.html',import.meta.url),'utf8')});
+  });
   const story={id:910001,type:'story',title:'Image fixture',url:'https://github.com/fixture/images',by:'fixture',time:1700000000,score:10,descendants:0};
   await context.route('https://hacker-news.firebaseio.com/v0/**',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(route.request().url().endsWith('stories.json')?[910001]:story)}));
   await context.route('https://hn.algolia.com/**',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:910001,title:story.title,url:story.url,author:'fixture',children:[]})}));
@@ -36,5 +40,9 @@ await withExtension(async({context,worker})=> {
   assert.ok(images.length>=1);assert.ok(images.every(headers=>!headers.cookie&&!headers.referer));assert.deepEqual(remoteDom,[]);
   await page.evaluate(()=>{for(const img of document.querySelectorAll('img[src^="data:image/png"]')) img.dispatchEvent(new Event('error'));});
   assert.deepEqual(remoteDom,[],'image errors never fall back to remote URLs');
+  blockImages=true;await page.reload();
+  await page.locator('.story-card.no-preview').first().waitFor();
+  assert.equal(await page.locator('.story-preview-image[src]').count(),0,'CSP denial leaves local placeholder');
+  assert.deepEqual(remoteDom,[],'CSP denial never switches to a remote image');
   console.log('PASS P08 real PNG/JPEG/WebP sanitization, cards/heroes, credential omission and zero remote DOM images');
 });

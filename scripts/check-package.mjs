@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-const root=process.cwd(), dist=path.resolve(process.env.EXTENSION_PATH||'dist/harmonova');
+const dist=path.resolve(process.env.EXTENSION_PATH||'dist/harmonova');
 const read=p=>fs.readFileSync(p);
 const walk=dir=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);
 // The release's explicit shell copy list is authoritative, never repository-wide copying.

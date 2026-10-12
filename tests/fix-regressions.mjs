@@ -1,5 +1,6 @@
 // Chromium regression for the real HN js=t vote protocol and delayed Algolia comments.
 import { launchExtension } from "./helpers/extension.mjs";
+import {hnRedirectFixture} from "./helpers/network.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -29,12 +30,13 @@ function hnItem() {
   return html;
 }
 
-const harness = await launchExtension();
+const redirects=await hnRedirectFixture(handleRoute);
+const harness = await launchExtension({destinations:new Map([["news.ycombinator.com:443",redirects]])});
 const ctx = harness.context;
 const page = await ctx.newPage();
 const pageErrors = [];
 page.on("pageerror", e => pageErrors.push(e.message));
-await ctx.route("**/*", async route => {
+async function handleRoute(route) {
   const req = route.request();
   const u = new URL(req.url());
   const base = { status: 200, contentType: "text/html; charset=utf-8" };
@@ -72,8 +74,9 @@ await ctx.route("**/*", async route => {
     }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hits: [], nbPages: 1, page: 0 }) });
   }
-  return route.abort();
-});
+  return route.fallback();
+}
+await ctx.route("**/*",handleRoute);
 
 try {
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
@@ -114,6 +117,5 @@ try {
   await fs.promises.mkdir(path.join(root, "test-results"), { recursive: true });
   await page.screenshot({ path: path.join(root, "test-results", "fix-regression-thread.png") });
 } finally {
-  harness.assertOffline();
-await harness.close();
+  try {harness.assertOffline();} finally {await harness.close();await redirects.close();}
 }

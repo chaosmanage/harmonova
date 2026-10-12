@@ -153,6 +153,28 @@ export const runBrowserTests = async () => {
     await page.waitForTimeout(500);
     assert.equal(aiPosts, 2, "synthetic selection with automatic consent still does not bill");
 
+    // Stop an actual MV3 worker with a paid request in flight. A fresh worker
+    // and ordinary page reload must never replay that request.
+    const policyPage=await context.newPage();await policyPage.goto(`chrome-extension://${extensionId}/ai-settings.html`);
+    await policyPage.locator('#policy-auto').uncheck();await policyPage.locator('#policy-save').click();
+    await policyPage.waitForFunction(()=>document.querySelector('#policy-message')?.textContent.includes('saved'));
+    let heldRoute;
+    const hold=async route=>{if(route.request().method()==='POST')aiPosts++;heldRoute=route;};
+    await context.route('https://openrouter.ai/api/v1/chat/completions',hold);
+    await page.locator('[data-summary-action-id="910001"][data-summary-source="article"]').click();
+    for(let i=0;i<100&&!heldRoute;i++)await page.waitForTimeout(50);
+    assert.ok(heldRoute,'trusted request reached synthetic provider');assert.equal(aiPosts,3);
+    const cdp=await context.newCDPSession(page);let versions=[];
+    cdp.on('ServiceWorker.workerVersionUpdated',event=>{versions=event.versions;});
+    await cdp.send('ServiceWorker.enable');
+    for(let i=0;i<100&&!versions.some(v=>v.scriptURL===`chrome-extension://${extensionId}/background.js`&&v.runningStatus==='running');i++)await page.waitForTimeout(50);
+    const active=versions.find(v=>v.scriptURL===`chrome-extension://${extensionId}/background.js`&&v.runningStatus==='running');assert.ok(active);
+    await cdp.send('ServiceWorker.stopWorker',{versionId:active.versionId});
+    await policyPage.reload();await policyPage.waitForFunction(()=>!document.querySelector('#key-status').textContent.includes('Checking'));
+    await page.reload();await page.locator('.story-card').first().waitFor();
+    await page.waitForTimeout(500);assert.equal(aiPosts,3,'worker restart and page reload do not replay paid work');
+    await heldRoute.abort().catch(()=>{});await context.unroute('https://openrouter.ai/api/v1/chat/completions',hold);await cdp.detach();await policyPage.close();
+
     // -- SEC-22: background requests never carry cookies --------------------
     await context.addCookies([{name:"provider-cookie",value:"synthetic",domain:"en.wikipedia.org",path:"/",secure:true,sameSite:"None"}]);
     articleRequests.length = 0; // drop the pre-cookie preview requests
