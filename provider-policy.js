@@ -1,5 +1,6 @@
-// Fixed provider origins are a DNS/TLS trust assumption, not IP-bound egress.
-// No attacker-selected arbitrary hostname is authorized by a story URL.
+// Privileged routes: fixed API methods for OpenRouter/providers, plus bounded
+// public-web GETs for story previews and article extraction. DNS/TLS are trust
+// assumptions; URL validation does not bind a hostname to a public IP.
 (() => {
   'use strict';
   const languages=Object.freeze(['en','de','fr','es','ja','zh']);
@@ -8,6 +9,9 @@
     try {const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&!u.hash&&u.hostname===u.hostname.replace(/\.$/,'') ? u : null;}catch{return null;}
   };
   function allowed(value,kind,method='GET') {
+    if(['metadata','article','image'].includes(kind))return method==='GET'
+      && HarmoNovaUrlPolicy.isAllowedRemoteUrl(value)
+      && (kind!=='image'||value.startsWith('https://'));
     const u=original(value);if(!u)return false;
     const p=u.pathname;
     if(kind==='storyLookup')return method==='GET' && u.origin==='https://hacker-news.firebaseio.com' && /^\/v0\/item\/[1-9][0-9]*\.json$/.test(p)&&!u.search;

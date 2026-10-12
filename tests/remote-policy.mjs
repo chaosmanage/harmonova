@@ -72,12 +72,12 @@ test('P01 transport fixes caller overrides and rejects opaque/readable redirects
   }
 });
 
-test('P01 provider article, metadata and image paths never follow redirects; arbitrary origins never reach fetch', async () => {
+test('P01 article metadata and image requests never follow redirects even on general sites', async () => {
   for (const operation of ['article','metadata','image']) {
     const calls=[];
     const worker=load(async (url,init)=>{calls.push(init);return opaqueRedirect();});
     await worker.saveNetworkPolicy({version:1,externalPreviewsEnabled:true});
-    if(operation==='article')await assert.rejects(()=>worker.fetchArticleText('https://github.com/fixture/repo'),/Provider text unavailable/);
+    if(operation==='article')await assert.rejects(()=>worker.fetchArticleText('https://github.com/fixture/repo'),/REMOTE_FETCH_BLOCKED/);
     if(operation==='metadata')assert.equal((await worker.getMetadata('https://github.com/fixture/repo',true)).image,null);
     if(operation==='image')assert.equal(await worker.imageTint('https://avatars.githubusercontent.com/u/1?v=4'),null);
     assert.ok(calls.length>0,operation);
@@ -87,8 +87,8 @@ test('P01 provider article, metadata and image paths never follow redirects; arb
   await worker.saveNetworkPolicy({version:1,externalPreviewsEnabled:true});
   await assert.rejects(()=>worker.fetchArticleText('https://arbitrary.example/article'),/REMOTE_FETCH_BLOCKED/);
   assert.equal((await worker.getMetadata('https://arbitrary.example/article',true)).image,null);
-  assert.equal(await worker.imageTint('https://arbitrary.example/image'),null);
-  assert.equal(calls,0);
+  assert.equal(await worker.imageTint('https://arbitrary.example/image.png'),null);
+  assert.ok(calls>=2,'public origins can be requested but fail safely');
 });
 
 test('P01 AI initial and empty-summary recovery POSTs share the external policy', async () => {

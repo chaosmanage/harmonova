@@ -17,7 +17,7 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 - Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
 - Customizable themes, typography, and story/comment layouts.
 - Vote, reply, submit, and save favorites with your Hacker News account.
-- Optional AI summaries of supported provider excerpts or discussions using your own OpenRouter API key.
+- Optional full-article and discussion AI summaries using your own OpenRouter API key.
 
 ## Install in Chrome
 
@@ -78,7 +78,7 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 
 ## Optional previews and AI
 
-External previews start disabled. Enable them on the extension's **AI and external previews** settings page for GitHub repositories, Wikipedia in six supported languages and arXiv papers. Other links, redirected providers and unsupported images show local placeholders. Favicons use local domain markers. Ordinary article links still open normally.
+External previews start enabled for public websites. Toggle them in the sidebar under **Settings → AI**, alongside summary consent, the model, prompt, streaming preferences and OpenRouter key. Websites that refuse metadata or image access fall back to placeholders. Article summaries read capped public article HTML/text when available and send that text to OpenRouter only after you explicitly enable AI permissions. Browser host permissions cover HTTP(S) websites for these features; see [Privacy](docs/PRIVACY.md) for safeguards and limitations.
 
 The **Article** summary button uses a supported provider's excerpt or abstract; full arbitrary article extraction is unavailable. **Discussion** summarizes public HN comments. Save an OpenRouter key and fresh AI permission on the extension settings page. Saving a key alone enables nothing. Automatic summaries need separate consent and a real story selection. The selected public text is sent to OpenRouter and may incur charges.
 

@@ -1,6 +1,6 @@
 // Shared privileged-URL policy. This validates URL spellings, not DNS answers.
-// P09 restricts worker requests to fixed providers; browser DNS cannot be bound
-// to an address by this validator alone.
+// Remote public-web fetches reject unsafe URL shapes and known local/private
+// literals, but browser DNS cannot be bound to a public address here.
 (() => {
   "use strict";
   const LOCAL_SUFFIXES = [".localhost", ".local", ".internal", ".lan", ".home.arpa"];

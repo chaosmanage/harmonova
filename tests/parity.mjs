@@ -220,6 +220,10 @@ async function test(name, fn) {
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
     if (sw) await sw.evaluate(async () => {
       await chrome.storage.sync.clear();
+      // Feed-parity fixtures deliberately omit remote article responses;
+      // exercise the user's explicit preview opt-out here. Default-on and
+      // public-web metadata are checked by settings-sidebar-browser.
+      await chrome.storage.local.set({harmonovaNetworkPolicyV1:{version:1,externalPreviewsEnabled:false}});
       await chrome.storage.sync.set({ harmonovaSettings: { feedHidden: [], feedOrder: [] } });
     }).catch(() => {});
     await page.addInitScript(() => {

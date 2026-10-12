@@ -148,6 +148,12 @@ async function test(name, fn) {
   const page = await browser.newPage();
   page.on("pageerror", (error) => console.error("  pageerror:", String(error).slice(0, 160)));
   try {
+    // This suite tests comment display/interaction only. General previews
+    // default on in production, but synthetic article hosts are not routed
+    // here; isolate the independent preview preference explicitly.
+    await harness.worker.evaluate(()=>chrome.storage.local.set({
+      harmonovaNetworkPolicyV1:{version:1,externalPreviewsEnabled:false}
+    }));
     await fn({ page, hn });
     harness.assertOffline();
     passed++;

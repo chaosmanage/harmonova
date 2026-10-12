@@ -1,3 +1,4 @@
+if (window.parent !== window) document.body.classList.add("embedded");
 const apiKey = document.querySelector("#api-key");
 const keyStatus = document.querySelector("#key-status");
 const message = document.querySelector("#message");
@@ -95,6 +96,7 @@ async function refreshPolicy() {
   for (const [field, control] of Object.entries(policyInputs))
     if (control.type === "checkbox") control.checked = Boolean(policy[field]);
     else control.value = String(policy[field] || "");
+  consentNotice.hidden = !policyInputs.enabled.checked;
   policyStatus.textContent = policy.consentVersion === 1
     ? "Current permissions loaded. Changes require saving again."
     : "AI is disabled until you explicitly save a new consent policy.";
@@ -141,9 +143,16 @@ chrome.storage.sync.get(["harmonovaSettings", "harmonicSettings"], record => {
 });
 
 const previewEnabled=document.querySelector("#previews-enabled"),previewStatus=document.querySelector("#previews-status");
-send({type:"HARMONOVA_NETWORK_POLICY_GET"}).then(result=>{previewEnabled.checked=result?.policy?.externalPreviewsEnabled===true;}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
-document.querySelector("#previews-save").addEventListener("click",async event=>{
+const consentNotice=document.querySelector("#ai-privacy-notice");
+policyInputs.enabled.addEventListener("change",()=>{consentNotice.hidden=!policyInputs.enabled.checked;});
+send({type:"HARMONOVA_NETWORK_POLICY_GET"}).then(result=>{if(result?.ok)previewEnabled.checked=result.policy.externalPreviewsEnabled===true;}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
+previewEnabled.addEventListener("change",async event=>{
   if(!event.isTrusted)return;
+  previewEnabled.disabled=true;
   const result=await send({type:"HARMONOVA_NETWORK_POLICY_SAVE",policy:{version:1,externalPreviewsEnabled:previewEnabled.checked}});
-  previewStatus.textContent=result?.ok ? "Preview preference saved." : "Could not save preview preference.";
+  if(!result?.ok) {
+    previewEnabled.checked=!previewEnabled.checked;
+    previewStatus.textContent="Could not update previews. Try again.";
+  }else previewStatus.textContent=previewEnabled.checked?"Previews enabled.":"Previews disabled.";
+  previewEnabled.disabled=false;
 });

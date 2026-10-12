@@ -55,6 +55,10 @@ export const runBrowserTests = async () => {
     articleRequests.push({ url: request.url(), cookie: request.headers()["cookie"] || null });
     return route.fulfill({ status: 200, contentType: "text/html", body: ARTICLE_HTML });
   });
+  await context.route('https://en.wikipedia.org/wiki/**',route=> {
+    articleRequests.push({url:route.request().url(),cookie:route.request().headers().cookie||null});
+    return route.fulfill({status:200,contentType:'text/html',body:ARTICLE_HTML});
+  });
   await context.route('https://en.wikipedia.org/api/rest_v1/page/summary/**',route=> {
     articleRequests.push({url:route.request().url(),cookie:route.request().headers().cookie||null});
     return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({type:'standard',title:'Fixture',extract:'A public provider extract long enough for an offline summary.'})});
@@ -116,9 +120,7 @@ export const runBrowserTests = async () => {
     await settingsPage.locator('input[name="storage"][value="session"]').check();
     await settingsPage.click("#save");
     await settingsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"), null, { timeout: 5000 });
-    await settingsPage.locator("#previews-enabled").check();
-    await settingsPage.locator("#previews-save").click();
-    await settingsPage.waitForFunction(()=>document.querySelector("#previews-status")?.textContent.includes("saved"));
+    assert.equal(await settingsPage.locator("#previews-enabled").isChecked(), true);
     await settingsPage.locator("#policy-enabled").check();
     await settingsPage.locator("#policy-save").click();
     await settingsPage.waitForFunction(() => document.querySelector("#policy-message")?.textContent?.includes("saved"));

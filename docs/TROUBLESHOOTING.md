@@ -47,7 +47,7 @@ Editing and deleting comments are a special case: they currently **open HN's ori
 
 ## An AI summary fails
 
-Check that your key and fresh AI permissions are saved on the extension settings page and that the model is available to your OpenRouter account. The Article button supports provider excerpts and abstracts only; arbitrary article extraction is unavailable. Try Discussion for public HN comments. Private tabs have no AI summaries.
+Check Settings → AI in the HarmoNova sidebar to confirm you saved AI consent and an OpenRouter key, and that your chosen model is available. Article summaries read public article HTML/text when the website permits automated access; paywalls, redirects, unsupported document types and inaccessible sites may prevent extraction. Try Discussion for public HN comments instead. Private tabs have no AI summaries.
 
 An API key is optional for normal reading and HN account features. See [Privacy & security](PRIVACY.md) before enabling summaries.
 
@@ -63,12 +63,7 @@ Browsers that support loading unpacked Chromium extensions may work, but Chrome/
 
 ## Preview or article summary is unavailable
 
-External previews start disabled. Open the extension's AI and preview settings
-page and save the preview preference if you want supported GitHub, Wikipedia and
-arXiv previews. Ordinary article URLs, unsupported images/favicons, redirected
-provider responses and denied provider permissions use placeholders. You can
-always open the article normally, or summarize the public HN discussion after
-saving fresh AI consent. Private tabs do not use AI or external previews.
+External previews start enabled for public websites. You can toggle them in Settings → AI. Websites with missing metadata, unsuitable image types, blocked requests or redirects show placeholders instead. Full article summaries depend on the article being publicly readable and may fail if the website rejects background requests. Supported provider API previews (GitHub, Wikipedia and arXiv) remain available as enhancements. Private tabs do not use AI or external previews.
 
 ## Draft or sign-out outcome is uncertain
 

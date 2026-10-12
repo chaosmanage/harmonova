@@ -65,11 +65,11 @@ Tags and blocking are **private local reading preferences**, not HN account feat
 
 ### Link extras
 
-- **Rich link previews**, after you enable external previews on the extension settings page, add a small information panel for supported GitHub repositories, Wikipedia pages, and arXiv papers.
+- **Rich link previews**, enabled by default and controlled under the sidebar’s AI settings, show public metadata for general websites and enriched facts for GitHub, Wikipedia and arXiv.
 - **View on archive** opens the Wayback Machine when you want to look for an older copy of an article.
 - **Nitter redirect** is opt-in. If enabled, Twitter/X links point to your configured Nitter instance instead.
 
-You can turn these extras off in Settings. External previews require a saved extension-page preference and support only the providers listed above.
+You can turn these extras off in Settings. External previews are on by default but can be turned off at any time in Settings → AI.
 
 ## Optional AI summaries
 

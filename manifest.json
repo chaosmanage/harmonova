@@ -9,19 +9,8 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://news.ycombinator.com/*",
-    "https://hacker-news.firebaseio.com/*",
-    "https://openrouter.ai/*",
-    "https://api.github.com/*",
-    "https://export.arxiv.org/*",
-    "https://avatars.githubusercontent.com/*",
-    "https://upload.wikimedia.org/*",
-    "https://en.wikipedia.org/*",
-    "https://de.wikipedia.org/*",
-    "https://fr.wikipedia.org/*",
-    "https://es.wikipedia.org/*",
-    "https://ja.wikipedia.org/*",
-    "https://zh.wikipedia.org/*"
+    "http://*/*",
+    "https://*/*"
   ],
   "icons": {
     "16": "icons/icon16.png",
@@ -83,6 +72,18 @@
       "resources": [
         "fonts/GoogleSansFlexRounded-wght.ttf",
         "fonts/GoogleSansFlexRounded-Italic-wght.ttf"
+      ],
+      "matches": [
+        "https://news.ycombinator.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "ai-settings.html",
+        "ai-settings.css",
+        "ai-settings.js",
+        "ai-policy.js",
+        "icons/icon48.png"
       ],
       "matches": [
         "https://news.ycombinator.com/*"

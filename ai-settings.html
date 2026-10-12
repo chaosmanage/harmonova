@@ -3,59 +3,66 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HarmoNova · AI and external previews</title>
+  <title>HarmoNova · AI & previews</title>
   <link rel="stylesheet" href="ai-settings.css">
 </head>
 <body>
   <main class="shell">
-    <header>
-      <img src="icons/icon48.png" width="44" height="44" alt="">
-      <div>
-        <h1>AI and external previews</h1>
-        <p>Preview access and OpenRouter permissions</p>
-      </div>
+    <header class="page-header">
+      <img src="icons/icon48.png" width="38" height="38" alt="">
+      <div><h1>AI & previews</h1><p>Extension-owned preferences</p></div>
     </header>
-
-    <section class="card"><h2>External previews</h2><p>Supported GitHub, Wikipedia and arXiv previews send requests to those providers. Other articles use a placeholder. Favicons from outside providers are unavailable.</p><label><input id="previews-enabled" type="checkbox"> Allow external previews</label><button id="previews-save" type="button">Save preview preference</button><p id="previews-status" role="status"></p></section>
-    <section class="card" aria-labelledby="ai-policy-title">
-      <h2 id="ai-policy-title">Summarization permissions</h2>
-      <p>Saving here grants consent to use your OpenRouter key for the selected features. Existing saved keys and older Hacker News preferences never grant consent.</p>
-      <label><input id="policy-enabled" type="checkbox"> Enable AI summaries using my stored key</label>
-      <label><input id="policy-auto" type="checkbox"> Automatically summarize after I select a story</label>
-      <label for="policy-model">OpenRouter model</label>
-      <input id="policy-model" type="text" maxlength="200" value="openrouter/free" autocomplete="off">
-      <label for="policy-prompt">System prompt (up to 8 KiB)</label>
-      <textarea id="policy-prompt" rows="5"></textarea>
-      <label><input id="policy-stream" type="checkbox" checked> Stream generated text</label>
-      <label><input id="policy-retry" type="checkbox"> Permit one extra provider request if a streamed response is empty (may incur an additional charge)</label>
-      <div class="actions"><button id="policy-save" class="primary" type="button">Save AI permissions</button><button id="policy-import" type="button" hidden>Use previous model/prompt as draft</button></div>
-      <p id="policy-message" class="message" role="status"></p>
+    <section class="group" aria-labelledby="preview-title">
+      <div class="group-heading"><h2 id="preview-title">Website previews</h2><span class="eyebrow">On by default</span></div>
+      <label class="switch-row">
+        <span class="row-copy"><strong>External previews</strong><small>Show preview images and metadata from linked websites.</small></span>
+        <input id="previews-enabled" type="checkbox" class="switch" checked>
+      </label>
+      <p class="muted">When on, HarmoNova fetches public page metadata and eligible images without sending your browser cookies. Sites may receive requests and some may block previews.</p>
+      <p id="previews-status" class="feedback" role="status"></p>
     </section>
-    <section class="card">
-      <label for="api-key">OpenRouter API key</label>
-      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
-      <p id="key-status" class="status">Checking current key…</p>
-
-      <fieldset>
-        <legend>Storage</legend>
-        <label class="choice">
-          <input type="radio" name="storage" value="persistent" checked>
-          <span><strong>Remember in this Chrome profile</strong><small>Extension-local only; never synced to Chrome Sync or Hacker News storage.</small></span>
-        </label>
-        <label class="choice">
-          <input type="radio" name="storage" value="session">
-          <span><strong>This browser session only</strong><small>Memory-only extension storage. Re-enter the key after Chrome restarts.</small></span>
-        </label>
-      </fieldset>
-
-      <div class="actions">
-        <button id="save" class="primary" type="button">Save key</button>
-        <button id="clear" type="button">Clear saved key</button>
+    <section class="group" aria-labelledby="ai-policy-title">
+      <div class="group-heading"><h2 id="ai-policy-title">AI summaries</h2></div>
+      <label class="switch-row">
+        <span class="row-copy"><strong>Enable AI summarization</strong><small>Summarize linked articles and Hacker News discussions.</small></span>
+        <input id="policy-enabled" type="checkbox" class="switch">
+      </label>
+      <div id="ai-privacy-notice" class="privacy-notice" hidden>
+        When enabled, HarmoNova reads public article text or discussion content and sends the selected text with your configured prompt to OpenRouter. Your selected model may charge for requests.
       </div>
-      <p id="message" class="message" role="status"></p>
+      <label class="switch-row">
+        <span class="row-copy"><strong>Automatic summaries</strong><small>Start a summary after you select a story.</small></span>
+        <input id="policy-auto" type="checkbox" class="switch">
+      </label>
+      <div class="fields">
+        <label class="field" for="policy-model"><strong>OpenRouter model</strong><input id="policy-model" type="text" maxlength="200" value="openrouter/free" autocomplete="off" spellcheck="false"></label>
+        <label class="field" for="policy-prompt"><strong>System prompt</strong><small>Up to 8 KiB</small><textarea id="policy-prompt" rows="4"></textarea></label>
+      </div>
+      <label class="switch-row">
+        <span class="row-copy"><strong>Stream responses</strong><small>Display summary text as it arrives.</small></span>
+        <input id="policy-stream" type="checkbox" class="switch" checked>
+      </label>
+      <label class="switch-row">
+        <span class="row-copy"><strong>Retry empty responses</strong><small>Allow one extra provider request, which may cost more.</small></span>
+        <input id="policy-retry" type="checkbox" class="switch">
+      </label>
+      <button id="policy-save" class="primary" type="button">Save AI permissions</button>
+      <button id="policy-import" class="secondary" type="button" hidden>Use previous model and prompt</button>
+      <p id="policy-message" class="feedback" role="status"></p>
     </section>
-
-    <p class="note">Chrome extensions do not have a general OS-keychain API. Persistent mode keeps the key in HarmoNova’s private extension-local storage and restricts that storage to trusted extension contexts; session mode avoids persisting the key to disk.</p>
+    <section class="group" aria-labelledby="api-title">
+      <div class="group-heading"><h2 id="api-title">OpenRouter API key</h2></div>
+      <label class="field" for="api-key"><strong>API key</strong><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your OpenRouter key"></label>
+      <p id="key-status" class="muted">Checking current key…</p>
+      <fieldset>
+        <legend>Keep my key</legend>
+        <label class="choice"><input type="radio" name="storage" value="persistent" checked><span><strong>In this Chrome profile</strong><small>Stored in private extension-local storage.</small></span></label>
+        <label class="choice"><input type="radio" name="storage" value="session"><span><strong>This browser session only</strong><small>Cleared when Chrome restarts.</small></span></label>
+      </fieldset>
+      <div class="actions"><button id="save" class="primary" type="button">Save API key</button><button id="clear" class="secondary" type="button">Clear key</button></div>
+      <p id="message" class="feedback" role="status"></p>
+      <p class="muted footer-note">Your key is never stored in Hacker News settings or Chrome Sync. Adding a key alone does not enable AI; you must save AI permissions above.</p>
+    </section>
   </main>
   <script src="ai-policy.js"></script>
   <script src="ai-settings.js"></script>

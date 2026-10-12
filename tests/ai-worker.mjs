@@ -56,12 +56,15 @@ test('SSE rejects errors, empty summaries, malformed and oversized events', asyn
   ]) await assert.rejects(worker.streamOpenRouter(stream([body]), () => {}), error);
 });
 
-test('strict extraction uses supported provider text and refuses arbitrary articles before Fetch',async()=>{
-  let calls=0;worker.fetch=async()=>{calls++;return new Response(JSON.stringify({title:'Fixture',extract:'Provider extract',type:'standard'}),{headers:{'content-type':'application/json'}});};
-  assert.equal(await worker.fetchArticleText('https://en.wikipedia.org/wiki/Fixture'),'Fixture\nProvider extract');
+test('article extraction restores full HTML for public websites and blocks unsafe URLs',async()=>{
+  let calls=0;
+  worker.fetch=async()=>{calls++;return new Response('<html><body><article><h1>Article title</h1><p>Full original article, not just a provider excerpt.</p><script>secret()</script></article></body></html>',{headers:{'content-type':'text/html'}});};
+  const text=await worker.fetchArticleText('https://example.com/article');
+  assert.match(text,/Full original article/);assert.ok(!text.includes('secret()'));
   assert.equal(calls,1);
-  await assert.rejects(worker.fetchArticleText('https://example.com/article'),/REMOTE_FETCH_BLOCKED/);assert.equal(calls,1);
   await assert.rejects(worker.fetchArticleText('file:///secret'),/Unsupported/);
+  await assert.rejects(worker.fetchArticleText('http://localhost/private'),/Unsupported/);
+  assert.equal(calls,1);
   await assert.rejects(worker.readResponseTextLimited(stream(['oversized']),2),/size limit/);
 });
 
@@ -126,9 +129,9 @@ test('empty streamed reasoning output retries once without streaming', async () 
   await worker.clearAiKey();
 });
 
-test('provider denial produces controlled unavailable text without arbitrary fallback', async()=> {
+test('article access denial is handled without fallback', async()=> {
   let calls=0;worker.fetch=async()=>{calls++;return new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}});};
-  await assert.rejects(worker.fetchArticleText('https://en.wikipedia.org/wiki/Denied'),/Provider text unavailable/);assert.equal(calls,1);
+  await assert.rejects(worker.fetchArticleText('https://en.wikipedia.org/wiki/Denied'),/Article access denied/);assert.equal(calls,1);
 });
 
 test('opt-in discussion summary does not fetch blocked articles or mislabel source', async () => {

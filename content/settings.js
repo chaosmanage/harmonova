@@ -84,26 +84,6 @@
     return row;
   }
 
-  function aiKeySettingRow() {
-    const row = dependencies.el("div", "setting-row setting-action-row ai-key-row");
-    const text = dependencies.el("span", "setting-copy");
-    const summary = dependencies.el("small", "ai-key-status", "Checking…");
-    text.append(dependencies.el("strong", "", "OpenRouter API key"), summary);
-    const manage = dependencies.el("button", "setting-button", "Configure");
-    manage.type = "button";
-    manage.addEventListener("click", async () => {
-      const result = await dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
-      if (!result?.ok) dependencies.showToast("Couldn’t open secure API key settings");
-    });
-    row.append(text, manage);
-    dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_AI_STATUS" }).then((status) => {
-      summary.textContent = status?.hasKey
-        ? "Configured · managed in extension settings"
-        : "Not set · stored separately from synced settings";
-    }).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
-    return row;
-  }
-
   function openSettings(options = {}) {
     document.querySelector(".settings-overlay")?.remove();
     const overlay = dependencies.el("div", "settings-overlay");
@@ -132,7 +112,7 @@
       settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
       settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
-      dependencies.el("p", "settings-note", "Supported provider images are available after enabling external previews in the extension settings. Other source icons use a local placeholder."),
+      dependencies.el("p", "settings-note", "Preview images are enabled by default; turn them off under AI. Websites without usable images show a local placeholder."),
       settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
       settingSlider("Content zoom", "contentScale", 75, 125, 5, "%")
     );
@@ -192,7 +172,7 @@
     const linksSection = dependencies.el("div", "settings-section");
     linksSection.append(
       dependencies.el("h3", "", "Links"),
-      settingToggle("Rich link previews", "richPreviews", "Show supported provider facts when external previews are enabled in extension settings"),
+      settingToggle("Rich link previews", "richPreviews", "Show website metadata and provider facts in link previews"),
       settingToggle("Open X/Twitter links via Nitter", "nitterRedirect", "Rewrite twitter.com and x.com links (story titles and comment links) to a Nitter instance"),
       settingText("Nitter instance", "nitterInstance", "Bare hostname only, e.g. nitter.net", {
         onChange: () => {
@@ -200,20 +180,21 @@
           if (model.settings.nitterInstance && !dependencies.nitterInstanceHost()) dependencies.showToast("That doesn't look like a hostname — Nitter links keep the default");
         },
       }),
-      dependencies.el("p", "settings-note", "External previews start disabled. Enable supported GitHub, Wikipedia and arXiv access through AI → Configure. Other links show placeholders. Nitter links open the instance you select.")
+      dependencies.el("p", "settings-note", "Website previews are enabled by default and can be controlled under AI. Sites that block metadata or images use placeholders. Nitter links open the instance you select.")
     );
 
     const aiSection = dependencies.el("div", "settings-section ai-settings-section");
-    const openAi = dependencies.el("button", "setting-button", "Open AI settings");
-    openAi.type = "button";
-    openAi.addEventListener("click", (event) => {
-      if (!event.isTrusted) return;
-      dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_OPEN_AI_SETTINGS" });
-    });
+    const aiFrame = dependencies.el("iframe", "ai-settings-frame");
+    aiFrame.title = "Secure AI and preview preferences";
+    aiFrame.src = chrome.runtime.getURL("ai-settings.html");
+    aiFrame.setAttribute("referrerpolicy", "no-referrer");
+    aiFrame.setAttribute("loading", "lazy");
     aiSection.append(
       dependencies.el("h3", "", "AI summarization"),
-      dependencies.el("p", "settings-note", "AI consent, model, prompt, automatic summaries and streaming are controlled only in HarmoNova's extension-owned AI settings page. Old Hacker News settings cannot enable AI."),
-      aiKeySettingRow(), openAi
+      dependencies.el("p", "settings-note ai-settings-intro", "Control article and discussion summaries, OpenRouter access, and website previews here. Credentials and consent stay inside HarmoNova’s secure extension panel."),
+      ...(dependencies.INCOGNITO
+        ? [dependencies.el("p", "settings-note", "AI and external previews are unavailable in private tabs. Configure these preferences from a normal HarmoNova tab.")]
+        : [aiFrame])
     );
 
     const behaviorSection = dependencies.el("div", "settings-section");

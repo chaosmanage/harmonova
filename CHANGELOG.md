@@ -1,3 +1,10 @@
+## v0.14.0 follow-up — Sidebar AI and public-web restoration
+
+- Embed the privileged AI and preview settings inside the HarmoNova sidebar with consistent dark controls and a clear disclosure before enabling OpenRouter summaries.
+- Restore default-on external previews for public websites and full-article text extraction for AI summaries; preserve existing disabled preview preferences.
+- Keep bounded no-cookie/no-referrer/no-redirect requests, image sanitization, verified story URLs and worker-owned AI consent. Broad HTTP(S) host permissions are needed for general websites; see the DNS limitation in the privacy docs.
+- Add offline Chromium integration coverage for the sidebar, key isolation, consent and generic HTML extraction.
+
 ## v0.14.0 — Security and privacy remediation
 
 - Require fresh AI consent in extension settings; stored keys and page preferences never authorize spending. Automatic summaries need separate consent and a real selection.

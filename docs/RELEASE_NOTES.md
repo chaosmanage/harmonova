@@ -2,9 +2,9 @@
 
 This release prepares the security remediation for review; publication is a separate action.
 
-Normal HN feeds, search, discussions and native account handoffs remain available. External previews start disabled and support GitHub, Wikipedia and arXiv only. Unsupported/redirected images use placeholders and favicons use local domain markers. The Article summary button uses provider excerpts/abstracts; arbitrary article extraction is unavailable.
+Normal HN feeds, search, discussions and native account handoffs remain available. General public-website previews are enabled by default (previously disabled preferences stay off). GitHub, Wikipedia and arXiv retain enriched previews. The Article summary button fetches capped public full-article HTML/text when available; sites that deny access use the discussion fallback. Preview and AI settings now live inside the HarmoNova Settings → AI sidebar. Restoring general websites requires broad HTTP(S) host permissions.
 
-Save fresh AI consent on the extension's **AI and external previews** page before using a stored key. Automatic summaries require separate consent and a real selection. Private tabs keep reader data/drafts only until document reload/navigation/closure; private AI and previews are disabled.
+Save fresh AI consent under **Settings → AI** in the extension sidebar before using a stored key. Automatic summaries require separate consent and a real selection. Private tabs keep reader data/drafts only until document reload/navigation/closure; private AI and previews are disabled.
 
 Account actions require trusted gestures, uncertain posts are not replayed, and logout requires a definitive signed-out read-back. Versioned storage migrations preserve sources on failed writes; imports report truncation and draft conflicts are explicit.
 

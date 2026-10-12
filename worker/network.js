@@ -17,7 +17,7 @@ async function fetchPolicy(value, init = {}) {
   if(!HarmoNovaProviderPolicy.allowed(value,resourceKind,settings.method || "GET"))throw remoteFetchBlocked();
   const budget=HarmoNovaResourcePolicy.Limits[resourceKind];
   if (!budget) throw remoteFetchBlocked();
-  const types={storyLookup:["application/json"],richJson:["application/json"],atom:["application/atom+xml","application/xml","text/xml"],image:["image/png","image/jpeg","image/webp"],aiJson:["application/json"],aiStream:["text/event-stream"]};
+  const types={metadata:["text/html","application/xhtml+xml"],article:["text/html","application/xhtml+xml","text/plain"],storyLookup:["application/json"],richJson:["application/json"],atom:["application/atom+xml","application/xml","text/xml"],image:["image/png","image/jpeg","image/webp"],aiJson:["application/json"],aiStream:["text/event-stream"]};
   try {return await HarmoNovaResourcePolicy.request(fetch,target,settings,budget,types[resourceKind]);}
   catch(error) {if(error?.code?.startsWith("RESOURCE_") || ["RESPONSE_TOO_LARGE","UNSUPPORTED_CONTENT_TYPE"].includes(error?.code))throw error;throw remoteFetchBlocked();}
 }
@@ -205,7 +205,7 @@ async function imageTint(url,signal) {return (await sanitizedImage(url,signal))?
 const NETWORK_POLICY_KEY="harmonovaNetworkPolicyV1";
 async function currentNetworkPolicy() {
   const value=(await dependencies.workerStorage.localGet({[NETWORK_POLICY_KEY]:null}))[NETWORK_POLICY_KEY];
-  return {version:1,externalPreviewsEnabled:value?.version===1 && value.externalPreviewsEnabled===true};
+  return {version:1,externalPreviewsEnabled:value?.version===1 ? value.externalPreviewsEnabled===true : true};
 }
 async function saveNetworkPolicy(policy) {
   if(!policy||Object.keys(policy).some(k=>!["version","externalPreviewsEnabled"].includes(k))||policy.version!==1||typeof policy.externalPreviewsEnabled!=="boolean")return {ok:false};
@@ -214,22 +214,87 @@ async function saveNetworkPolicy(policy) {
   previewConsumers.clear(); metadataCache.clear();paletteCache.clear();
   return {ok:true,policy};
 }
+// Small, inert metadata parser: extract only bounded attribute text/URLs.
+function decodeEntities(value) {
+  return String(value||"").replace(/&(#x[0-9a-f]+|#[0-9]+|amp|quot|apos|lt|gt|nbsp);/gi,(_match,entity)=>{
+    const fixed={amp:"&",quot:'"',apos:"'",lt:"<",gt:">",nbsp:" "};
+    if(entity[0]!=="#")return fixed[entity.toLowerCase()]||"";
+    const n=entity[1].toLowerCase()==="x"?parseInt(entity.slice(2),16):parseInt(entity.slice(1),10);
+    try{return String.fromCodePoint(n);}catch{return "";}
+  });
+}
+function tagAttribute(tag,name) {
+  const match=new RegExp("(?:^|\\s)"+name+"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')","i").exec(tag);
+  return match?decodeEntities(match[1]??match[2]):null;
+}
+function metadataField(html,names) {
+  for(const tag of html.match(/<meta\b[^>]{0,2500}>/gi)||[]) {
+    const key=(tagAttribute(tag,"property")||tagAttribute(tag,"name")||"").toLowerCase();
+    if(names.includes(key))return capText(tagAttribute(tag,"content"),1000);
+  }
+  return null;
+}
+function metadataIcon(html) {
+  for(const tag of html.match(/<link\b[^>]{0,2500}>/gi)||[]) {
+    const rel=(tagAttribute(tag,"rel")||"").toLowerCase();
+    if(rel.split(/\s+/).some(v=>["icon","shortcut","apple-touch-icon"].includes(v)))return tagAttribute(tag,"href");
+  }
+  return null;
+}
+function safeRasterUrl(value,base) {
+  if(!value)return null;
+  try {
+    const url=HarmoNovaUrlPolicy.canonicalRemoteUrl(new URL(value,base).href);
+    return url?.startsWith("https:")?url:null;
+  }catch{return null;}
+}
+function articleTextFromHtml(html) {
+  let value=String(html||"");
+  value=/<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(value)?.[1]
+    ||/<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(value)?.[1]
+    ||/<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(value)?.[1]||value;
+  return decodeEntities(value.replace(/<(script|style|noscript|template|svg|nav)\b[^>]*>[\s\S]*?<\/\1>/gi," ")
+    .replace(/<!--[\s\S]*?-->/g," ").replace(/<br\s*\/?>/gi,"\n")
+    .replace(/<\/(p|div|article|section|main|li|h[1-6]|blockquote|pre)>/gi,"\n")
+    .replace(/<[^>]+>/g," ")).replace(/[ \t]+/g," ").replace(/ *\n */g,"\n")
+    .replace(/\n{3,}/g,"\n\n").trim();
+}
 async function getMetadataWork(url,wantRich=false,signal) {
   const empty={image:null,favicon:null,tint:null,rich:null,richState:wantRich?"unavailable":"notRequested",pageUrl:url,
-    refused:HarmoNovaUrlPolicy.isHackerNewsUrl(url),unavailableReason:"Previews are available only for supported providers."};
+    refused:HarmoNovaUrlPolicy.isHackerNewsUrl(url),unavailableReason:"Preview unavailable."};
   if(!(await currentNetworkPolicy()).externalPreviewsEnabled)return {...empty,unavailableReason:"External previews are disabled."};
   const canonical=HarmoNovaUrlPolicy.canonicalRemoteUrl(url);if(!canonical)return empty;
   const key="meta:"+wantRich+":"+canonical;
   const cached=metadataCache.get(key);if(cached)return cached;
-  if(!wantRich)return empty;
-  const facts=await getRichPreview(canonical,signal);
-  const raster=await sanitizedImage(facts?.imageUrl,signal);
-  if(signal?.aborted || !(await currentNetworkPolicy()).externalPreviewsEnabled)return empty;
-  const value={...empty,image:raster?.src||null,tint:raster?.tint||null,
-    imageDimensions:raster?{width:raster.width,height:raster.height}:null,
-    rich:wantRich && facts ? {provider:facts.provider,title:facts.title,lines:facts.lines}:null,
-    richState:wantRich?(facts?"available":"unavailable"):"notRequested"};
-  metadataCache.set(key,value,!facts);return value;
+  const richPromise=wantRich?getRichPreview(canonical,signal):Promise.resolve(null);
+  let html="",imageUrl=null,faviconUrl=null,title=null,description=null;
+  // Known providers already have purpose-built public APIs; avoid an extra
+  // HTML request there. All other sites use general page metadata.
+  if(!wantRich || !(githubRich(canonical)||wikipediaRich(canonical)||arxivRich(canonical)))try {
+    const response=await fetchPolicy(canonical,{resourceKind:"metadata",signal,
+      headers:{Accept:"text/html,application/xhtml+xml"}});
+    if(response.ok)html=await readResponseTextLimited(response,1500000);
+    else await response.body?.cancel();
+    if(html) {
+      title=metadataField(html,["og:title","twitter:title"]);
+      description=metadataField(html,["og:description","description","twitter:description"]);
+      imageUrl=safeRasterUrl(metadataField(html,["og:image:secure_url","og:image","twitter:image","twitter:image:src"]),canonical);
+      faviconUrl=safeRasterUrl(metadataIcon(html),canonical);
+    }
+  }catch{/* Provider-specific rich facts can still be available. */}
+  const rich=await richPromise;
+  if(rich?.imageUrl)imageUrl=safeRasterUrl(rich.imageUrl,canonical)||imageUrl;
+  let raster=null,icon=null;
+  if(!signal?.aborted && imageUrl)raster=await sanitizedImage(imageUrl,signal);
+  if(!signal?.aborted && !raster && faviconUrl)icon=await sanitizedImage(faviconUrl,signal);
+  const generic=wantRich && !rich && (title||description)
+    ?{provider:"website",title:title||new URL(canonical).hostname,lines:description?[description.slice(0,600)]:[]}:null;
+  const facts=rich||generic;
+  const value={...empty,image:raster?.src||null,favicon:icon?.src||null,
+    tint:raster?.tint||icon?.tint||null,imageDimensions:raster?{width:raster.width,height:raster.height}:null,
+    rich:facts,richState:wantRich?(facts?"available":"unavailable"):"notRequested",unavailableReason:html||facts?"":empty.unavailableReason};
+  metadataCache.set(key,value,!html&&!facts);
+  return value;
 }
 
 const previewConsumers = new Map();
@@ -251,11 +316,21 @@ async function fetchArticleText(url,signal) {
   if(HarmoNovaUrlPolicy.isHackerNewsUrl(url))throw new Error("Hacker News pages can't be summarized");
   const canonical=HarmoNovaUrlPolicy.canonicalRemoteUrl(url);
   if(!canonical)throw new Error("Unsupported article URL");
-  if(!(githubRich(canonical)||wikipediaRich(canonical)||arxivRich(canonical)))throw remoteFetchBlocked();
-  const facts=await getRichPreview(canonical,signal);
-  const text=[facts?.title,...facts?.lines||[]].filter(Boolean).join("\n").slice(0,dependencies.MAX_ARTICLE_CHARACTERS);
-  if(!text)throw new Error("Provider text unavailable. Summarize the public Hacker News discussion instead.");
-  return text;
+  const response=await fetchPolicy(canonical,{resourceKind:"article",signal,
+    headers:{Accept:"text/html,application/xhtml+xml,text/plain;q=0.9"}});
+  if(!response.ok) {
+    await response.body?.cancel();
+    if([401,403].includes(response.status)){
+      const error=new Error("Article access denied. Open the article or summarize the Hacker News discussion instead.");
+      error.code="ARTICLE_ACCESS_DENIED";throw error;
+    }
+    throw new Error(response.status===429?"Article website is rate-limiting requests.":"Article fetch failed (HTTP "+response.status+").");
+  }
+  const type=(response.headers.get("content-type")||"").toLowerCase();
+  const raw=await readResponseTextLimited(response,2*1024*1024);
+  const text=type.includes("text/plain")?raw.trim():articleTextFromHtml(raw);
+  if(!text)throw new Error("Could not extract readable article text. Try the discussion summary.");
+  return text.slice(0,dependencies.MAX_ARTICLE_CHARACTERS);
 }
 
 
