@@ -1,4 +1,4 @@
-importScripts("worker/messages.js", "worker/network.js", "worker/ai.js", "worker/storage.js", "settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
+importScripts("worker/messages.js", "worker/network.js", "worker/ai.js", "worker/storage.js", "settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js", "release-updates.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -144,6 +144,28 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   function clearAiKey(...args){return workerAI.clearAiKey(...args);}
   function abortAllAiRequests(...args){return workerAI.abortAllAiRequests(...args);}
 
+  // Delay release checks until after installation; recheck once per day.
+  const releaseUpdates=HarmoNovaReleaseUpdates.create({
+    localGet:workerStorage.localGet,localSet:workerStorage.localSet,
+    fetchRelease:fetch,installedVersion:chrome.runtime.getManifest?.().version || "0.0.0",
+    onAvailable:async result=>{
+      const tabs=await chrome.tabs.query({url:"https://news.ycombinator.com/*"});
+      await Promise.allSettled(tabs.filter(tab=>!tab.incognito&&Number.isInteger(tab.id))
+        .map(tab=>chrome.tabs.sendMessage(tab.id,{type:"HARMONOVA_RELEASE_AVAILABLE",tag:result.tag})));
+    }
+  });
+  const RELEASE_ALARM="harmonova-check-github-release";
+  if(chrome.alarms?.get&&chrome.alarms?.onAlarm?.addListener){
+    chrome.alarms.get(RELEASE_ALARM).then(alarm=>{
+      if(!alarm)chrome.alarms.create(RELEASE_ALARM,{delayInMinutes:10,periodInMinutes:1440});
+    }).catch(()=>{});
+    chrome.alarms.onAlarm.addListener(alarm=>{
+      if(alarm.name!==RELEASE_ALARM)return;
+      workerReady.then(()=>preferencesStore.snapshot()).then(preferences=>
+        releaseUpdates.check(preferences.settings.notifyUpdates!==false)).catch(()=>{});
+    });
+  }
+
   HarmoNovaWorkerMessages.create({
     get aiKeyStatus(){return aiKeyStatus;},
     get clearAiKey(){return clearAiKey;},
@@ -155,6 +177,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     get preferencesStore(){return preferencesStore;},
     get privatePreferencesSnapshot(){return privatePreferencesSnapshot;},
     get readerStore(){return readerStore;},
+    get releaseUpdates(){return releaseUpdates;},
     get saveAiKey(){return saveAiKey;},
     get saveAiPolicy(){return saveAiPolicy;},
     get saveNetworkPolicy(){return saveNetworkPolicy;},

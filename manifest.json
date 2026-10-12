@@ -6,7 +6,8 @@
   "incognito": "spanning",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "alarms"
   ],
   "host_permissions": [
     "http://*/*",
@@ -58,6 +59,7 @@
         "content/links.js",
         "content/sanitize.js",
         "content/toolbar.js",
+        "content/release-notice.js",
         "content.js"
       ],
       "css": [

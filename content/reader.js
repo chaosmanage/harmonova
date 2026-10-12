@@ -196,9 +196,6 @@
         { label: "Reply to story", icon: "comment", action: () => session
           ? dependencies.openComposer({ parentId: item.id, storyId: item.id })
           : dependencies.showToast("Sign in to reply") },
-        ...(session && storyState?.favoriteAvailable
-          ? [{ label: storyState.favorited ? "Unfavorite" : "Favorite", icon: "heart", action: dependencies.handleStoryFavorite }]
-          : []),
         ...(session && storyState?.hideAvailable
           ? [{ label: storyState.hidden ? "Unhide" : "Hide", icon: "eyeOff", action: dependencies.handleStoryHide }]
           : []),

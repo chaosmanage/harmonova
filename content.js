@@ -258,7 +258,6 @@
   function handleStoryHide(...args){return actionsUI.handleStoryHide(...args);}
   function confirmFlagItem(...args){return actionsUI.confirmFlagItem(...args);}
   function hideFromFeed(...args){return actionsUI.hideFromFeed(...args);}
-  function addBookmarksToFavorites(...args){return actionsUI.addBookmarksToFavorites(...args);}
   function startNewPost(...args){return actionsUI.startNewPost(...args);}
   function renderThreadListItem(...args){return actionsUI.renderThreadListItem(...args);}
   function openUserPanel(...args){return actionsUI.openUserPanel(...args);}
@@ -316,7 +315,6 @@ function openFeedMenu(anchor) {
     openPopup(anchor, [
       { label: session ? session.username + karma : "Log in", icon: "user", action: () => openAccountMenu(anchor) },
       { label: "New post", icon: "plus", action: () => startNewPost() },
-      { label: "Add bookmarks to HN favorites", icon: "heart", action: () => addBookmarksToFavorites() },
       { label: "Settings", icon: "settings", action: openSettings },
       { label: "Open original Hacker News", icon: "external", action: () => openOriginalHackerNews(FEEDS[state.feed].path) },
       { label: "Disable HarmoNova", icon: "power", action: disableHarmoNova },
@@ -623,6 +621,8 @@ function openFeedMenu(anchor) {
       openUserPanel(decodeURIComponent(match[1]));
     });
     document.documentElement.classList.add("harmonova-ready");
+    if (!INCOGNITO) HarmoNovaContentReleaseNotice.create({app,settings:state.settings,
+      saveSettings,el:domUI.el});
     // Search shortcut is inert while editing text or when an overlay is open.
     document.addEventListener("keydown", (event) => {
       if (!event.isTrusted || event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;

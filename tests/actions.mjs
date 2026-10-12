@@ -391,7 +391,7 @@ const toastText = async (page) =>
 await test("favorite toggles through HN's token with a confirmation re-fetch", async ({ page, hn }) => {
   await gotoFeed(page);
   await openThreadFully(page);
-  await storyMenuAction(page, "Favorite");
+  await page.locator("[data-thread-favorite]").click();
   await waitFor(() => hn.requests.some((request) => request.path.startsWith("/fave")), 20000, 150, "GET /fave");
   const fave = hn.requests.find((request) => request.path.startsWith("/fave"));
   assert.equal(fave.params.id, String(STORY_ID));
@@ -401,17 +401,17 @@ await test("favorite toggles through HN's token with a confirmation re-fetch", a
   const itemFetches = hn.requests.filter((request) => request.path.startsWith("/item")).length;
   assert.ok(itemFetches >= 2, "confirmRefetch re-reads the item document after the favorite");
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  assert.ok(await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).count(), "menu reflects favorite state");
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).count(), 0, "toolbar favorite has no redundant menu action");
   const toast = await toastText(page);
   assert.ok(toast.includes("Favorited"), "favorite toast: " + toast);
 
-  await page.locator('.harmonova-popup .popup-item', { hasText: "Unfavorite" }).click();
+  await page.locator("[data-thread-favorite]").click();
   await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 2, 20000, 150, "unfavorite");
   const unfave = hn.requests.filter((request) => request.path.startsWith("/fave"))[1];
   assert.equal(unfave.params.un, "t", "unfavorite sends un=t");
   await new Promise((resolve) => setTimeout(resolve, 1500));
   await page.locator('.thread-actions button.thread-action[aria-label="More"]').click();
-  assert.ok(await page.locator('.harmonova-popup .popup-item', { hasText: "Favorite" }).count(), "menu reverts to favorite");
+  assert.equal(await page.locator('.harmonova-popup .popup-item', { hasText: "Favorite" }).count(), 0, "favorite remains toolbar-only");
   const toast2 = await toastText(page);
   assert.ok(toast2.includes("Removed from favorites"), "unfavorite toast: " + toast2);
 });
@@ -541,35 +541,13 @@ await test("comment flag appears only when HN offers the link and cancels safely
 // SEC-37: bookmarks → favorites bulk
 // ---------------------------------------------------------------------------
 
-await test("bookmarks bulk-favorite runs serially with progress and is cancellable", async ({ page, hn }) => {
+await test("obsolete bookmark commands do not appear in story menus", async ({ page }) => {
   await gotoFeed(page);
-  // Bookmark all three feed stories via their card menus.
-  for (const id of [STORY_ID, STORY_2, STORY_3]) {
-    const card = page.locator('.story-card[data-story-id="' + id + '"]');
-    await card.click({ button: "right" });
-    await page.locator(".harmonova-popup .popup-item", { hasText: "Bookmark" }).click();
-  }
-  await page.locator(".feed-toolbar-actions .icon-button[aria-label='More']").click();
-  await page.locator(".harmonova-popup .popup-item", { hasText: "Add bookmarks to HN favorites" }).click();
-  await page.locator(".harmonova-confirm-overlay").waitFor({ state: "visible", timeout: 5000 });
-  const dialogMessage = await page.locator(".harmonova-confirm-message").textContent();
-  assert.ok(dialogMessage.includes("3 bookmarked stories"), "dialog counts the bookmarks: " + dialogMessage);
-  await page.locator(".harmonova-confirm-confirm").click();
-  await waitFor(() => hn.requests.filter((request) => request.path.startsWith("/fave")).length >= 1, 30000, 200, "first bulk favorite");
-
-  // Cancel during the second item's in-flight window.
-  const cancelButton = page.locator(".harmonova-toast .harmonova-toast-action", { hasText: "Cancel" });
-  await cancelButton.waitFor({ state: "visible", timeout: 5000 });
-  await cancelButton.click();
-  const toast = await toastText(page);
-  assert.ok(toast.includes("cancelled"), "cancel toast: " + toast);
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-  const faveCount = hn.requests.filter((request) => request.path.startsWith("/fave")).length;
-  assert.ok(faveCount >= 1 && faveCount <= 2, "cancellation stops the bulk run early (sent " + faveCount + " of 3)");
-  const faves = hn.requests.filter((request) => request.path.startsWith("/fave"));
-  for (let i = 1; i < faves.length; i++) {
-    assert.ok(faves[i].t - faves[i - 1].t >= 600, "SEC-37: bulk favorites are serially spaced (gap " + (faves[i].t - faves[i - 1].t) + "ms)");
-  }
+  await page.locator('.story-card').first().click({button:'right'});
+  assert.equal(await page.locator('.harmonova-popup .popup-item', {hasText:'Bookmark'}).count(),0);
+  await page.mouse.click(4,4);
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  assert.equal(await page.locator('.harmonova-popup .popup-item', {hasText:'Add bookmarks'}).count(),0);
 });
 
 // ---------------------------------------------------------------------------

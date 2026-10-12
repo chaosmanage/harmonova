@@ -1,3 +1,10 @@
+## Unreleased — adjustable feed density and release notices
+
+- Make story Content Zoom scale card heights, previews, icons, padding and gaps; default to a denser 70% layout (about 8 stories at 1856 × 832). Existing saved zoom preferences are preserved.
+- Separate Comment Zoom from Content Zoom and scale comment-card metadata, text and spacing together; default to 90%, with 65–150% zoom options.
+- Remove obsolete bookmark commands and duplicate story Favorite menu action; the thread toolbar star remains the story Favorite control.
+- Check official GitHub releases once daily via the worker and offer a subtle in-page download link. Ignore individual versions or disable notices altogether in Appearance.
+
 ## v0.14.0 feed reliability hotfix
 
 - Load the first 12 stories promptly, then fetch more on scroll instead of blocking the entire feed on a 40-story batch.

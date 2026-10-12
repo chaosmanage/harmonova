@@ -16,6 +16,7 @@ HarmoNova has no project server, analytics, or account. Normal reading uses publ
 | OpenRouter key | Local storage if you choose profile persistence, or session storage if you choose browser-session-only storage. Never Chrome Sync, HN page storage, or exported reader data. The HN UI receives only whether a key exists. |
 | AI consent/model/prompt and preview permission | Local storage, edited inside the extension-owned AI settings embedded in the HarmoNova sidebar (also available as an extension options page). Existing keys and old page/sync AI preferences grant no consent. |
 | Summaries, searches, preview caches | Bounded tab/worker memory; no persistent summary history. |
+| Release update state | Local extension storage keeps the latest checked tag and ignored version. The notification preference is included in normal cosmetic preferences. |
 
 Chrome storage areas are restricted to trusted extension contexts. Normal content scripts use typed worker messages. Versioned repositories serialize writes and preserve unrelated tab changes; conflicting writers to the same draft receive a conflict instead of overwriting it. Export/import covers bounded reader data (including optional v1 seen times) only, never keys, AI consent, drafts, or tab IDs. Existing valid keys and reader data survive upgrades. Legacy page data is deleted only after an acknowledged migration; newer unknown store versions are refused without deletion.
 
@@ -24,6 +25,8 @@ Chrome storage areas are restricted to trusted extension contexts. Normal conten
 If you allow this extension in incognito, reader state and drafts exist only in the current document's memory. They disappear on reload, navigation or tab closure, and are not shared with another private tab. Imports and exports use that document's private reader state. Private reading, draft cleanup and logout do not modify normal reader stores. Private tabs may read a sanitized cosmetic snapshot but do not migrate or save normal preferences. AI and external previews are disabled privately. Original-HN handoffs stay in the originating private window. Exporting a private file still saves a file to your chosen download location.
 
 ## Requests and permission boundaries
+
+The extension checks `https://api.github.com/repos/chaosmanage/harmonova/releases/latest` about once daily for newer versions (starting around ten minutes after installation). The request contains no HN cookies, account data, or reader content. If a newer release is found, an optional non-modal in-page notice links to the official GitHub releases page. Dismissing a version persists locally; turning off notifications in Appearance stops release-check requests. The `alarms` permission schedules these checks; Chrome's notifications permission is not used.
 
 The content scripts run only on `https://news.ycombinator.com/*`. `storage` supports the stores above; `activeTab` supports the popup's explicit tab controls. Required host permissions include all HTTP and HTTPS sites to restore general previews and full-article summaries. The content scripts still run only on HN. Algolia's public reading/search API is accessed by the content client. There are no wildcard HTTP/HTTPS host permissions, optional arbitrary-origin permissions, cookies permission, or webRequest permission.
 

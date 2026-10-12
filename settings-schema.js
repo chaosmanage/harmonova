@@ -16,8 +16,9 @@
     continuousRails: false,
     storyTextSize: 17.5,
     commentTextSize: 15,
-    commentZoom: 100,
-    contentScale: 100,
+    commentZoom: 90,
+    contentScale: 70,
+    notifyUpdates: true,
     commentSort: "Default",
     cardClickComments: false,
     cardClickEnabled: true,
@@ -51,7 +52,7 @@
   const backupFields=Object.freeze(['uiTheme','uiFont','storyTextSize','commentTextSize','commentZoom','contentScale']);
   const blockedKeys=new Set(['__proto__','prototype','constructor']);
   const username=v=>typeof v==='string' && /^[A-Za-z0-9_-]{1,32}$/.test(v) && !blockedKeys.has(v);
-  const ranges={storyTextSize:[14.5,20.5],commentTextSize:[12,18],commentZoom:[70,130],contentScale:[75,125]};
+  const ranges={storyTextSize:[14.5,20.5],commentTextSize:[12,18],commentZoom:[65,150],contentScale:[65,150]};
   const enums={previewImages:['small','medium','off'],commentStyle:['outlined','raised','standard','flat'],depthMode:['theme_default','material_you','colors','author','monochrome','none'],commentSort:['Default','Newest first','Oldest first','Reply count'],faviconProvider:['google','duckduckgo','direct'],uiTheme:['amoled','charcoal','navy'],uiFont:['rounded','system','serif']};
   const feeds=['top','new','best','ask','show','jobs','pool','active','bestcomments','launches','whoishiring','noobstories','classic','front'];
   function valid(key,value) {

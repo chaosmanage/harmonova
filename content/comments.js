@@ -233,8 +233,6 @@
             ? [{ label: voteState?.votedDirection === "down" ? "Undown" : "Vote down",
               icon: "down", action: (clicked) => dependencies.handleCommentVote(clicked, comment.id, true) }] : []),
         ] : []),
-        { label: model.bookmarks.has(comment.id) ? "Remove bookmark" : "Bookmark",
-          icon: "star", action: () => dependencies.toggleBookmark(comment.id) },
         ...(session ? [{ label: "Favorite", icon: "heart",
           action: async () => {
             const result = await window.HarmoNovaHN.setFavorite(comment.id, true);

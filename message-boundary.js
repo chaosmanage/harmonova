@@ -54,6 +54,8 @@
       valid: m => typeof m.token === "string" && m.token.length <= 100 },
     HARMONOVA_DRAFT_CLEAR_ALL: { from: ["hn"], fields: ["username"], reader: true,
       valid: m => username(m.username) },
+    HARMONOVA_RELEASE_STATUS: {from:["hn"],fields:[]},
+    HARMONOVA_RELEASE_IGNORE: {from:["hn"],fields:["tag"],valid:m=>typeof m.tag==="string" && /^v?\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(m.tag)},
     HARMONOVA_PREFERENCES_GET: {from:["hn","popup","options"],fields:[]},
     HARMONOVA_PREFERENCES_PATCH: {from:["hn","popup"],fields:["fields","enabled"],valid:m=>HarmoNovaSettingsSchema.patch(m.fields)!==null && (m.enabled===undefined||typeof m.enabled==="boolean")},
     HARMONOVA_MIGRATE_PREFERENCES: {from:["hn"],fields:["appearance"],reader:true,valid:m=>m.appearance && typeof m.appearance==="object" && !Array.isArray(m.appearance)},

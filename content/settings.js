@@ -114,7 +114,7 @@
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
       dependencies.el("p", "settings-note", "Preview images are enabled by default; turn them off under AI Summarization. Websites without usable images show a local placeholder."),
       settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
-      settingSlider("Content zoom", "contentScale", 75, 125, 5, "%")
+      settingSlider("Content zoom", "contentScale", 65, 150, 5, "%")
     );
 
     const commentsSection = dependencies.el("div", "settings-section");
@@ -130,7 +130,7 @@
       settingToggle("Comment avatars", "showAvatars", "Show generated local avatars beside comment authors"),
       settingToggle("Swap comment actions", "swapCommentActions", "Tap opens actions; long-press collapses"),
       settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp"),
-      settingSlider("Comment zoom", "commentZoom", 70, 130, 5, "%")
+      settingSlider("Comment zoom", "commentZoom", 65, 150, 5, "%")
     );
 
     const userDataSection = dependencies.el("div", "settings-section");
@@ -150,7 +150,7 @@
       exportButton,
       importButton,
       importFileInput,
-      dependencies.el("p", "settings-note", "Bookmarks, read stories, user tags, and blocked users are stored on this profile. Export saves them as a JSON file; import merges a previously exported file after schema validation (integers for ids, small strings for tags, 256 KB cap). Nothing here is synced to Hacker News or any server.")
+      dependencies.el("p", "settings-note", "Read history, user tags and blocked users can be exported or imported. Older bookmarks remain in backups for compatibility, but new bookmarks are no longer offered. Nothing here is sent to Hacker News or an external server.")
     );
 
     const headerDisplaySection = dependencies.el("div", "settings-section");
@@ -166,6 +166,7 @@
       dependencies.el("h3", "", "Appearance"),
       settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
       settingSelect("Font", "uiFont", [["rounded", "Google Sans Flex Rounded"], ["system", "System UI"], ["serif", "Serif"]]),
+      settingToggle("Notify about new releases", "notifyUpdates", "Show a quiet, dismissible notice when a newer GitHub release is available. No Chrome notifications."),
       dependencies.el("p", "settings-note", "Themes restyle HarmoNova's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
     );
 

@@ -45,7 +45,6 @@
         { label: model.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
         ...(window.HarmoNovaHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => dependencies.hideFromFeed(e, story.id) }] : []),
         ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => dependencies.hideDomain(story) }] : []),
-        { label: model.bookmarks.has(story.id) ? "Remove bookmark" : "Bookmark", icon: "star", action: () => dependencies.toggleBookmark(story.id) },
         { label: "Open on Hacker News", icon: "external", action: () => window.open("https://news.ycombinator.com/item?id=" + story.id, "_blank", "noopener") },
       ], event.type === "contextmenu" || event.type === "pointerdown" ? { x: event.clientX, y: event.clientY } : null);
     };

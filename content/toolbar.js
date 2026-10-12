@@ -20,13 +20,18 @@
     dependencies.app.dataset.headerImage = String(model.settings.headerImage);
     dependencies.app.dataset.compactPoints = String(model.settings.compactPoints);
     dependencies.app.dataset.showDomain = String(model.settings.showDomain !== false);
+    if(model.settings.notifyUpdates===false)document.querySelector(".harmonova-release-notice")?.remove();
     dependencies.filterStories();
-    const contentScale = Math.max(0.75, Math.min(1.25, Number(model.settings.contentScale || 100) / 100));
+    const contentScale = Math.max(0.65, Math.min(1.5, Number(model.settings.contentScale ?? 70) / 100));
     const storySetting = Number(model.settings.storyTextSize || 17.5);
     const storyScale = storySetting / 17.5;
     const commentSetting = Number(model.settings.commentTextSize || 15);
-    const commentScale = Math.max(0.7, Math.min(1.3, Number(model.settings.commentZoom ?? 100) / 100));
+    const commentScale = Math.max(0.65, Math.min(1.5, Number(model.settings.commentZoom ?? 90) / 100));
     dependencies.app.dataset.cardClickComments = String(model.settings.cardClickComments);
+    // Fixed card heights and previews previously stopped zoom from changing feed density.
+    dependencies.app.style.setProperty("--feed-scale", String(contentScale));
+    dependencies.app.style.setProperty("--story-card-min-height", Math.max(56, 118 + (contentScale - 1) * 200) + "px");
+    dependencies.app.style.setProperty("--story-list-gap", (10 * contentScale) + "px");
     // HarmoNova's semantic settings rendered at desktop density. The Android app's dp/sp
     // values are physically larger on a high-density display, so this preserves the same
     // visual scale on a standard-density laptop instead of shrinking the UI.
@@ -34,16 +39,18 @@
     dependencies.app.style.setProperty("--story-index-size", ((22 + (storySetting - 17.5) * 1.2) * contentScale) + "px");
     dependencies.app.style.setProperty("--story-meta-size", (16.5 * storyScale * contentScale) + "px");
     dependencies.app.style.setProperty("--story-comment-count-size", (19 * storyScale * contentScale) + "px");
-    dependencies.app.style.setProperty("--comment-text-size", ((19 + (commentSetting - 15) * 1.2) * contentScale * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-meta-size", (17 * contentScale * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-row-gap", (10 * contentScale * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-indent", (12 * contentScale * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-paragraph-gap", (14 * contentScale * commentScale) + "px");
-    dependencies.app.style.setProperty("--story-pad-y", (15 * contentScale) + "px");
+    dependencies.app.style.setProperty("--comment-text-size", ((17 + (commentSetting - 15) * 1.2) * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-meta-size", (14.5 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-row-gap", (9 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-indent", (12 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-paragraph-gap", (12 * commentScale) + "px");
+    dependencies.app.style.setProperty("--story-pad-y", Math.max(5, 15 + (contentScale - 1) * 32) + "px");
     dependencies.app.style.setProperty("--story-pad-x", (13 * contentScale) + "px");
     dependencies.app.style.setProperty("--story-gap", (9 * contentScale) + "px");
-    dependencies.app.style.setProperty("--comment-pad-y", (14 * contentScale * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-pad-x", (16 * contentScale * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-pad-y", (10 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-pad-x", (14 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-meta-height", (20 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-meta-gap", (4 * commentScale) + "px");
     dependencies.app.style.setProperty("--thread-title-size", (32 * contentScale) + "px");
     dependencies.app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
     // Phase 7 part 3: appearance — surface theme and interface font live on

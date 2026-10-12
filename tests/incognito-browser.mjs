@@ -68,7 +68,8 @@ export async function incognitoBrowserCheck() {
     assert.equal(privateTab.windowId,privateWindow.id);
     assert.ok(privateTab?.incognito, 'real private tab must be visible to the extension');
     await page.locator('.story-card').first().click({button:'right'});
-    await page.getByText('Bookmark',{exact:true}).click();
+    assert.equal(await page.getByText('Bookmark',{exact:true}).count(),0,'obsolete bookmark action stays absent');
+    await page.keyboard.press('Escape');
     await page.evaluate(()=> {location.hash='#harmonova-settings';});
     await page.locator('.settings-category', {hasText:'Data'}).click();
     await page.locator('input[type=file]').setInputFiles({name:'private.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({version:1,bookmarks:[50022292,910002],readStoryIds:[50022292],userTags:{privateauthor:'private'},blockedUsers:['privateblocked']}))});
