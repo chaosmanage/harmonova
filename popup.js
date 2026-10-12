@@ -1,24 +1,3 @@
-const syncGet = async (keys) => {
-  const defaults = Array.isArray(keys) ? {} : { ...keys };
-  const request = Array.isArray(keys) ? keys : Object.keys(keys);
-  const previous = request.map((key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic"));
-  const found = await new Promise((resolve) => chrome.storage.sync.get([...request, ...previous], resolve));
-  const update = {}, remove = [], out = { ...defaults };
-  request.forEach((key, i) => {
-    if (Object.hasOwn(found, key)) out[key] = found[key];
-    else if (key !== previous[i] && Object.hasOwn(found, previous[i])) {
-      out[key] = found[previous[i]];
-      update[key] = out[key];
-      remove.push(previous[i]);
-    }
-  });
-  if (Object.keys(update).length) {
-    await new Promise((resolve) => chrome.storage.sync.set(update, resolve));
-    await new Promise((resolve) => chrome.storage.sync.remove(remove, resolve));
-  }
-  return out;
-};
-const syncSet = (value) => new Promise((resolve) => chrome.storage.sync.set(value, resolve));
 const queryTabs = (query) => new Promise((resolve) => chrome.tabs.query(query, resolve));
 const sendRuntimeMessage = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(response)));
 
@@ -60,7 +39,9 @@ async function refreshTabMode() {
 
 async function setEnabled(value) {
   enabled = value;
-  await syncSet({ harmonovaEnabled: value });
+  if(activeTab?.incognito){statusLabel.textContent="Private preferences stay in this tab.";return;}
+  const result=await sendRuntimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:{},enabled:value});
+  if(!result?.ok){statusLabel.textContent="Could not save preference.";return;}
   render();
   if (activeTab?.id && isHackerNews(activeTab.url)) chrome.tabs.reload(activeTab.id);
 }
@@ -70,7 +51,7 @@ enabledInput.addEventListener("change", () => setEnabled(enabledInput.checked));
 settingsButton.addEventListener("click", async () => {
   if (!enabled) {
     enabled = true;
-    await syncSet({ harmonovaEnabled: true });
+    if(!activeTab?.incognito)await sendRuntimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:{},enabled:true});
   }
   if (activeTab?.id && isHackerNews(activeTab.url)) {
     if (originalMode) await sendRuntimeMessage({ type: "HARMONOVA_ENABLE_TAB", tabId: activeTab.id });
@@ -106,8 +87,8 @@ originalButton.addEventListener("click", async () => {
 });
 
 (async () => {
-  const stored = await syncGet({ harmonovaEnabled: true });
-  enabled = stored.harmonovaEnabled !== false;
+  const stored=await sendRuntimeMessage({type:"HARMONOVA_PREFERENCES_GET"});
+  enabled=stored?.ok && stored.value.enabled!==false;
   activeTab = await currentTab();
   await refreshTabMode();
   render();

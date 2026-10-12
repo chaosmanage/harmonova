@@ -28,57 +28,7 @@
   const PATH_TO_FEED = Object.fromEntries(Object.entries(FEEDS).map(([key, value]) => [value.path, key]));
   PATH_TO_FEED["/"] = "top";
 
-  const DEFAULT_SETTINGS = {
-    previewImages: "small",
-    tintedCards: true,
-    showFavicons: true,
-    showPoints: true,
-    showComments: true,
-    showIndex: true,
-    dimRead: true,
-    commentStyle: "outlined",
-    depthMode: "colors",
-    roundedRails: true,
-    continuousRails: false,
-    storyTextSize: 17.5,
-    commentTextSize: 15,
-    commentZoom: 100,
-    contentScale: 100,
-    commentSort: "Default",
-    cardClickComments: false,
-    cardClickEnabled: true,
-    alwaysOpenComments: false,
-    headerTint: true,
-    headerImage: true,
-    aiEnabled: true,
-    aiModel: "openrouter/free",
-    aiSystemPrompt: "You are a helpful assistant that is an expert on summarizing articles into an information-dense, concise and brief bullet-point list. Focus on key takeaways and most important/note-worthy points in the article. Keep the summary under 500 characters where possible. Respond in markdown format. Respond with only the summarized content - nothing else before or after.",
-    aiStreamResponses: true,
-    aiAutoSummarize: false,
-    // Phase 7 part 2 (0.12.1): comment parity
-    markNewComments: true,
-    hideDelayed: true,
-    showAvatars: false,
-    swapCommentActions: false,
-    // Phase 7 (0.12.0): feed parity
-    showDomain: true,
-    compactPoints: false,
-    hotnessColors: false,
-    hideJobs: false,
-    hideRead: false,
-    hiddenDomains: "",
-    hiddenKeywords: "",
-    feedOrder: [],
-    feedHidden: ["pool", "active", "bestcomments", "launches", "whoishiring", "noobstories", "classic", "front"],
-    frontDate: "",
-    faviconProvider: "google",
-    // Phase 7 part 3 (0.12.2): links & appearance
-    richPreviews: true,
-    nitterRedirect: false,
-    nitterInstance: "nitter.net",
-    uiTheme: "amoled",
-    uiFont: "rounded",
-  };
+  const DEFAULT_SETTINGS = HarmoNovaSettingsSchema.defaults;
 
   const ICONS = {
     chevron: '<path d="M7 10l5 5 5-5z"/>',
@@ -371,27 +321,6 @@
     normalizeQuotedParagraphs(target);
   };
 
-  // Migrate pre-HarmoNova Chrome Sync names without overwriting new settings.
-  const chromeSyncGet = async (keys) => {
-    const older = keys.map((key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic"));
-    const values = await new Promise((resolve) => chrome.storage.sync.get([...keys, ...older], resolve));
-    const update = {}, remove = [];
-    const result = {};
-    keys.forEach((key, i) => {
-      if (Object.hasOwn(values, key)) result[key] = values[key];
-      else if (key !== older[i] && Object.hasOwn(values, older[i])) {
-        result[key] = values[older[i]];
-        update[key] = values[older[i]];
-        remove.push(older[i]);
-      }
-    });
-    if (!INCOGNITO && Object.keys(update).length) {
-      await new Promise((resolve) => chrome.storage.sync.set(update, resolve));
-      await new Promise((resolve) => chrome.storage.sync.remove(remove, resolve));
-    }
-    return result;
-  };
-  const chromeSyncSet = (value) => new Promise((resolve) => chrome.storage.sync.set(value, resolve));
   const runtimeMessage = (message) => new Promise((resolve) => {
     chrome.runtime.sendMessage(message, (response) => {
       if (chrome.runtime.lastError) return resolve({ ok: false, message: chrome.runtime.lastError.message });
@@ -406,29 +335,26 @@
       if (value === null && key.startsWith("harmonova")) {
         const legacy = key.replace(/^harmonova/, "harmonic");
         value = localStorage.getItem(legacy);
-        if (value !== null && !INCOGNITO) {
-          localStorage.setItem(key, value);
-          localStorage.removeItem(legacy);
-        }
+
       }
+      if(value!==null && new TextEncoder().encode(value).byteLength>262144){state.recoveryNotice=true;return undefined;}
       return value === null ? undefined : JSON.parse(value);
     } catch {
-      return undefined;
+      state.recoveryNotice=true;return undefined;
     }
   }
 
   function pageStorageSet(key, value) {
     if (INCOGNITO) return; // SEC-51: no page-origin backups from incognito
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+    try { localStorage.setItem(key, JSON.stringify(key===SETTINGS_BACKUP_KEY ? HarmoNovaSettingsSchema.backup(value) : value)); } catch {}
   }
 
+  let preferenceSnapshot=null;
   async function loadEnabledPreference() {
-    const synced = await chromeSyncGet(["harmonovaEnabled"]);
-    let enabled = typeof synced.harmonovaEnabled === "boolean" ? synced.harmonovaEnabled : pageStorageGet(ENABLED_BACKUP_KEY);
-    if (typeof enabled !== "boolean") enabled = true;
-    if (!INCOGNITO && typeof synced.harmonovaEnabled !== "boolean") await chromeSyncSet({ harmonovaEnabled: enabled });
-    pageStorageSet(ENABLED_BACKUP_KEY, enabled);
-    return enabled;
+    const result=await runtimeMessage({type:"HARMONOVA_PREFERENCES_GET"});
+    if(!result?.ok)return false;
+    preferenceSnapshot=result.value;
+    return result.value.enabled!==false;
   }
 
   async function isOriginalTab() {
@@ -440,26 +366,51 @@
     });
   }
 
-  async function saveSettings() {
-    if (INCOGNITO) return; // private cosmetic changes never write normal sync or backups
-    const settings = { ...state.settings };
-    for (const key of ["aiEnabled", "aiModel", "aiSystemPrompt", "aiStreamResponses", "aiAutoSummarize"]) delete settings[key];
-    pageStorageSet(SETTINGS_BACKUP_KEY, settings);
-    await chromeSyncSet({ harmonovaSettings: settings });
+  const pendingSettings={};
+  let settingsTimer=null, settingsWrite=Promise.resolve();
+  async function flushSettings() {
+    clearTimeout(settingsTimer);settingsTimer=null;
+    const patch={...pendingSettings};
+    if(!Object.keys(patch).length||INCOGNITO)return true;
+    settingsWrite=settingsWrite.then(async()=> {
+      const result=await runtimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:patch});
+      if(!result?.ok){showToast("Could not save settings. Keep this panel open and retry.");return false;}
+      for(const key of Object.keys(patch))if(JSON.stringify(pendingSettings[key])===JSON.stringify(patch[key]))delete pendingSettings[key];
+      if(result.syncSaved===false)showToast("Settings saved locally. Chrome sync is unavailable.");
+      pageStorageSet(SETTINGS_BACKUP_KEY,state.settings);return true;
+    });
+    return settingsWrite;
+  }
+  async function saveSettings(keys,debounce=false) {
+    const names=Array.isArray(keys)?keys:[keys];
+    const fields=Object.fromEntries(names.filter(Boolean).map(key=>[key,state.settings[key]]));
+    if(!HarmoNovaSettingsSchema.patch(fields)){showToast("Setting value is too large or invalid.");return false;}
+    if(INCOGNITO)return true;
+    Object.assign(pendingSettings,fields);
+    if(debounce){clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>flushSettings(),500);return true;}
+    return flushSettings();
+  }
+  function removeMigratedPageKeys(keys) {
+    if(INCOGNITO)return;
+    for(const key of keys)try {localStorage.removeItem(key);localStorage.removeItem(key.replace(/^harmonova/,"harmonic"));}catch{}
   }
 
   async function loadPersistentState() {
-    const synced = await chromeSyncGet(["harmonovaSettings"]);
+    const synced={harmonovaSettings:preferenceSnapshot?.settings};
     let stored = INCOGNITO ? privateReader.snapshot()
       : await runtimeMessage({ type: "HARMONOVA_LOCAL_STATE_GET" });
     const backedUpSettings = pageStorageGet(SETTINGS_BACKUP_KEY);
     state.readerRevision = Number.isSafeInteger(stored?.revision) ? stored.revision : 0;
     const readIds = Array.isArray(stored?.readStoryIds) ? stored.readStoryIds : [];
     const bookmarks = Array.isArray(stored?.harmonovaBookmarks) ? stored.harmonovaBookmarks : [];
-    const settings = synced.harmonovaSettings || backedUpSettings || stored?.harmonovaSettings || DEFAULT_SETTINGS;
+    if(!INCOGNITO && preferenceSnapshot && !preferenceSnapshot.pageMigrated) {
+      const result=await runtimeMessage({type:"HARMONOVA_MIGRATE_PREFERENCES",appearance:HarmoNovaSettingsSchema.backup(backedUpSettings || {})});
+      if(result?.ok){preferenceSnapshot=result.value;synced.harmonovaSettings=result.value.settings;removeMigratedPageKeys([SETTINGS_BACKUP_KEY,ENABLED_BACKUP_KEY]);}
+    }
+    const settings = HarmoNovaSettingsSchema.normalize(synced.harmonovaSettings);
     state.readIds = new Set(readIds);
     state.bookmarks = new Set(bookmarks);
-    state.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    state.settings = HarmoNovaSettingsSchema.normalize(settings);
     // Existing installations may have selected the removed upstream font.
     if (state.settings.uiFont === "harmonic") state.settings.uiFont = "system";
     // One-time validated import of legacy page-origin data. Once accepted, the
@@ -470,22 +421,25 @@
       const oldBlocked = pageStorageGet("harmonovaBlockedUsers");
       const oldSeen = pageStorageGet("harmonovaSeenComments");
       const tags = Object.fromEntries(Object.entries(oldTags && typeof oldTags === "object" && !Array.isArray(oldTags) ? oldTags : {})
-        .filter(([key,value]) => /^[A-Za-z0-9_-]{1,32}$/.test(key) && typeof value === "string" && value.length <= 40).slice(-500));
+        .filter(([key,value]) => HarmoNovaSettingsSchema.username(key) && typeof value === "string" && value.length <= 40).slice(-500));
       const blockedUsers = (Array.isArray(oldBlocked) ? oldBlocked : []).filter(value =>
         typeof value === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(value)).slice(-500);
       const seenTimes = Object.fromEntries(Object.entries(oldSeen && typeof oldSeen === "object" && !Array.isArray(oldSeen) ? oldSeen : {})
         .filter(([id,ts]) => Number.isSafeInteger(Number(id)) && Number(id) > 0 && Number.isSafeInteger(ts) && ts >= 0).slice(-400));
       const outcome = await runtimeMessage({ type: "HARMONOVA_MIGRATE_PAGE_DATA", data: { tags, blockedUsers, seenTimes } });
-      if (outcome?.ok && outcome.value) stored = { ...stored, revision: outcome.value.revision,
-        userTags: outcome.value.tags, blockedUsers: outcome.value.blockedUsers, seenTimes: outcome.value.seenTimes };
+      if (outcome?.ok && outcome.value) {
+        stored = { ...stored, revision: outcome.value.revision,userTags: outcome.value.tags, blockedUsers: outcome.value.blockedUsers, seenTimes: outcome.value.seenTimes };
+        removeMigratedPageKeys(["harmonovaUserTags","harmonovaBlockedUsers","harmonovaSeenComments"]);
+      } else state.recoveryNotice=true;
     }
+    if(!INCOGNITO && stored?.pageOriginMigrated)removeMigratedPageKeys(["harmonovaUserTags","harmonovaBlockedUsers","harmonovaSeenComments"]);
     state.readerRevision = Number.isSafeInteger(stored?.revision) ? stored.revision : state.readerRevision;
     state.userTags = new Map(Object.entries(!INCOGNITO ? (stored?.userTags || {}) : {}));
     state.blockedUsers = new Set(!INCOGNITO ? (stored?.blockedUsers || []) : []);
     state.seenTimes = new Map(Object.entries(!INCOGNITO ? (stored?.seenTimes || {}) : {})
       .map(([id,ts]) => [Number(id), ts]));
-    pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
-    if (!INCOGNITO && !synced.harmonovaSettings) await chromeSyncSet({ harmonovaSettings: state.settings });
+    if(preferenceSnapshot?.pageMigrated)pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
+
   }
 
   function persistUserTags(author) {
@@ -706,7 +660,7 @@
     frontDateInput.max = frontDayOffset(0);
     frontDateInput.addEventListener("change", async () => {
       state.settings.frontDate = validFrontDate(frontDateInput.value) ? frontDateInput.value : "";
-      await saveSettings();
+      await saveSettings("frontDate");
       refreshFeed();
     });
 
@@ -2470,7 +2424,8 @@ function openFeedMenu(anchor) {
       showToast("Use the extension popup in a regular window to change enabled state.");
       return;
     }
-    await chromeSyncSet({ harmonovaEnabled: false });
+    const result=await runtimeMessage({type:"HARMONOVA_PREFERENCES_PATCH",fields:{},enabled:false});
+    if(!result?.ok)return void showToast("Could not save enabled preference");
     location.reload();
   }
 
@@ -2874,7 +2829,7 @@ function openFeedMenu(anchor) {
     const current = parseListSetting(state.settings.hiddenDomains);
     if (!current.includes(domain.toLowerCase())) {
       state.settings.hiddenDomains = [...current, domain.toLowerCase()].join(", ");
-      await saveSettings();
+      await saveSettings("hiddenDomains");
     }
     filterStories();
     showToast("Hiding " + domain);
@@ -3151,7 +3106,7 @@ function openManageFeeds() {
   const save = async (order, hidden) => {
     state.settings.feedOrder = order;
     state.settings.feedHidden = hidden;
-    await saveSettings();
+    await saveSettings(["feedOrder","feedHidden"]);
   };
 
   const renderRows = () => {
@@ -4309,7 +4264,7 @@ async function refreshFeed() {
       action: async () => {
         const previousScroll = threadPane.scrollTop;
         state.settings.commentSort = mode;
-        await saveSettings();
+        await saveSettings("commentSort");
         if (state.thread) {
           await renderThread(state.thread);
           threadPane.scrollTop = previousScroll;
@@ -4327,7 +4282,7 @@ async function refreshFeed() {
     input.checked = Boolean(state.settings[key]);
     input.addEventListener("change", async () => {
       state.settings[key] = input.checked;
-      await saveSettings();
+      await saveSettings(key);
       applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
       if (state.thread && ["markNewComments", "hideDelayed", "showAvatars", "nitterRedirect", "richPreviews"].includes(key)) renderThread(state.thread);
@@ -4351,8 +4306,8 @@ async function refreshFeed() {
     input.addEventListener("input", async () => {
       state.settings[key] = Number(input.value);
       valueLabel.textContent = String(state.settings[key]) + suffix;
-      await saveSettings();
       applySettings();
+      await saveSettings(key,true);
     });
     row.append(text, input);
     return row;
@@ -4372,7 +4327,7 @@ async function refreshFeed() {
     select.addEventListener("change", async () => {
       const numeric = typeof state.settings[key] === "number";
       state.settings[key] = numeric ? Number(select.value) : select.value;
-      await saveSettings();
+      await saveSettings(key);
       applySettings();
       if (state.thread && ["commentStyle", "depthMode", "commentSort"].includes(key)) renderThread(state.thread);
     });
@@ -4391,7 +4346,7 @@ async function refreshFeed() {
     if (multiline) input.rows = 5;
     input.addEventListener("change", async () => {
       state.settings[key] = input.value.trim();
-      await saveSettings();
+      await saveSettings(key);
       if (key === "hiddenDomains" || key === "hiddenKeywords") filterStories();
       if (typeof options.onChange === "function") options.onChange();
     });
@@ -4426,7 +4381,8 @@ async function refreshFeed() {
     const header = el("header", "settings-header");
     header.append(el("h2", "", "Settings"));
     const close = button("close", "Close");
-    close.addEventListener("click", () => overlay.remove());
+    const closeSettings=async()=>{if(await flushSettings())overlay.remove();};
+    close.addEventListener("click",closeSettings);
     header.appendChild(close);
 
     const storySection = el("div", "settings-section");
@@ -4446,8 +4402,7 @@ async function refreshFeed() {
       settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
       settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
-      settingSelect("Favicon provider", "faviconProvider", [["google", "Google (default)"], ["duckduckgo", "DuckDuckGo"], ["direct", "Direct from the site"]]),
-      el("p", "settings-note", "Favicon providers receive the story's hostname to fetch an icon. Direct requests go to the site itself; Google and DuckDuckGo see the hostname only. Nothing else about you is sent."),
+      el("p", "settings-note", "Supported provider images are available after enabling external previews in the extension settings. Other source icons use a local placeholder."),
       settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
       settingSlider("Content zoom", "contentScale", 75, 125, 5, "%")
     );
@@ -4598,7 +4553,7 @@ async function refreshFeed() {
     }
     panel.append(header, index, sections);
     overlay.appendChild(panel);
-    overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
+    overlay.addEventListener("click", (event) => { if (event.target === overlay) closeSettings(); });
     document.body.appendChild(overlay);
     if (options.focusAi) {
       showCategory("AI");
@@ -4666,7 +4621,7 @@ async function refreshFeed() {
     if (data.userTags && typeof data.userTags === "object" && !Array.isArray(data.userTags)) {
       userTags = {};
       for (const [author, tag] of Object.entries(data.userTags)) {
-        if (typeof author !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(author)) return void showToast("Import refused — bad author name in tags");
+        if (!HarmoNovaSettingsSchema.username(author)) return void showToast("Import refused — bad author name in tags");
         if (typeof tag !== "string" || tag.length > 40) return void showToast("Import refused — bad tag value");
         userTags[author] = tag;
         if (Object.keys(userTags).length >= 500) break;
@@ -4676,7 +4631,7 @@ async function refreshFeed() {
     if (Array.isArray(data.blockedUsers)) {
       blockedUsers = [];
       for (const author of data.blockedUsers) {
-        if (typeof author !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(author)) return void showToast("Import refused — bad blocked user name");
+        if (!HarmoNovaSettingsSchema.username(author)) return void showToast("Import refused — bad blocked user name");
         blockedUsers.push(author);
         if (blockedUsers.length >= 500) break;
       }
@@ -4724,6 +4679,12 @@ async function refreshFeed() {
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if(message?.type==="HARMONOVA_PREFERENCES_SNAPSHOT") {
+      if(INCOGNITO || sender?.id!==chrome.runtime.id || message.value?.version!==1)return;
+      const settings=HarmoNovaSettingsSchema.normalize(message.value.settings);
+      for(const key of Object.keys(settings))if(!Object.hasOwn(pendingSettings,key))state.settings[key]=settings[key];
+      applySettings();return;
+    }
     if (message?.type === "HARMONOVA_READER_SNAPSHOT") {
       if (INCOGNITO || sender?.id !== chrome.runtime.id ||
           !Number.isSafeInteger(message.revision) || message.revision <= state.readerRevision) return;
@@ -4779,6 +4740,7 @@ async function refreshFeed() {
     feedPane = el("section", "feed-pane");
     const feedInner = el("div", "feed-inner");
     storyList = el("div", "story-list");
+    if(state.recoveryNotice)setTimeout(()=>showToast("Some old reader data could not be recovered. Your source data is kept."),0);
     previewCleanupObserver.observe(storyList,{childList:true,subtree:true});
     storyList.addEventListener("scroll", () => {
       const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;

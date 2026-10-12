@@ -29,5 +29,5 @@ test('P09 unknown article summary and derived image origins are refused without 
 });
 test('P09 release permissions contain only documented HTTPS provider origins',async()=> {
   const fs=await import('node:fs');const m=JSON.parse(fs.readFileSync(new URL('../manifest.json',import.meta.url)));
-  assert.equal(m.host_permissions.length,12);assert.ok(m.host_permissions.every(p=>/^https:\/\/[^*]+\/\*$/.test(p)));
+  assert.equal(m.host_permissions.length,13);assert.ok(m.host_permissions.every(p=>/^https:\/\/[^*]+\/\*$/.test(p)));
 });

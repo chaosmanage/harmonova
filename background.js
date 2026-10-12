@@ -1,4 +1,4 @@
-importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
+importScripts("settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -72,21 +72,29 @@ const readerStore = HarmoNovaReaderStore.create({ localGet, localSet, sessionGet
   },
 });
 
+const preferencesStore=HarmoNovaPreferencesStore.create({
+  get:keys=>storageCall(chrome.storage.local,"get",keys),set:localSet,
+  syncGet:keys=>storageCall(chrome.storage.sync,"get",keys),syncSet:values=>storageCall(chrome.storage.sync,"set",values),
+  broadcast:async record=>{
+    if(!chrome.tabs?.query||!chrome.tabs?.sendMessage)return;
+    const tabs=await chrome.tabs.query({url:"https://news.ycombinator.com/*"});
+    await Promise.allSettled(tabs.filter(t=>!t.incognito).map(t=>chrome.tabs.sendMessage(t.id,{type:"HARMONOVA_PREFERENCES_SNAPSHOT",value:record})));
+  },
+});
+async function privatePreferencesSnapshot() {
+  const record=await storageCall(chrome.storage.local,"get",["harmonovaPreferencesV1"]);
+  const synced=await storageCall(chrome.storage.sync,"get",["harmonovaSettings","harmonicSettings","harmonovaEnabled","harmonicEnabled"]);
+  return {settings:HarmoNovaSettingsSchema.normalize(record.harmonovaPreferencesV1?.settings||synced.harmonovaSettings||synced.harmonicSettings),enabled:(record.harmonovaPreferencesV1?.enabled??synced.harmonovaEnabled??synced.harmonicEnabled)!==false};
+}
+
 // Register listeners synchronously. Every privileged operation awaits the
 // same fail-closed worker initialization promise.
-const workerReady = Promise.all([chrome.storage.local, chrome.storage.session].map(async area => {
+const workerReady = Promise.all([chrome.storage.local, chrome.storage.session, chrome.storage.sync].map(async area => {
   if (typeof area.setAccessLevel !== "function") throw new Error("STORAGE_UNAVAILABLE");
   await area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
-})).then(async () => {
-  await localGet({ harmonovaSettings: null });
-  await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: null });
-  await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
-  await readerStore.stateSnapshot();
-  if (chrome.tabs?.query) {
-    const tabs = await chrome.tabs.query({});
-    await readerStore.reconcileOriginalTabs(tabs.map(tab => tab.id));
-  }
-});
+  await storageCall(area,"get",[]);
+}));
+
 async function currentAiPolicy() {
   const stored = await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
   return HarmoNovaAiPolicy.fromStorage(stored[AI_POLICY_LOCAL_STORAGE_KEY]);
@@ -514,7 +522,7 @@ async function getAiKey() {
   const key = mode === "session"
     ? (await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: "" }))[AI_KEY_SESSION_STORAGE_KEY]
     : (await localGet({ [AI_KEY_LOCAL_STORAGE_KEY]: "" }))[AI_KEY_LOCAL_STORAGE_KEY];
-  return { mode, key: typeof key === "string" ? key : "" };
+  return { mode, key: typeof key === "string" && new TextEncoder().encode(key).byteLength<=4096 ? key : "" };
 }
 
 async function aiKeyStatus() {
@@ -825,6 +833,9 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
       code: "STORAGE_UNAVAILABLE", message: "Reader data could not be saved", retryable: true } }));
     return true;
   };
+  if(message.type === "HARMONOVA_PREFERENCES_GET")return reply((sender.tab?.incognito ? privatePreferencesSnapshot():preferencesStore.snapshot()).then(value=>({ok:true,value})));
+  if(message.type === "HARMONOVA_PREFERENCES_PATCH")return reply(preferencesStore.patch(message.fields,message.enabled));
+  if(message.type === "HARMONOVA_MIGRATE_PREFERENCES")return reply(preferencesStore.migrate(message.appearance));
   if(message.type === "HARMONOVA_NETWORK_POLICY_GET") return reply(currentNetworkPolicy().then(policy=>({ok:true,policy})));
   if(message.type === "HARMONOVA_NETWORK_POLICY_SAVE") return reply(saveNetworkPolicy(message.policy));
   if(message.type === "HARMONOVA_PREVIEW_CANCEL") {previewConsumers.get(sender.tab.id+":"+message.requestId)?.abort();sendResponse({ok:true});return true;}

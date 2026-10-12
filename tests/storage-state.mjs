@@ -101,3 +101,50 @@ test("P05 simultaneous original-tab creations and removal do not overwrite IDs",
   await Promise.all([repo.setOriginalTab(2, false), repo.setOriginalTab(4, true)]);
   assert.deepEqual(plain(await repo.getOriginalTabs()), [1, 3, 4]);
 });
+
+function preferenceFixture({sync={},local={}}={}) {
+  const ctx=vm.createContext({TextEncoder,Promise});
+  for(const file of ['settings-schema.js','preferences-store.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8'),ctx);
+  let failLocal=false,failSync=false;
+  const make=()=>ctx.HarmoNovaPreferencesStore.create({get:async()=>structuredClone(local),set:async v=>{if(failLocal)throw new Error('LOCAL_FAILED');Object.assign(local,structuredClone(v));},syncGet:async()=>structuredClone(sync),syncSet:async v=>{if(failSync)throw new Error('SYNC_QUOTA');Object.assign(sync,structuredClone(v));}});
+  return {ctx,make,local,sync,failLocal:()=>failLocal=true,failSync:()=>failSync=true};
+}
+test('P10 old/current cosmetic keys normalize; current values win and AI never migrates as consent',async()=> {
+  for(const sync of [{},{harmonicSettings:{uiTheme:'navy',aiEnabled:true}},{harmonovaSettings:{uiTheme:'charcoal'}},{harmonicSettings:{uiTheme:'navy'},harmonovaSettings:{uiTheme:'charcoal',constructor:'x',aiEnabled:true}}]) {
+    const f=preferenceFixture({sync});const before=await f.make().snapshot();
+    assert.equal(before.settings.uiTheme,sync.harmonovaSettings?.uiTheme||sync.harmonicSettings?.uiTheme||'amoled');
+    assert.equal(before.settings.aiEnabled,undefined);assert.equal(Object.hasOwn(before.settings,'constructor'),false);
+  }
+});
+test('P10 concurrent field patches preserve independent changes and migration is one-time',async()=> {
+  const f=preferenceFixture({sync:{harmonovaSettings:{uiTheme:'navy'}}}),p=f.make();
+  await Promise.all([p.patch({storyTextSize:19}),p.patch({commentTextSize:16})]);
+  await p.migrate({uiTheme:'charcoal',uiFont:'serif',aiEnabled:true});
+  await p.migrate({uiTheme:'amoled',uiFont:'system'});
+  const current=await p.snapshot();assert.equal(current.settings.uiTheme,'navy');assert.equal(current.settings.uiFont,'serif');assert.equal(current.settings.storyTextSize,19);assert.equal(current.settings.commentTextSize,16);
+  assert.equal((await f.make().snapshot()).settings.uiFont,'serif');
+});
+test('P10 failed migration preserves source; sync quota failure retains local recovery',async()=> {
+  const legacy={harmonicSettings:{uiTheme:'navy'}};const failed=preferenceFixture({sync:structuredClone(legacy)});failed.failLocal();
+  await assert.rejects(failed.make().migrate({uiTheme:'charcoal'}),/LOCAL_FAILED/);assert.deepEqual(failed.sync,legacy);assert.equal(failed.local.harmonovaPreferencesV1,undefined);
+  const recover=preferenceFixture();recover.failSync();const result=await recover.make().patch({uiTheme:'charcoal'});
+  assert.equal(result.ok,true);assert.equal(result.syncSaved,false);assert.equal((await recover.make().snapshot()).settings.uiTheme,'charcoal');
+});
+test('P10 unknown, prototype, invalid range and oversized fields cannot become preferences',async()=> {
+  const f=preferenceFixture(),p=f.make();
+  for(const fields of [{aiEnabled:true},{externalPreviewsEnabled:true},{storyTextSize:1000},{hiddenDomains:'x'.repeat(2001)},JSON.parse('{"__proto__":{}}')])await assert.rejects(p.patch(fields),/INVALID_PREFERENCES/);
+  assert.equal(f.local.harmonovaPreferencesV1,undefined);
+});
+test('P10 reader migration survives failure, preserves new values and ignores recreated sources',async()=> {
+  const f=storeFixture(),p=f.makeReader();await p.setTag('alice','new');
+  f.failOnce();await assert.rejects(p.migratePageData({tags:{alice:'old',bob:'legacy'},blockedUsers:[],seenTimes:{'1':4}}));
+  assert.equal((await p.stateSnapshot()).pageOriginMigrated,false);
+  await p.migratePageData({tags:{alice:'old',bob:'legacy'},blockedUsers:[],seenTimes:{'1':4}});
+  const current=await p.stateSnapshot();assert.equal(current.tags.alice,'new');assert.equal(current.tags.bob,'legacy');
+  await p.migratePageData({tags:{alice:'recreated'},blockedUsers:[],seenTimes:{}});assert.equal((await p.stateSnapshot()).tags.alice,'new');
+  await assert.rejects(p.importData({bookmarks:[],readStoryIds:[],userTags:JSON.parse('{"__proto__":"x"}')}),/INVALID_IMPORT/);
+});
+test('P10 newer schemas are never downgraded or deleted',async()=> {
+  const f=storeFixture();f.memory.local.harmonovaReaderStateV1={version:99,bookmarks:[1]};await assert.rejects(f.makeReader().stateSnapshot(),/UNSUPPORTED_READER_SCHEMA/);assert.equal(f.memory.local.harmonovaReaderStateV1.version,99);
+  const p=preferenceFixture({local:{harmonovaPreferencesV1:{version:99}}});await assert.rejects(p.make().snapshot(),/UNSUPPORTED_PREFERENCES_SCHEMA/);assert.equal(p.local.harmonovaPreferencesV1.version,99);
+});

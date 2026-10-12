@@ -89,3 +89,14 @@ cookies or referrers, dimension-checked, and re-encoded as bounded PNG data befo
 display. Original remote image URLs are never placed in the reader DOM. Unsupported
 formats (including SVG, GIF and ICO), destinations, redirects and data-image CSP
 failures show placeholders without an external fallback.
+
+Normal reader tags, blocks, seen timestamps, read IDs and bookmarks are stored in
+extension-local reader storage. Normal drafts use extension-session memory;
+private drafts and reader state use only their private document's memory. Normal
+cosmetic preferences are committed in extension-local storage and mirrored to
+Chrome Sync; a sync failure retains local recovery and reports that status. HN
+page storage keeps only theme/font/text-size/zoom recovery fields (plus the
+non-sensitive enabled-view backup where present), never reader data, drafts,
+credentials, AI consent or network policy. Valid legacy page data is removed only
+after the worker acknowledges its migration; malformed data produces a recovery
+notice. Newer store schemas are never automatically downgraded.

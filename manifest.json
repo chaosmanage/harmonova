@@ -9,6 +9,7 @@
     "activeTab"
   ],
   "host_permissions": [
+    "https://news.ycombinator.com/*",
     "https://hacker-news.firebaseio.com/*",
     "https://openrouter.ai/*",
     "https://api.github.com/*",
@@ -46,6 +47,7 @@
         "https://news.ycombinator.com/*"
       ],
       "js": [
+        "settings-schema.js",
         "url-policy.js",
         "hn-session.js",
         "hn-search.js",

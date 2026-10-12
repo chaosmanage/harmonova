@@ -444,8 +444,8 @@ await test("user data import merges valid files and refuses bad schemas", async 
   assert.ok(await readCard.evaluate((node) => node.classList.contains("is-read")), "imported read id applied to the feed card");
   const stored = await browser.serviceWorkers()
     .find((worker) => worker.url().startsWith("chrome-extension://"))
-    .evaluate(() => chrome.storage.local.get("harmonovaBookmarks"));
-  assert.deepEqual(stored.harmonovaBookmarks, [777001, 777002], "imported bookmarks persisted through the worker");
+    .evaluate(() => chrome.storage.local.get("harmonovaReaderStateV1"));
+  assert.deepEqual(stored.harmonovaReaderStateV1.bookmarks, [777001, 777002], "imported bookmarks persisted through the worker");
 
   // Bad schema: non-integer bookmark id must be refused wholesale.
   const badFile = path.join(os.tmpdir(), "harmonova-bad-" + Date.now() + ".json");
@@ -463,8 +463,8 @@ await test("user data import merges valid files and refuses bad schemas", async 
   assert.ok(toast.includes("refused"), "bad schema refused with a message: " + toast);
   const stored2 = await browser.serviceWorkers()
     .find((worker) => worker.url().startsWith("chrome-extension://"))
-    .evaluate(() => chrome.storage.local.get("harmonovaBookmarks"));
-  assert.deepEqual(stored2.harmonovaBookmarks, [777001, 777002], "refused import changed nothing");
+    .evaluate(() => chrome.storage.local.get("harmonovaReaderStateV1"));
+  assert.deepEqual(stored2.harmonovaReaderStateV1.bookmarks, [777001, 777002], "refused import changed nothing");
 });
 
 await browser.close();

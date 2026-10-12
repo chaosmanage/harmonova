@@ -119,3 +119,12 @@ test("P06 source declares spanning and private module; browser gate separate", (
   assert.ok(manifest.content_scripts[0].js.includes("incognito-state.js"));
   assert.ok(!manifest.web_accessible_resources.some(entry => entry.resources.includes("incognito-state.js")));
 });
+
+test('P10 private cosmetic snapshot does not migrate or write legacy normal stores',async()=> {
+  const w=loadBackground({fetchImpl:()=>{throw new Error('NO_REMOTE_ACCESS');}});
+  w.stores.sync.harmonicSettings={uiTheme:'navy',aiEnabled:true,userTags:{private:'must not expose'}};
+  const before=JSON.stringify(w.stores);
+  const result=await message(w.listeners,{type:'HARMONOVA_PREFERENCES_GET'},privateSender());
+  assert.equal(result.ok,true);assert.equal(result.value.settings.uiTheme,'navy');assert.equal(result.value.settings.aiEnabled,undefined);
+  assert.equal(JSON.stringify(w.stores),before);
+});
