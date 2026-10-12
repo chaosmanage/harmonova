@@ -355,6 +355,14 @@ function openComposer(options) {
     status.textContent = mode === "edit" ? "Saving your edit on Hacker News…" : "Posting your reply…";
     (async () => {
       try {
+        // Preserve the captured draft before an ambiguous mutation can outlive
+        // this worker/document. The trusted event and handle were captured above.
+        if (!(await draftSet(composer,text))) {
+          composer.submitting=false;textarea.disabled=false;discard.disabled=false;submit.disabled=false;previewToggle.disabled=false;
+          if(!status.classList.contains("error")){status.hidden=false;status.classList.add("error");status.textContent="Draft could not be saved. No reply was sent. Keep this tab open.";}
+          return;
+        }
+        if(model.composer!==composer || !composer.scope.alive)return;
         let outcome;
         if (mode === "edit") {
           outcome = await window.HarmoNovaHN.saveEdit(submissionHandle, text);

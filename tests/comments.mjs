@@ -1,3 +1,4 @@
+import {stopExtensionWorker} from "./helpers/worker-lifecycle.mjs";
 import { hnRedirectFixture } from './helpers/network.mjs';
 import { launchExtension } from './helpers/extension.mjs';
 // HarmoNova Phase 3 UI suite: commenting, replies, edits, deletes, and drafts,
@@ -605,12 +606,12 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
 
   await openCommentAction(page, ownRow, "Edit");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
-  const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  const native = await nativePagePromise;
-  await native.waitForURL(url => url.pathname === '/edit' && url.searchParams.get('id') === String(OWN_COMMENT), { timeout: 15000, waitUntil: 'commit' });
+  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/edit'),15000,50,'committed native edit page');
+  const native=browser.pages().find(p=>new URL(p.url()).pathname==='/edit');
+  assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
   assert.equal(await native.locator('#harmonova-app').count(), 0, "stock HN edit page is not replaced by HarmoNova");
-  assert.ok(await native.locator('form[action="xedit"] textarea[name="text"]').count(), "HN form owns the edit");
+  await native.locator('form[action="xedit"] textarea[name="text"]').waitFor();
   assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, "HarmoNova sends no edit POST");
   assert.equal(hn.state.editedText, null, "comment is unchanged locally");
   await native.close();
@@ -630,15 +631,13 @@ await test("Delete prompts for a native HN confirmation; cancel and handoff neve
 
   await openCommentAction(page, ownRow, "Delete");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
-  const nativePagePromise = browser.waitForEvent('page', { timeout: 15000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  const native = await nativePagePromise;
-  await native.waitForURL(url => url.pathname === '/delete-confirm' &&
-    url.searchParams.get('id') === String(OWN_COMMENT) &&
-    url.searchParams.get('goto') === 'item?id=' + STORY_ID,
-  { timeout: 15000, waitUntil: 'commit' });
+  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/delete-confirm'),15000,50,'committed native delete page');
+  const native=browser.pages().find(p=>new URL(p.url()).pathname==='/delete-confirm');
+  assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
+  assert.equal(new URL(native.url()).searchParams.get('goto'),'item?id='+STORY_ID);
   assert.equal(await native.locator('#harmonova-app').count(), 0, 'stock HN delete page is not replaced by HarmoNova');
-  assert.match(await native.locator('body').textContent(), /Do you want to delete this comment\?/);
+  await native.getByText('Do you want to delete this comment?',{exact:false}).waitFor();
   assert.equal(hn.requests.filter(r => r.method === 'POST').length, 0, 'HarmoNova sends no delete POST');
   assert.equal(hn.state.deleted, false, 'comment has not been deleted');
   assert.equal(await page.locator('.comment-row[data-comment-id="' + OWN_COMMENT + '"]').count(), 1, 'comment remains on HarmoNova');
@@ -698,6 +697,21 @@ await test("P04 trusted Cmd+Enter submits exactly once", async ({ page, hn }) =>
   await page.locator(".composer-input").press("Meta+Enter");
   await page.locator(".composer").waitFor({ state: "hidden", timeout: 15000 });
   assert.equal(hn.requests.filter(r => r.method === "POST").length, 1);
+});
+
+await test("P13 worker termination during an ambiguous comment never replays the mutation",async({page})=>{
+ await gotoFeed(page);await openThreadFully(page);await openStoryReply(page);
+ let posts=0,held;
+ await browser.route('https://news.ycombinator.com/comment',route=>{posts++;held=route;});
+ await page.locator('.composer-input').fill('Synthetic draft survives worker restart');
+ await page.locator('.composer-submit').click();
+ await waitFor(()=>Boolean(held),10000,50,'single pending POST');
+ const scriptURL=harness.worker.url();await stopExtensionWorker(browser,page,scriptURL);
+ await held.abort();
+ await page.waitForFunction(()=>document.querySelector('.composer-status')?.textContent.length>0);
+ await page.reload();await page.locator('.story-card').first().waitFor();await openThreadFully(page);await openStoryReply(page);
+ await page.waitForFunction(()=>document.querySelector('.composer-input')?.value==='Synthetic draft survives worker restart');
+ assert.equal(posts,1,'restart/reload never sends another comment POST');
 });
 
 await test("signed out, replying asks for sign-in and opens no HN forms", async ({ page, hn }) => {
