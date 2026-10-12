@@ -26,7 +26,7 @@
     const storySetting = Number(model.settings.storyTextSize || 17.5);
     const storyScale = storySetting / 17.5;
     const commentSetting = Number(model.settings.commentTextSize || 15);
-    const commentScale = Math.max(0.65, Math.min(1.5, Number(model.settings.commentZoom ?? 90) / 100));
+    const commentScale = Math.max(0.65, Math.min(1.5, Number(model.settings.commentZoom ?? 85) / 100));
     dependencies.app.dataset.cardClickComments = String(model.settings.cardClickComments);
     // Fixed card heights and previews previously stopped zoom from changing feed density.
     dependencies.app.style.setProperty("--feed-scale", String(contentScale));

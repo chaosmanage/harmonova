@@ -86,7 +86,7 @@ await withExtension(async ({context}) => {
   await page.locator('.settings-back').click();
   await page.locator('.settings-category').filter({hasText:'Comments'}).click();
   const commentSlider=page.locator('.setting-row').filter({hasText:'Comment zoom'}).locator('input[type=range]');
-  assert.equal(await commentSlider.inputValue(),'90');
+  assert.equal(await commentSlider.inputValue(),'85');
   await commentSlider.fill('65');
   const compact=await commentMetrics();
   await commentSlider.fill('150');

@@ -179,7 +179,7 @@ try {
 
   const commentsZoomRow = page.locator(".setting-row").filter({ hasText: "Comment zoom" });
   const commentsZoomSlider = commentsZoomRow.locator('input[type="range"]');
-  assert.equal(await commentsZoomSlider.inputValue(), "90");
+  assert.equal(await commentsZoomSlider.inputValue(), "85");
   await commentsZoomSlider.fill("75");
   assert.ok((await commentsZoomRow.textContent()).includes("75%"));
   await openSettingsCategory("AI Summarization");
@@ -526,7 +526,7 @@ try {
     selectedStoryId: secondId,
     settingsRows: settingRows,
     contentZoom: 70,
-    commentTextSize: 15,
+    commentTextSize: 15.5,
     commentSort: "Newest first",
     commentCollapse: true,
     quoteBlocks: quoteCount,
