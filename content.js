@@ -548,19 +548,25 @@
     }
   }
 
-  const getPreview = (story) => new Promise((resolve) => {
+  let nextPreviewRequest=0;
+  const getPreview = (story, signal) => new Promise((resolve) => {
     if (INCOGNITO || !story?.url) return resolve({ image: null, tint: null, favicon: null });
     const cached = state.previewById.get(story.id);
     if (cached && (!cached.failedUntil || cached.failedUntil > Date.now())) return resolve(cached);
     if (cached?.failedUntil) state.previewById.delete(story.id);
-    const timer = setTimeout(() => resolve({ image: null, tint: null, favicon: null }), 7000);
+    const requestId="preview"+ ++nextPreviewRequest;
+    const cancel=()=> {runtimeMessage({type:"HARMONOVA_PREVIEW_CANCEL",requestId});resolve({image:null,tint:null,favicon:null});};
+    if(signal?.aborted) return cancel();
+    signal?.addEventListener("abort",cancel,{once:true});
+    const timer = setTimeout(cancel,7000);
     const wantRich = state.settings.richPreviews !== false;
-    chrome.runtime.sendMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich }, (response) => {
-      clearTimeout(timer);
+    chrome.runtime.sendMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich, requestId }, (response) => {
+      clearTimeout(timer); signal?.removeEventListener("abort",cancel);
       const value = response?.ok ? response : { image: null, tint: null, favicon: null };
       // Without rich facts the response stays uncached while the toggle is
       // on, so enabling the feature refetches instead of waiting out the TTL.
       if (value.rich || !wantRich) state.previewById.set(story.id, value);
+      while(state.previewById.size>200)state.previewById.delete(state.previewById.keys().next().value);
       resolve(value);
     });
   });
@@ -570,18 +576,28 @@
   const previewJobs = [];
   let previewRunning = 0;
   let previewObserver = null;
+  const previewCardScopes=new Map();
+  const previewCleanupObserver=new MutationObserver(()=> {
+    for(const [card,controller] of previewCardScopes) if(!card.isConnected) {
+      controller.abort();previewCardScopes.delete(card);previewObserver?.unobserve(card);delete card._loadHarmoNovaPreview;
+    }
+    for(let i=previewJobs.length-1;i>=0;i--) if(!previewJobs[i].card.isConnected)previewJobs.splice(i,1);
+  });
   const pumpPreviews = () => {
     while (previewRunning < 3 && previewJobs.length) {
       const task = previewJobs.shift();
+      if (!task.card.isConnected || task.controller.signal.aborted) continue;
       previewRunning++;
-      getPreview(task.story).then((result) => {
+      getPreview(task.story,task.controller.signal).then((result) => {
         if (task.card.isConnected) task.show(result);
       }).finally(() => { previewRunning--; pumpPreviews(); });
     }
   };
   const requestCardPreview = (card, story, show) => {
     const add = () => {
-      previewJobs.push({ card, story, show });
+      if(previewJobs.length>=100) return;
+      const controller=new AbortController(); previewCardScopes.set(card,controller);
+      previewJobs.push({ card, story, show, controller });
       pumpPreviews();
     };
     if (state.search.active && typeof IntersectionObserver !== "undefined") {
@@ -4780,6 +4796,7 @@ async function refreshFeed() {
     feedPane = el("section", "feed-pane");
     const feedInner = el("div", "feed-inner");
     storyList = el("div", "story-list");
+    previewCleanupObserver.observe(storyList,{childList:true,subtree:true});
     storyList.addEventListener("scroll", () => {
       const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;
       if (state.search.active) {

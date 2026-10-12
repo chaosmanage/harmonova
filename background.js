@@ -139,6 +139,7 @@ async function openOriginalTab(url, windowId) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   setOriginalTab(tabId, false).catch(() => {});
+  for(const [key,controller] of previewConsumers) if(key.startsWith(tabId+":")) {controller.abort();previewConsumers.delete(key);}
 });
 
 // All privileged external fetches fail closed on redirects.
@@ -192,9 +193,9 @@ const capCount = (value) => {
 
 const plainObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-async function fetchRichJson(url) {
+async function fetchRichJson(url, signal) {
   const response = await fetchPolicy(url, {
-    resourceKind:"article", signal: AbortSignal.timeout(6000),
+    resourceKind:"article", signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000),
     resourceKind:"richJson", expectedTypes:["application/json"],
     headers: { Accept: "application/json" },
   });
@@ -276,7 +277,7 @@ function arxivRich(url) {
   };
 }
 
-async function getRichPreview(url) {
+async function getRichPreview(url, signal) {
   const cached = richPendingCache.get("rich:"+url);
   if (cached) return cached;
   const job = (async () => {
@@ -285,7 +286,7 @@ async function getRichPreview(url) {
     try {
       if (provider.api.endsWith("/api/query") || provider.api.includes("export.arxiv.org")) {
         const response = await fetchPolicy(provider.api, {
-          signal: AbortSignal.timeout(6000),
+          signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000),
           resourceKind:"atom",
           headers: { Accept: "application/atom+xml, application/xml, text/xml" },
         });
@@ -293,7 +294,7 @@ async function getRichPreview(url) {
         const raw = await readResponseTextLimited(response, 512 * 1024);
         return provider.parse(raw);
       }
-      return provider.parse(await fetchRichJson(provider.api));
+      return provider.parse(await fetchRichJson(provider.api,signal));
     } catch {
       return null;
     }
@@ -394,7 +395,7 @@ function safeImageSrc(value, base) {
   return url.href;
 }
 
-async function imageTint(url) {
+async function imageTint(url,signal) {
   if (!url) return null;
   if (paletteCache.get(url) !== undefined) return paletteCache.get(url);
   if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
@@ -402,7 +403,7 @@ async function imageTint(url) {
     return null;
   }
   try {
-    const response = await fetchPolicy(url, { signal: AbortSignal.timeout(6000), resourceKind:"image" });
+    const response = await fetchPolicy(url, { signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000), resourceKind:"image" });
     if (!response.ok) throw new Error("image");
     const bitmap = await createImageBitmap(new Blob([await HarmoNovaResourcePolicy.readBytes(response, 2*1024*1024)], {type: response.headers.get("content-type")}));
     const canvas = new OffscreenCanvas(32, 32);
@@ -443,12 +444,12 @@ async function getMetadataWork(url, wantRich = false, signal) {
   const cached = metadataCache.get("meta:"+url);
   if (cached && Date.now() - cached.time < 1800000) {
     // A rich preview requested later than the page metadata is filled in once.
-    if (wantRich && cached.value.richState === "notRequested") { cached.value.rich = await getRichPreview(url); cached.value.richState=cached.value.rich ? "available" : "unavailable"; }
+    if (wantRich && cached.value.richState === "notRequested") { cached.value.rich = await getRichPreview(url,signal); cached.value.richState=cached.value.rich ? "available" : "unavailable"; }
     return cached.value;
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
-  const richPromise = wantRich ? getRichPreview(url).catch(() => null) : null;
+  const richPromise = wantRich ? getRichPreview(url,signal).catch(() => null) : null;
   let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false, rich: null, richState: wantRich ? "unavailable" : "notRequested" };
   try {
     // SEC-23: never preview or summarize Hacker News pages.
@@ -468,7 +469,7 @@ async function getMetadataWork(url, wantRich = false, signal) {
     const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
     const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
     // HarmoNova tints from the preview image first, then the favicon when a story has no preview.
-    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false, rich: richPromise ? await richPromise : null, richState: wantRich ? "available" : "notRequested" };
+    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon,signal), refused: false, rich: richPromise ? await richPromise : null, richState: wantRich ? "available" : "notRequested" };
   } catch {} finally {
     clearTimeout(timer);
   }
@@ -878,6 +879,7 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
       code: "STORAGE_UNAVAILABLE", message: "Reader data could not be saved", retryable: true } }));
     return true;
   };
+  if(message.type === "HARMONOVA_PREVIEW_CANCEL") {previewConsumers.get(sender.tab.id+":"+message.requestId)?.abort();sendResponse({ok:true});return true;}
   if (message.type === "HARMONOVA_LOCAL_STATE_GET")
     return reply(readerStore.stateSnapshot().then(record => ({ ok: true,
       revision: record.revision, pageOriginMigrated: record.pageOriginMigrated === true,
@@ -968,9 +970,13 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
     sendResponse({ ok: false });
     return true;
   }
-  getMetadata(message.url, message.rich === true)
+  const requestKey=sender.tab.id+":"+message.requestId;
+  if(previewConsumers.size>=100 || previewConsumers.has(requestKey)) {sendResponse({ok:false});return true;}
+  const controller=new AbortController();previewConsumers.set(requestKey,controller);
+  getMetadata(message.url, message.rich === true, controller.signal)
     .then((value) => sendResponse({ ok: true, ...value }))
-    .catch(() => sendResponse({ ok: false }));
+    .catch(() => sendResponse({ ok: false }))
+    .finally(()=>previewConsumers.delete(requestKey));
   return true;
 }
 

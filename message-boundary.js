@@ -73,8 +73,9 @@
         (kind === "hn" ? m.tabId === undefined : id(m.tabId)) },
     HARMONOVA_ENABLE_TAB: { from: ["popup"], fields: ["tabId"],
       valid: m => id(m.tabId) },
-    HARMONOVA_PREVIEW: { from: ["hn"], fields: ["url", "rich"],
-      valid: m => url(m.url) && (m.rich === undefined || typeof m.rich === "boolean") },
+    HARMONOVA_PREVIEW_CANCEL: {from:["hn"],fields:["requestId"],valid:m=>text(m.requestId,96)},
+    HARMONOVA_PREVIEW: { from: ["hn"], fields: ["url", "rich", "requestId"],
+      valid: m => url(m.url) && (m.requestId===undefined || text(m.requestId,96)) && (m.rich === undefined || typeof m.rich === "boolean") },
   });
   function isSafeOriginalUrl(value) {
     try {
