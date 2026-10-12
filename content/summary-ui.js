@@ -170,6 +170,7 @@
 
   async function startStorySummary(item, options = {}) {
     const automatic = Boolean(options.automatic);
+    if (dependencies.INCOGNITO) { if (!automatic && options.trusted) dependencies.showToast("AI summaries are unavailable in private tabs"); return; }
     if (automatic) {
       if (model.aiSelectionIntent !== Number(item?.id)) return;
       model.aiSelectionIntent = null; // One-use intent; rendering never reissues billing.

@@ -56,6 +56,7 @@
   }
   // A permit covers queue wait, headers AND body consumption. Aborted mock
   // transports are raced as well, so a stalled reader cannot hold a permit.
+  const cancelQuietly = stream => { try { Promise.resolve(stream?.cancel?.()).catch(() => {}); } catch {} };
   async function request(fetchImpl, url, init, budget, types) {
     const controller = new AbortController();
     const relay = () => controller.abort(init.signal?.reason);
@@ -65,7 +66,7 @@
     const signal = controller.signal;
     let release, reader, response, streamController, ended = false, total = 0;
     const finish = () => { if (ended) return; ended=true; clearTimeout(timer); init.signal?.removeEventListener("abort",relay); signal.removeEventListener("abort",stop); release?.(); };
-    const stop = () => { const error=signal.reason || failure("RESOURCE_CANCELLED"); try { streamController?.error(error); } catch {} reader?.cancel().catch(()=>{}); finish(); };
+    const stop = () => { const error=signal.reason || failure("RESOURCE_CANCELLED"); try { streamController?.error(error); } catch {} cancelQuietly(reader); finish(); };
     signal.addEventListener("abort",stop,{once:true});
     const raced = task => new Promise((resolve,reject)=> {
       const abort = () => reject(signal.reason || failure("RESOURCE_CANCELLED"));
@@ -84,6 +85,7 @@
       const length=Number(response.headers.get("content-length"));
       if (length > cap) throw failure("RESPONSE_TOO_LARGE");
       if (!response.body) { if (![204,205].includes(response.status)) throw failure("RESPONSE_BODY_UNAVAILABLE"); finish(); return response; }
+      if (typeof response.body.getReader !== "function") throw failure("RESPONSE_BODY_UNAVAILABLE");
       reader=response.body.getReader();
       const body=new ReadableStream({
         start(c) {streamController=c;},
@@ -95,24 +97,25 @@
             total+=part.value.byteLength;
             if (total>cap) throw failure("RESPONSE_TOO_LARGE");
             c.enqueue(part.value);
-          } catch(error) { try {c.error(error);} catch {} reader.cancel().catch(()=>{}); finish(); }
+          } catch(error) { try {c.error(error);} catch {} cancelQuietly(reader); finish(); }
         },
-        cancel() { reader.cancel().catch(()=>{}); finish(); },
+        cancel() { cancelQuietly(reader); finish(); },
       },{highWaterMark:0});
       return {ok:response.ok,status:response.status,type:response.type,url:response.url,headers:response.headers,body};
-    } catch(error) { if(reader)reader.cancel().catch(()=>{}); else response?.body?.cancel().catch(()=>{}); finish(); throw error; }
+    } catch(error) { cancelQuietly(reader || response?.body); finish(); throw error; }
   }
   async function readBytes(response, cap, signal) {
     if (!Number.isSafeInteger(cap) || cap < 0) throw failure("INVALID_RESOURCE_LIMIT");
     const advertised = Number(response.headers?.get("content-length"));
     if (Number.isFinite(advertised) && advertised > cap) {
-      try { await response.body?.cancel(); } catch {}
+      cancelQuietly(response.body);
       throw failure("RESPONSE_TOO_LARGE");
     }
     if (!response.body) {
       if ([204, 205, 304].includes(response.status)) return new Uint8Array();
       throw failure("RESPONSE_BODY_UNAVAILABLE");
     }
+    if (typeof response.body.getReader !== "function") throw failure("RESPONSE_BODY_UNAVAILABLE");
     const reader = response.body.getReader();
     let total = 0, done = false;
     const chunks = [];
@@ -135,7 +138,7 @@
       for (const chunk of chunks) { out.set(chunk, index); index += chunk.byteLength; }
       return out;
     } finally {
-      if (!done) reader.cancel().catch(()=>{});
+      if (!done) cancelQuietly(reader);
       try { reader.releaseLock(); } catch {}
     }
   }

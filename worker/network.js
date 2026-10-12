@@ -12,7 +12,8 @@ function remoteFetchBlocked() {
 async function fetchPolicy(value, init = {}) {
   const target = HarmoNovaUrlPolicy.canonicalRemoteUrl(value);
   if (!target) throw remoteFetchBlocked();
-  const { resourceKind = "metadata", expectedTypes, ...settings } = init;
+  const { resourceKind = "metadata", ...settings } = init;
+  delete settings.expectedTypes;
   if(!HarmoNovaProviderPolicy.allowed(value,resourceKind,settings.method || "GET"))throw remoteFetchBlocked();
   const budget=HarmoNovaResourcePolicy.Limits[resourceKind];
   if (!budget) throw remoteFetchBlocked();
@@ -143,7 +144,7 @@ function arxivRich(url) {
 
 async function getRichPreview(url, signal) {
   const cached = richPendingCache.get("rich:"+url);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
   const job = (async () => {
     const provider = githubRich(url) || wikipediaRich(url) || arxivRich(url);
     if (!provider) return null;
@@ -168,96 +169,22 @@ async function getRichPreview(url, signal) {
   return result;
 }
 
-function decodeEntities(text) {
-  return String(text || "")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">");
-}
 
-function absolutize(value, base) {
-  if (!value) return null;
-  try { return new URL(decodeEntities(value.trim()), base).href; }
-  catch { return null; }
-}
 
-function metaContent(html, names) {
-  const tags = html.match(/<meta\b[^>]*>/gi) || [];
-  for (const name of names) {
-    for (const tag of tags) {
-      const key = tag.match(/\b(?:property|name)\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
-      if (key !== name.toLowerCase()) continue;
-      const content = tag.match(/\bcontent\s*=\s*["']([^"']+)["']/i)?.[1];
-      if (content) return decodeEntities(content);
-    }
-  }
-  return null;
-}
 
-function linkHref(html, relNames) {
-  const tags = html.match(/<link\b[^>]*>/gi) || [];
-  for (const tag of tags) {
-    const rel = tag.match(/\brel\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase() || "";
-    if (!relNames.some((name) => rel.split(/\s+/).includes(name))) continue;
-    const href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
-    if (href) return decodeEntities(href);
-  }
-  return null;
-}
 
-function rgbToHsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  const l = (max + min) / 2;
-  const d = max - min;
-  if (d) {
-    s = d / (1 - Math.abs(2 * l - 1));
-    if (max === r) h = 60 * (((g - b) / d) % 6);
-    else if (max === g) h = 60 * (((b - r) / d) + 2);
-    else h = 60 * (((r - g) / d) + 4);
-  }
-  if (h < 0) h += 360;
-  return [h, s, l];
-}
 
-function hslToRgb(h, s, l) {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-  const m = l - c / 2;
-  let rp = 0, gp = 0, bp = 0;
-  if (h < 60) [rp, gp, bp] = [c, x, 0];
-  else if (h < 120) [rp, gp, bp] = [x, c, 0];
-  else if (h < 180) [rp, gp, bp] = [0, c, x];
-  else if (h < 240) [rp, gp, bp] = [0, x, c];
-  else if (h < 300) [rp, gp, bp] = [x, 0, c];
-  else [rp, gp, bp] = [c, 0, x];
-  return [
-    Math.round((rp + m) * 255),
-    Math.round((gp + m) * 255),
-    Math.round((bp + m) * 255),
-  ];
-}
 
-function hex(rgb) {
-  return "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
-}
+
+
+
+
+
+
+
 
 // SEC-42: images used by HarmoNova must be https and must never point at HN.
-function safeImageSrc(value, base) {
-  if (!value) return null;
-  let url;
-  try {
-    url = new URL(value, base || undefined);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:") return null;
-  if (HarmoNovaUrlPolicy.isHackerNewsHost(url.hostname)) return null;
-  return url.href;
-}
+
 
 async function sanitizedImage(url,signal) {
   if(!url)return null;
@@ -312,43 +239,9 @@ async function getMetadata(url, wantRich=false, signal) {
 }
 
 
-function decodeHtmlText(value) {
-  const named = {
-    amp: "&", apos: "'", gt: ">", lt: "<", nbsp: " ", quot: '"',
-    ndash: "–", mdash: "—", hellip: "…", rsquo: "’", lsquo: "‘",
-    rdquo: "”", ldquo: "“",
-  };
-  return String(value || "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, token) => {
-    if (token[0] === "#") {
-      const hex = token[1]?.toLowerCase() === "x";
-      const code = Number.parseInt(token.slice(hex ? 2 : 1), hex ? 16 : 10);
-      if (Number.isFinite(code)) {
-        try { return String.fromCodePoint(code); } catch {}
-      }
-      return match;
-    }
-    return named[token.toLowerCase()] ?? match;
-  });
-}
 
-function articleTextFromHtml(html) {
-  let value = String(html || "");
-  const body = value.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
-  if (body) value = body[1];
-  value = value
-    .replace(/<(script|style|noscript|template|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|article|section|main|header|footer|li|h[1-6]|blockquote|pre)>/gi, "\n")
-    .replace(/<li\b[^>]*>/gi, "• ")
-    .replace(/<[^>]+>/g, " ");
-  return decodeHtmlText(value)
-    .replace(/\r/g, "")
-    .replace(/[ \t\f\v]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+
+
 
 async function readResponseTextLimited(response, maxBytes) {
   return HarmoNovaResourcePolicy.readText(response, maxBytes);

@@ -1932,3 +1932,6 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
   .summary-action-group .summary-action{gap:0;padding:0 4px;font-size:11px}
   .summary-action-group .harmonova-icon{display:none}
 }
+
+/* Local domain marker; no third-party favicon request. */
+.story-favicon { display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; border-radius:3px; background:var(--border); }

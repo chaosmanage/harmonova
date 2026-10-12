@@ -21,9 +21,7 @@ function goToLogin() {
   location.href = "https://news.ycombinator.com/login?goto=" + dependencies.encodeURIComponent(goto);
 }
 
-function openHnPage(path) {
-  location.href = "https://news.ycombinator.com" + path;
-}
+
 
 function updateAccountChip() {
   if (!dependencies.accountChip) return;

@@ -227,7 +227,7 @@
                 if (storyState.flagged) {
                   window.HarmoNovaHN.setFlagged(item.id, false).then((outcome) =>
                     dependencies.showToast(outcome.status === "success" ? "Flag removed" : outcome.message || "The flag could not be removed")
-                  );
+                  ).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
                 } else {
                   dependencies.confirmFlagItem(popupEvent, item.id, "story");
                 }

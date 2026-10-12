@@ -40,28 +40,32 @@
 
   const appendSanitizedHtml = (target, html) => {
     if (!html) return;
+    html = String(html).slice(0,32768);
     const parsed = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
     const allowed = new Set(["P", "A", "PRE", "CODE", "I", "EM", "B", "STRONG", "BR", "BLOCKQUOTE"]);
-    const copy = (source, parent) => {
+    let nodes = 0;
+    const copy = (source, parent, depth = 0) => {
+      if (depth > 64 || nodes >= 5000) return;
       for (const child of source.childNodes) {
+        if (++nodes > 5000) return;
         if (child.nodeType === Node.TEXT_NODE) {
           parent.appendChild(document.createTextNode(child.textContent || ""));
           continue;
         }
         if (child.nodeType !== Node.ELEMENT_NODE) continue;
         if (!allowed.has(child.tagName)) {
-          copy(child, parent);
+          copy(child, parent, depth + 1);
           continue;
         }
         const out = document.createElement(child.tagName.toLowerCase());
         if (child.tagName === "A") {
           const href = dependencies.linksUI.safeHref(child.getAttribute("href") || "");
-          if (!href) { copy(child, parent); continue; }
+          if (!href) { copy(child, parent, depth + 1); continue; }
           out.href = dependencies.linksUI.nitterize(href);
           out.target = "_blank";
           out.rel = "noopener noreferrer";
         }
-        copy(child, out);
+        copy(child, out, depth + 1);
         parent.appendChild(out);
       }
     };

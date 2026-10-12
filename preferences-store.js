@@ -21,7 +21,7 @@
       await set({[KEY]:record});
       let syncSaved=true;
       try {await syncSet({harmonovaSettings:record.settings,harmonovaEnabled:record.enabled});}catch{syncSaved=false;}
-      await broadcast(record).catch(()=>{});
+      Promise.resolve().then(() => broadcast(record)).catch(()=>{});
       return {ok:true,value:record,syncSaved};
     }
     const snapshot=()=>serial(read);

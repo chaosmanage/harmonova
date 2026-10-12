@@ -129,7 +129,7 @@
     runtimeMessage({ type: "HARMONOVA_SET_TAG", username: author,
       tag: model.userTags.get(author) ?? null }).then(result => {
       if (!result?.ok) dependencies.showToast("Could not save user tag");
-    });
+    }).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
   }
 
   function persistBlockedUsers(author) {
@@ -137,13 +137,13 @@
     runtimeMessage({ type: "HARMONOVA_SET_BLOCKED", username: author,
       desired: model.blockedUsers.has(author) }).then(result => {
       if (!result?.ok) dependencies.showToast("Could not save blocked-user setting");
-    });
+    }).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
   }
 
   function persistSeenTimes(id) {
     if (dependencies.INCOGNITO) return void dependencies.privateReader.markSeen(id, model.seenTimes.get(id));
     runtimeMessage({ type: "HARMONOVA_MARK_SEEN", id,
-      timestamp: model.seenTimes.get(id) }).then(() => {});
+      timestamp: model.seenTimes.get(id) }).then(() => {}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
   }
 
   async function markRead(id) {

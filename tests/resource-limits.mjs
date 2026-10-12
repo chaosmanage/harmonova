@@ -108,3 +108,13 @@ for (const mode of ['headers','body','overflow','type','parse']) test('P07 bound
   const next=await policy.request(async()=>new Response('ok'),'https://resource.test/',{},{bytes:10,deadline:30});
   assert.equal(await policy.readText(next,10),'ok'); assert.equal(policy.activeCount,0);
 });
+
+test('P13 malformed transports and throwing cancellation release scheduler', async () => {
+  for (const body of [{ cancel(){throw new Error('fixture');} }, {getReader(){throw new Error('fixture');},cancel(){throw new Error('fixture');}}]) {
+    await assert.rejects(policy.request(async()=>({ok:true,status:200,headers:new Headers(),body}), 'https://resource.test/', {}, {bytes:10,deadline:50}));
+    assert.equal(policy.activeCount,0);
+  }
+  const next=await policy.request(async()=>new Response('ok'),'https://resource.test/',{},{bytes:10,deadline:50});
+  assert.equal(await policy.readText(next,10),'ok');
+  assert.equal(policy.activeCount,0);
+});

@@ -32,8 +32,9 @@
         return {version:2,drafts,generations:Object.fromEntries(Object.entries(record.generations||{}).slice(-500)),accountGenerations:Object.fromEntries(Object.entries(record.accountGenerations||{}).filter(([name,v])=>validUsername(name)&&Number.isSafeInteger(v)&&v>=0).slice(-500))};
       }
       const initial = emptyDrafts();
-      for (const [key, entry] of Object.entries(stored.harmonovaDrafts || {})) {
-        if (entry && typeof entry.text === "string") initial.drafts[key] = { ...entry, revision: 1 };
+      for (const [key, entry] of Object.entries(stored.harmonovaDrafts || {}).slice(-50)) {
+        if (entry && validUsername(entry.username) && validId(entry.parentId) && key === draftKey(entry.username,entry.parentId) && typeof entry.text === "string" && new TextEncoder().encode(entry.text).byteLength <= 20000)
+          initial.drafts[key] = { username:entry.username,parentId:entry.parentId,text:entry.text,updatedAt:Number.isSafeInteger(entry.updatedAt)?entry.updatedAt:Date.now(),revision:1 };
       }
       await sessionSet({ [DRAFT_KEY]: initial });
       return initial;
@@ -62,7 +63,7 @@
       if (result?.changed === false) return { ...result, value: after };
       after.revision = before.revision + 1;
       await localSet({ [DATA_KEY]: after });
-      await broadcast(after).catch(() => {});
+      Promise.resolve().then(() => broadcast(after)).catch(() => {});
       return { ok: true, ...result, value: after };
     });
     const markRead = id => mutateState(state => {

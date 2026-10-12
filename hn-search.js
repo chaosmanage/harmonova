@@ -25,7 +25,7 @@
   const MAX_HITS_PER_PAGE = 50;
   const TAGS = new Set(["story", "comment", "ask_hn", "show_hn", "poll", "front_page"]);
   const AUTHOR_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-  const NUMERIC_FIELDS = new Set(["created_at_i", "points", "num_comments"]);
+
 
   // ---------------------------------------------------------------------------
   // Query construction
@@ -188,7 +188,7 @@
     const text = typeof value === "string" ? value.slice(0,32768) : "";
     // Algolia highlights contain paragraph, link and emphasis markup.
     // Parse in an inert document and copy text nodes, never live HTML.
-    if (typeof DOMParser !== "undefined") {
+    {
       const doc = new DOMParser().parseFromString(text, "text/html");
       const segments = [];
       const add = (value, highlighted) => {
@@ -197,13 +197,15 @@
         if (last && last.highlighted === highlighted) last.text += value;
         else segments.push({ text: value, highlighted });
       };
-      const walk = (node, marked = false) => {
+      let visited = 0;
+      const walk = (node, marked = false, depth = 0) => {
+        if (++visited > 5000 || depth > 64) return;
         if (node.nodeType === 3) return add(node.nodeValue || "", marked);
         if (node.nodeType !== 1) return;
         const tag = node.localName.toLowerCase();
         if (["script", "style", "template", "svg", "iframe"].includes(tag)) return;
         if (tag === "br" || tag === "p" && segments.length) add("\n", false);
-        for (const child of node.childNodes) walk(child, marked || tag === "em");
+        for (const child of node.childNodes) walk(child, marked || tag === "em", depth + 1);
         if (tag === "p") add("\n", false);
       };
       for (const child of doc.body.childNodes) walk(child);
@@ -211,31 +213,6 @@
       if (segments[segments.length - 1]?.text === "\n") segments.pop();
       return segments;
     }
-    // DOMParser is absent in the Node VM tests; browser rendering always uses
-    // the inert parser above.
-    const segments = [];
-    let plain = "";
-    let highlighted = "";
-    let inside = false;
-    for (let i = 0; i < text.length; i++) {
-      if (!inside && text.startsWith("<em>", i)) {
-        if (plain) { segments.push({ text: plain, highlighted: false }); plain = ""; }
-        inside = true;
-        i += 3;
-        continue;
-      }
-      if (inside && text.startsWith("</em>", i)) {
-        if (highlighted) { segments.push({ text: highlighted, highlighted: true }); highlighted = ""; }
-        inside = false;
-        i += 4;
-        continue;
-      }
-      if (inside) highlighted += text[i];
-      else plain += text[i];
-    }
-    if (plain) segments.push({ text: plain, highlighted: false });
-    if (highlighted) segments.push({ text: highlighted, highlighted: true });
-    return segments;
   }
 
   globalThis.HarmoNovaSearch = {

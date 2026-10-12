@@ -16,6 +16,7 @@ function isTrustedHnContentSender(sender) {
 // from trusted HarmoNova content-script senders.
 // ---------------------------------------------------------------------------
 
+const previewKey = (sender, requestId) => sender.tab.id + ":" + (sender.documentId || "legacy") + ":" + requestId;
 function dispatchWorkerMessage(message, sender, sendResponse) {
   if (!message) return;
   const reply = promise => {
@@ -28,7 +29,7 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
   if(message.type === "HARMONOVA_MIGRATE_PREFERENCES")return reply(dependencies.preferencesStore.migrate(message.appearance));
   if(message.type === "HARMONOVA_NETWORK_POLICY_GET") return reply(dependencies.currentNetworkPolicy().then(policy=>({ok:true,policy})));
   if(message.type === "HARMONOVA_NETWORK_POLICY_SAVE") return reply(dependencies.saveNetworkPolicy(message.policy));
-  if(message.type === "HARMONOVA_PREVIEW_CANCEL") {dependencies.workerNetwork.previewConsumers.get(sender.tab.id+":"+message.requestId)?.abort();sendResponse({ok:true});return true;}
+  if(message.type === "HARMONOVA_PREVIEW_CANCEL") {dependencies.workerNetwork.previewConsumers.get(previewKey(sender,message.requestId))?.abort();sendResponse({ok:true});return true;}
   if (message.type === "HARMONOVA_LOCAL_STATE_GET")
     return reply(dependencies.readerStore.stateSnapshot().then(record => ({ ok: true,
       revision: record.revision, pageOriginMigrated: record.pageOriginMigrated === true,
@@ -119,7 +120,7 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
     sendResponse({ ok: false });
     return true;
   }
-  const requestKey=sender.tab.id+":"+message.requestId;
+  const requestKey=previewKey(sender,message.requestId);
   if(dependencies.workerNetwork.previewConsumers.size>=100 || dependencies.workerNetwork.previewConsumers.has(requestKey)) {sendResponse({ok:false});return true;}
   const controller=new AbortController();dependencies.workerNetwork.previewConsumers.set(requestKey,controller);
   dependencies.getMetadata(message.url, message.rich === true, controller.signal)

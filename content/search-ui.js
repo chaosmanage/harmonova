@@ -19,8 +19,7 @@
   // reserve scroll space so results never hide behind it or lose clicks.
   function syncSearchPanelSpace() {
     if (!dependencies.storyList) return;
-    const open = Boolean(dependencies.searchWrap?.classList.contains("open") && dependencies.searchPanel);
-    const height = open ? dependencies.searchPanel.offsetHeight : 0;
+
     // Header, search and results are in layout flow; no calculated gap.
   }
 
@@ -360,10 +359,8 @@
 
   function storyMeta(story) {
     const meta = dependencies.el("div", "story-meta");
-    const fav = dependencies.el("img", "story-favicon");
-    const favUrl = dependencies.INCOGNITO ? null : dependencies.previewsUI.faviconUrl(story);
-    if (favUrl) fav.src = favUrl;
-    fav.alt = "";
+    const fav = dependencies.el("span", "story-favicon", (dependencies.domainOf(story.url) || "HN").slice(0,1).toUpperCase());
+    fav.setAttribute("aria-hidden", "true");
     const points = dependencies.el("span", "meta-points", dependencies.compact(story.score) + (model.settings.compactPoints ? "" : " points"));
     if (model.settings.hotnessColors) points.classList.add("hotness-" + hotnessClass(story));
     const domain = dependencies.el("span", "meta-domain", dependencies.domainOf(story.url));

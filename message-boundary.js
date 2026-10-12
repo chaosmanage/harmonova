@@ -5,14 +5,11 @@
   const HN = "https://news.ycombinator.com";
   const MAX_URL = 4096;
   const MAX_DRAFT = 20_000;
-  const MAX_IDS = 2000;
   const id = value => Number.isSafeInteger(value) && value > 0;
   const username = value => typeof value === "string" &&
     value.length <= 32 && /^[A-Za-z0-9_-]+$/.test(value);
   const text = (value, max) => typeof value === "string" &&
     new TextEncoder().encode(value).byteLength <= max;
-  const values = (value, max) => Array.isArray(value) &&
-    value.length <= max && value.every(id);
   const url = value => typeof value === "string" &&
     value.length <= MAX_URL && /^https?:\/\//i.test(value);
   const noFields = (message, fields) =>
@@ -112,7 +109,7 @@
   function validateMessage(message, sender, runtime) {
     const kind = senderKind(sender, runtime);
     if (!kind || !message || typeof message !== "object" || Array.isArray(message)) return fail("INVALID_SENDER");
-    const policy = RULES[message.type];
+    const policy = typeof message.type === "string" && Object.hasOwn(RULES, message.type) ? RULES[message.type] : null;
     if (!policy || !policy.from.includes(kind)) return fail("UNAUTHORIZED_OPERATION");
     if (sender.tab?.incognito === true &&
         !["HARMONOVA_TAB_MODE", "HARMONOVA_OPEN_ORIGINAL", "HARMONOVA_PREFERENCES_GET"].includes(message.type))
@@ -133,7 +130,8 @@
   const AI_FIELDS = ["type", "requestId", "storyId", "source", "discussionText", "url", "model", "systemPrompt", "streamResponses"];
   function validateAiMessage(message) {
     if (!message || typeof message !== "object" || Array.isArray(message)) return fail("INVALID_REQUEST");
-    if (message.type === "cancel" && noFields(message, ["type", "requestId"]))
+    if (message.type === "cancel" && noFields(message, ["type", "requestId"]) &&
+        typeof message.requestId === "string" && /^[A-Za-z0-9_-]{1,96}$/.test(message.requestId))
       return { ok: true };
     if (message.type !== "summarize" || !noFields(message, AI_FIELDS) ||
       !id(message.storyId) ||

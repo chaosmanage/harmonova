@@ -192,12 +192,12 @@ function openComposer(options) {
     return spacer;
   })(), cancel, submit);
   const footnote = dependencies.el("div", "composer-footnote", "Posting as " + session.username + " · Ctrl+Enter posts · Esc keeps your draft" +
-    (dependencies.INCOGNITO ? " · Private draft disappears when this tab closes" : ""));
+    (dependencies.INCOGNITO ? " · Private draft disappears on reload or when this tab closes" : ""));
   node.append(header, textarea, previewWrap, status, actions, footnote);
 
   // Draft restore note + autosave (debounced).
   let draftTimer = 0;
-  let previewDirty = true;
+
   const chars = header.querySelector(".composer-chars");
   const syncChars = () => {
     chars.textContent = textarea.value.length + (textarea.value.length === 1 ? " character" : " characters");
@@ -225,7 +225,6 @@ function openComposer(options) {
     composer.lastTrustedText = textarea.value;
     syncChars();
     grow();
-    previewDirty = true;
     if (!previewWrap.hidden) renderPreview();
     autosave(composer.lastTrustedText);
   });
@@ -254,7 +253,7 @@ function openComposer(options) {
         if (r?.ok) { composer.draftToken = r.token; composer.draftRevision = r.revision; }
       });
       dependencies.showToast("Draft discarded");
-    });
+    }).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
   });
   textarea.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -266,7 +265,7 @@ function openComposer(options) {
     if (event.key === "Escape") {
       event.preventDefault();
       closeComposer({ keepDraft: true }).then(saved =>
-        dependencies.showToast(saved ? "Draft saved" : "Draft not saved. Keep this tab open."));
+        dependencies.showToast(saved ? "Draft saved" : "Draft not saved. Keep this tab open.")).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
     }
   });
   submit.addEventListener("click", submitComposer);

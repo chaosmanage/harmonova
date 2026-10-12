@@ -4,7 +4,7 @@ const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
 const AI_POLICY_LOCAL_STORAGE_KEY = "harmonovaAiPolicyV1";
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MAX_ARTICLE_BYTES = 2 * 1024 * 1024;
+
 const MAX_ARTICLE_CHARACTERS = 15_000;
 const MAX_SUMMARY_CHARACTERS = 64 * 1024;
 
@@ -144,7 +144,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   function clearAiKey(...args){return workerAI.clearAiKey(...args);}
   function abortAllAiRequests(...args){return workerAI.abortAllAiRequests(...args);}
 
-  const workerMessages=HarmoNovaWorkerMessages.create({
+  HarmoNovaWorkerMessages.create({
     get aiKeyStatus(){return aiKeyStatus;},
     get clearAiKey(){return clearAiKey;},
     get currentAiPolicy(){return currentAiPolicy;},

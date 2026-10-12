@@ -98,9 +98,9 @@
     row.append(text, manage);
     dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_AI_STATUS" }).then((status) => {
       summary.textContent = status?.hasKey
-        ? status.preview + (status.storage === "session" ? " · session only" : " · saved locally")
+        ? "Configured · managed in extension settings"
         : "Not set · stored separately from synced settings";
-    });
+    }).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
     return row;
   }
 

@@ -282,7 +282,7 @@ function openManageFeeds() {
       check.addEventListener("change", () => {
         const nextHidden = new Set(model.settings.feedHidden || []);
         if (check.checked) nextHidden.delete(key); else nextHidden.add(key);
-        save(model.settings.feedOrder || [], [...nextHidden]).then(renderRows);
+        save(model.settings.feedOrder || [], [...nextHidden]).then(renderRows).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
       });
       const label = dependencies.el("span", "feeds-label", dependencies.FEEDS[key].label);
       const up = dependencies.el("button", "feeds-move", "↑");
@@ -292,7 +292,7 @@ function openManageFeeds() {
       up.addEventListener("click", () => {
         const list = [...all];
         [list[index - 1], list[index]] = [list[index], list[index - 1]];
-        save(list, model.settings.feedHidden || []).then(renderRows);
+        save(list, model.settings.feedHidden || []).then(renderRows).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
       });
       const down = dependencies.el("button", "feeds-move", "↓");
       down.type = "button";
@@ -301,7 +301,7 @@ function openManageFeeds() {
       down.addEventListener("click", () => {
         const list = [...all];
         [list[index + 1], list[index]] = [list[index], list[index + 1]];
-        save(list, model.settings.feedHidden || []).then(renderRows);
+        save(list, model.settings.feedHidden || []).then(renderRows).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
       });
       row.append(check, label, up, down);
       panel.appendChild(row);

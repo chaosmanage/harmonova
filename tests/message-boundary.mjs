@@ -48,6 +48,7 @@ test("P02 rejects malformed fields and unknown operations before side effects", 
     { type: "HARMONOVA_OPEN_ORIGINAL", url: "https://news.ycombinator.com/news?goto=logout" },
     { type: "HARMONOVA_AI_SAVE_KEY", apiKey: "secret", storage: "local" },
     { type: "UNLISTED_OPERATION" },
+    { type: "__proto__" }, {type:"constructor"}, {type:"toString"}, {type:[]},
     { type: "HARMONOVA_DRAFT_CLEAR_ALL", username: "bad user" },
   ]) assert.equal((await invoke(listeners, m)).ok, false, JSON.stringify(m).slice(0,70));
   assert.notEqual(stores.local.harmonovaReaderStateV1?.bookmarks?.includes(3), true);

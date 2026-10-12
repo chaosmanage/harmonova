@@ -129,7 +129,7 @@
     // Phase 2: per-comment action row — vote, downvote (when HN offers it),
     // reply hand-off, and a "More" menu (share/copy/parent/top-level/user).
     const session = window.HarmoNovaHN?.session?.() || null;
-    const actionsRow = dependencies.el("div", "comment-actions");
+
     const voteButton = dependencies.el("button", "comment-action");
     voteButton.type = "button";
     voteButton.title = "Upvote";

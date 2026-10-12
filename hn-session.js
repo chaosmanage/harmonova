@@ -116,11 +116,7 @@
     return "ok";
   }
 
-  const RATE_LIMIT_MESSAGES = [
-    "Sorry, we're not able to serve your requests this quickly.",
-    "Please slow down",
-    "You're posting too fast",
-  ];
+
 
   async function performHnRequest(path, options) {
     const method = options.method || "GET";
