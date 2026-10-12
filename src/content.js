@@ -51,6 +51,7 @@
     confirmedDeletes: new Map(), // story id -> Set of locally confirmed deletions
     previewById: new Map(),
     readIds: new Set(),
+    seenStoryIds: new Set(),
     bookmarks: new Set(),
     settings: { ...DEFAULT_SETTINGS },
     updatedAt: new Date(),
@@ -152,7 +153,7 @@
     get localStorage(){return localStorage;},
     get privateReader(){return privateReader;},
     get showToast(){return showToast;},
-  },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","recoveryNotice","seenTimes","settings","userTags"]));
+  },stateFacet(["blockedUsers","bookmarks","readIds","seenStoryIds","readerRevision","recoveryNotice","seenTimes","settings","userTags"]));
   function pageStorageSet(...args){return stateUI.pageStorageSet(...args);}
   function loadEnabledPreference(...args){return stateUI.loadEnabledPreference(...args);}
   function isOriginalTab(...args){return stateUI.isOriginalTab(...args);}
@@ -164,6 +165,7 @@
   function persistSeenTimes(...args){return stateUI.persistSeenTimes(...args);}
   function markRead(...args){return stateUI.markRead(...args);}
   function markUnread(...args){return stateUI.markUnread(...args);}
+  function markStorySeen(...args){return stateUI.markStorySeen(...args);}
   function toggleBookmark(...args){return stateUI.toggleBookmark(...args);}
 
   const previewsUI=HarmoNovaContentPreviews.create({
@@ -173,6 +175,7 @@
   },stateFacet(["previewById","search","settings"]));
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
+  let seenStoryTracker;
   let frontDateInput;
   let searchPanel, searchFilters, searchRecent, searchChips, searchSubmit;
   let accountChip;
@@ -346,7 +349,7 @@ function openFeedMenu(anchor) {
     get storyList(){return storyList;},
     get svg(){return domUI.svg;},
     get threadPane(){return threadPane;}
-  },stateFacet(["feed","search","selectedId","settings","stories"]));
+  },stateFacet(["feed","search","selectedId","settings","stories","seenStoryIds"]));
   function toggleSearch(...args){return searchUI.toggleSearch(...args);}
   function closeSearch(...args){return searchUI.closeSearch(...args);}
   function abortSearch(...args){return searchUI.abortSearch(...args);}
@@ -379,6 +382,7 @@ function openFeedMenu(anchor) {
     get fetchItems(){return fetchItems;},
     get fetchJson(){return fetchJson;},
     get filterStories(){return filterStories;},
+    get resetSeenTracking(){return () => seenStoryTracker?.reset();},
     get formatTime(){return linksUI.formatTime;},
     get frontDateInput(){return frontDateInput;},
     get hashTint(){return linksUI.hashTint;},
@@ -536,12 +540,14 @@ function openFeedMenu(anchor) {
           !Number.isSafeInteger(message.revision) || message.revision <= state.readerRevision) return;
       state.readerRevision = message.revision;
       state.readIds = new Set(Array.isArray(message.readStoryIds) ? message.readStoryIds : []);
+      state.seenStoryIds = new Set(Array.isArray(message.seenStoryIds) ? message.seenStoryIds : []);
       state.bookmarks = new Set(Array.isArray(message.bookmarks) ? message.bookmarks : []);
       state.userTags = new Map(Object.entries(message.userTags || {}));
       state.blockedUsers = new Set(Array.isArray(message.blockedUsers) ? message.blockedUsers : []);
       state.seenTimes = new Map(Object.entries(message.seenTimes || {}).map(([id,ts]) => [Number(id),ts]));
       document.querySelectorAll(".story-card").forEach(card =>
         card.classList.toggle("is-read", state.readIds.has(Number(card.dataset.storyId))));
+      filterStories();
       document.querySelectorAll("[data-bookmark-id]").forEach(button =>
         button.classList.toggle("active", state.bookmarks.has(Number(button.dataset.bookmarkId))));
       return;
@@ -560,7 +566,7 @@ function openFeedMenu(anchor) {
   // messages during navigation; debounced autosave remains the primary path.
   window.addEventListener("pagehide", () => {
     flushSettings();
-    feedScope.dispose();threadScope.dispose();abortSearch();stopActiveSummary();previewsUI.previewCleanupObserver.disconnect();previewsUI.previewObserver?.disconnect();
+    feedScope.dispose();threadScope.dispose();abortSearch();stopActiveSummary();seenStoryTracker?.disconnect();previewsUI.previewCleanupObserver.disconnect();previewsUI.previewObserver?.disconnect();
     for(const controller of previewsUI.previewCardScopes.values())controller.abort();previewsUI.previewCardScopes.clear();
     const composer = state.composer;
     composer?.scope?.dispose();
@@ -597,9 +603,15 @@ function openFeedMenu(anchor) {
     feedPane = domUI.el("section", "feed-pane");
     const feedInner = domUI.el("div", "feed-inner");
     storyList = domUI.el("div", "story-list");
+    seenStoryTracker = HarmoNovaContentSeenStories.create({
+      list: storyList, settings: () => state.settings,
+      seen: () => state.seenStoryIds, searchActive: () => state.search.active,
+      mark: markStorySeen, filter: filterStories,
+    });
     if(state.recoveryNotice)setTimeout(()=>showToast("Some old reader data could not be recovered. Your source data is kept."),0);
     previewsUI.previewCleanupObserver.observe(storyList,{childList:true,subtree:true});
-    storyList.addEventListener("scroll", () => {
+    storyList.addEventListener("scroll", (event) => {
+      seenStoryTracker.onScroll(event);
       const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;
       if (state.search.active) {
         if (remaining < 500 && !state.search.controller && state.search.page + 1 < state.search.nbPages)

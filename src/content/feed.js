@@ -320,6 +320,7 @@ async function refreshFeed() {
     model.search.active = false;
     // A manual refresh closes an open account list view and rebuilds the feed.
     model.listView = null;
+    dependencies.resetSeenTracking();
     dependencies.feedScope.dispose();dependencies.feedScope=HarmoNovaLifecycle.create();
     const scope=dependencies.feedScope;
     const generation = ++model.feedGeneration;

@@ -36,9 +36,10 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
   if (message.type === "HARMONOVA_LOCAL_STATE_GET")
     return reply(dependencies.readerStore.stateSnapshot().then(record => ({ ok: true,
       revision: record.revision, pageOriginMigrated: record.pageOriginMigrated === true,
-      readStoryIds: record.readIds, harmonovaBookmarks: record.bookmarks,
+      readStoryIds: record.readIds, seenStoryIds: record.seenStoryIds, harmonovaBookmarks: record.bookmarks,
       userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
   if (message.type === "HARMONOVA_MARK_READ") return reply(dependencies.readerStore.markRead(message.id));
+  if (message.type === "HARMONOVA_MARK_STORY_SEEN") return reply(dependencies.readerStore.markStorySeen(message.id));
   if (message.type === "HARMONOVA_MARK_UNREAD") return reply(dependencies.readerStore.markUnread(message.id));
   if (message.type === "HARMONOVA_SET_BOOKMARK") return reply(dependencies.readerStore.setBookmark(message.id, message.desired));
   if (message.type === "HARMONOVA_IMPORT_READER_DATA") return reply(dependencies.readerStore.importData(message.data));

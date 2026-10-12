@@ -18,6 +18,8 @@ Each story card can show its title, points, domain, age, reply count, local doma
 
 Right-click or long-press a read story card and choose **Mark as unread** to undo the dimming and remove that story from saved read history.
 
+**Hide seen stories** in Settings → Stories is optional and **off by default**. After you scroll through the feed and a story is at least 60% visible for about 650 ms, HarmoNova remembers it as seen. The card stays in place until you scroll past it; future feeds filter it automatically. This history is independent from opening/reading stories, and switching the option off immediately shows filtered stories again. Nothing is hidden on your Hacker News account.
+
 Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; HarmoNova doesn't trap external links in its own reader.
 
 ### The discussion on the right
@@ -43,7 +45,7 @@ Search results open inside the same reader. For comment results, HarmoNova can t
 
 Reading needs no login. To interact as a user, sign in through **Hacker News's own login page** using the account entry in HarmoNova. HarmoNova doesn't ask for, read, or store your HN password.
 
-When HN supplies the appropriate signed-in controls, you can upvote stories and comments, downvote eligible comments, reply to stories and comments, submit new stories, favorite, hide, and flag eligible items. A flag or destructive action asks for confirmation. Hide also offers an immediate undo. Account views include your threads, submissions, favorites, hidden, and upvoted lists, as well as public user profiles and their public activity. **Settings → Account** provides the same profile, lists, login/logout options as the account chip in the toolbar; neither entry point requires navigating to the other.
+When HN supplies the appropriate signed-in controls, you can upvote stories and comments, downvote eligible comments, reply to stories and comments, submit new stories, favorite, hide, and flag eligible items. A flag or destructive action asks for confirmation. Hide also offers an immediate undo. Account views include your threads, submissions, favorites, hidden, and upvoted lists, as well as public user profiles and their public activity. **Settings → Account** provides the same New post, profile, lists, login/logout options as the account chip in the toolbar; neither entry point requires navigating to the other.
 
 ### Replies, drafts, and limits
 

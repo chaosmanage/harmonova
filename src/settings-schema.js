@@ -36,6 +36,7 @@
     hotnessColors: false,
     hideJobs: false,
     hideRead: false,
+    hideSeen: false, // opt-in; viewport-scrolled stories, not opened stories
     hiddenDomains: "",
     hiddenKeywords: "",
     feedOrder: [],

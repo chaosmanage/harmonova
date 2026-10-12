@@ -35,10 +35,16 @@
 
 ## Verification / acceptance checklist
 
-- [ ] No `main` changes; new branch exists and has pushed cleanup and feature milestones.
+- [x] No `main` changes; new branch exists and has pushed cleanup and feature milestones.
 - [x] Both account menus share actions; signed-in new-post and signed-out login work.
 - [x] Active Nitter code and settings gone, existing links correct.
 - [x] Release workflow never runs on ordinary pushes, and avoids duplicate browser gate.
 - [x] All security units retained; essential UI smoke is green; optional diagnostics remain usable.
 - [x] Packaged ZIP byte parity and references are verified, and root layout documented.
-- [ ] Opt-in seen filtering is safe, bounded, persisted, default-off and independently revertible.
+- [x] Opt-in seen filtering is safe, bounded, persisted, default-off and independently revertible.
+
+## Measured outcome
+
+The focused release source gate (`npm test`) passed 101 Node tests and four Chromium suites in **91 seconds** on the VPS. The subsequent package allowlist/reference/source/ZIP byte-parity checks passed for 76 release files, and `npm audit` reported zero vulnerabilities. The optional scroll-seen UI flow also passed independently after observer lifecycle hardening, and two-tab reader mutations retained distinct seen IDs. The full legacy diagnostics remain manual rather than release-triggered.
+
+The cleanup milestone is `bec2fa6` (including `acaf44b` and the earlier organized-source commit). The scroll-seen feature is the single final feature commit after that milestone, so the cleanup can be merged without it.

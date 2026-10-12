@@ -86,6 +86,21 @@ test("Read and unread operations persist, are idempotent, and leave other storie
   await assert.rejects(afterReload.markUnread(-1), /INVALID_ID/);
 });
 
+test("scroll-seen history persists independently from clicked/read history", async () => {
+  const fixture=storeFixture(), reader=fixture.makeReader();
+  assert.equal((await reader.markStorySeen(123)).changed,true);
+  const before=await reader.stateSnapshot();
+  assert.equal((await reader.markStorySeen(123)).changed,false);
+  assert.equal((await reader.stateSnapshot()).revision,before.revision);
+  await reader.markRead(456);
+  await reader.markUnread(456);
+  const reloaded=fixture.makeReader();
+  assert.deepEqual(plain((await reloaded.stateSnapshot()).seenStoryIds),[123]);
+  assert.deepEqual(plain((await reloaded.stateSnapshot()).readIds),[]);
+  for (const id of [0,-1,1.2,NaN,Infinity,'12'])
+    await assert.rejects(reader.markStorySeen(id),/INVALID_ID/);
+});
+
 test("P05 failed write reports failure and does not poison subsequent mutation", async () => {
   const f = storeFixture(), repo = f.makeReader();
   await repo.stateSnapshot();

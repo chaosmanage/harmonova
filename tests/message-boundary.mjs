@@ -40,6 +40,8 @@ test("P02 rejects malformed fields and unknown operations before side effects", 
     { type: "HARMONOVA_MARK_READ", id: [1,2] },
     { type: "HARMONOVA_MARK_UNREAD", id: -1 },
     { type: "HARMONOVA_MARK_UNREAD", id: 5, desired: false },
+    { type: "HARMONOVA_MARK_STORY_SEEN", id: -1 },
+    { type: "HARMONOVA_MARK_STORY_SEEN", id: 5, force: true },
     { type: "HARMONOVA_DRAFT_SET", parentId: 3, username: "alice", text: "a".repeat(20001) },
     { type: "HARMONOVA_DRAFT_SET", parentId: "3", username: "alice", text: "a" },
     { type: "HARMONOVA_DRAFT_SET", parentId: 3, username: {}, text: "a" },
@@ -72,7 +74,7 @@ test("P02 permits normal reader snapshots but refuses all private persistence", 
   assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1?.bookmarks)), [5]);
   const privateSender = sender({ tab: { ...good.tab, incognito: true } });
   for (const type of ["HARMONOVA_SET_BOOKMARK", "HARMONOVA_MARK_READ", "HARMONOVA_MARK_UNREAD",
-    "HARMONOVA_DRAFT_SET", "HARMONOVA_DRAFT_GET", "HARMONOVA_LOCAL_STATE_GET"]) {
+    "HARMONOVA_MARK_STORY_SEEN", "HARMONOVA_DRAFT_SET", "HARMONOVA_DRAFT_GET", "HARMONOVA_LOCAL_STATE_GET"]) {
     const result = await invoke(listeners, { type, ids: [9], username: "alice",
       parentId: 3, text: "private" }, privateSender);
     assert.equal(result.ok, false, type);
@@ -172,4 +174,15 @@ test("P13 opening the popup reads cosmetics without initiating normal migrations
  const before=JSON.stringify(stores);
  const response=await invoke(listeners,{type:'HARMONOVA_PREFERENCES_GET'},{id:ext,url:'chrome-extension://test-extension-id/popup.html'});
  assert.equal(response.ok,true);assert.equal(response.value.enabled,false);assert.equal(response.value.settings.uiTheme,'navy');assert.equal(JSON.stringify(stores),before);
+});
+
+
+test("viewport-seen storage requires a trusted HN sender and a positive ID", async () => {
+  const {listeners,stores}=setup();
+  for(const hostile of [sender({url:"https://evil.test"}),sender({frameId:2}),
+    sender({tab:{...good.tab,incognito:true}})])
+    assert.equal((await invoke(listeners,{type:"HARMONOVA_MARK_STORY_SEEN",id:101},hostile)).ok,false);
+  assert.equal((await invoke(listeners,{type:"HARMONOVA_MARK_STORY_SEEN",id:101})).ok,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1.seenStoryIds)),[101]);
+  assert.deepEqual(JSON.parse(JSON.stringify(stores.local.harmonovaReaderStateV1.readIds)),[]);
 });

@@ -109,6 +109,7 @@
       settingToggle("Show domain", "showDomain", "Show the story's source domain in the metadata"),
       settingToggle("Hide jobs", "hideJobs", "Filter job stories out of every feed"),
       settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
+      settingToggle("Hide seen stories", "hideSeen", "After scrolling and viewing a story, filter it from future feeds without opening or hiding it on Hacker News. Off by default."),
       settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
       dependencies.el("p", "settings-note", "Preview images are enabled by default; turn them off under AI Summarization. Websites without usable images show a local placeholder."),

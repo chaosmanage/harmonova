@@ -98,6 +98,7 @@
     const keywords = parseListSetting(model.settings.hiddenKeywords);
     const hideJobs = model.settings.hideJobs;
     const hideRead = model.settings.hideRead;
+    const hideSeen = model.settings.hideSeen;
     document.querySelectorAll(".story-card").forEach((card) => {
       const hay = (card.dataset.search || "").toLowerCase();
       let hidden = false;
@@ -105,6 +106,7 @@
       if (!hidden && keywords.length) hidden = keywords.some((entry) => hay.includes(entry));
       if (!hidden && hideJobs && card.dataset.type === "job") hidden = true;
       if (!hidden && hideRead && card.classList.contains("is-read")) hidden = true;
+      if (!hidden && hideSeen && model.seenStoryIds.has(Number(card.dataset.storyId)) && card.dataset.seenActive !== "1") hidden = true;
       card.hidden = hidden;
     });
   }

@@ -83,6 +83,7 @@
     }
     const settings = HarmoNovaSettingsSchema.normalize(synced.harmonovaSettings);
     model.readIds = new Set(readIds);
+    model.seenStoryIds = new Set(Array.isArray(stored?.seenStoryIds) ? stored.seenStoryIds : []);
     model.bookmarks = new Set(bookmarks);
     model.settings = HarmoNovaSettingsSchema.normalize(settings);
     // Existing installations may have selected the removed upstream font.
@@ -153,6 +154,19 @@
     }
   }
 
+  async function markStorySeen(id) {
+    if (!Number.isSafeInteger(id) || id <= 0 || model.seenStoryIds.has(id)) return;
+    model.seenStoryIds.add(id);
+    if (dependencies.INCOGNITO) return void dependencies.privateReader.markStorySeen(id);
+    try {
+      const result = await runtimeMessage({ type: "HARMONOVA_MARK_STORY_SEEN", id });
+      if (!result?.ok) throw new Error("Could not save seen-story status");
+    } catch {
+      model.seenStoryIds.delete(id);
+      dependencies.showToast("Could not save seen-story status");
+    }
+  }
+
   async function markUnread(id) {
     if (!Number.isSafeInteger(id) || id <= 0 || !model.readIds.has(id)) return;
     model.readIds.delete(id);
@@ -197,6 +211,7 @@ persistUserTags,
 persistBlockedUsers,
 persistSeenTimes,
 markRead,
+markStorySeen,
 markUnread,
 toggleBookmark});
   }

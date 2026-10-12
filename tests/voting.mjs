@@ -162,7 +162,7 @@ function createHnMock() {
 
 // Firebase + Algolia mocks. The feed story is the synthetic poll story so the
 // poll-option UI can be exercised end to end.
-function createDataMocks() {
+function createDataMocks(extraStories = 0) {
   const now = Math.floor(Date.now() / 1000);
   const pollStory = {
     id: STORY_ID,
@@ -182,7 +182,7 @@ function createDataMocks() {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "hacker-news.firebaseio.com") {
       if (parsed.pathname.endsWith("/topstories.json")) {
-        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([STORY_ID]) });
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([STORY_ID, ...Array.from({length: extraStories}, (_,i) => STORY_ID + i + 1)]) });
       }
       const itemMatch = parsed.pathname.match(/\/item\/(\d+)\.json/);
       if (itemMatch) {
@@ -248,10 +248,10 @@ const waitFor = async (fn, timeout = 30000, step = 200, label = "condition") => 
   throw new Error("Timed out waiting for " + label);
 };
 
-async function test(name, fn) {
+async function test(name, fn, {extraStories = 0} = {}) {
   if (process.env.HARMONOVA_TEST_FILTER && !name.toLowerCase().includes(process.env.HARMONOVA_TEST_FILTER.toLowerCase())) return;
   const hn = createHnMock();
-  const dataMocks = createDataMocks();
+  const dataMocks = createDataMocks(extraStories);
   await browser.route("**/*", async (route) => {
     const parsed = new URL(route.request().url());
     if (parsed.hostname === "news.ycombinator.com") return hn.handle(route);
@@ -377,6 +377,55 @@ await test("Settings Account New post opens the existing submission dialog", asy
   await page.locator('.harmonova-submit-overlay').waitFor({ state: 'visible' });
   await page.locator('.submit-cancel').click();
 });
+
+await test("opt-in seen stories wait for scrolling and dwell, then hide only after leaving view", async ({page}) => {
+  await gotoFeed(page);
+  const list=page.locator('.story-list');
+  assert.equal(await page.locator('.story-card').count(),20);
+  const worker=browser.serviceWorkers()[0];
+  const reader=()=>worker.evaluate(async()=>
+    (await chrome.storage.local.get('harmonovaReaderStateV1')).harmonovaReaderStateV1);
+  const first=page.locator('.story-card').first();
+  await list.hover();
+  await page.mouse.wheel(0,240);
+  await page.waitForTimeout(750);
+  assert.deepEqual((await reader()).seenStoryIds || [],[],"disabled by default; scrolling alone must not track");
+  assert.equal(await first.evaluate(card=>card.hidden),false);
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonova-popup .popup-item',{hasText:'Settings'}).click();
+  await page.locator('.settings-category',{hasText:'Stories'}).click();
+  const seenSwitch=page.locator('.setting-row',{hasText:'Hide seen stories'}).locator('input');
+  assert.equal(await seenSwitch.isChecked(),false);
+  await seenSwitch.check();
+  await page.locator('.settings-header .icon-button').first().click();
+  await page.waitForTimeout(750);
+  assert.deepEqual((await reader()).seenStoryIds || [],[],"enabling alone must not mark cards");
+  await list.hover();
+  await page.mouse.wheel(0,220);
+  await page.waitForFunction(()=>document.querySelectorAll('.story-card[data-seen-active="1"]').length>0,
+    {timeout:10000});
+  const qualified=await page.locator('.story-card[data-seen-active="1"]').first().getAttribute('data-story-id');
+  assert.equal(await page.locator('.story-card[data-story-id="'+qualified+'"]').evaluate(c=>c.hidden),false,
+    "viewed card remains visible until it leaves the viewport");
+  await page.mouse.wheel(0,2600);
+  await page.waitForFunction(id=>document.querySelector('.story-card[data-story-id="'+id+'"]')?.hidden===true,
+    qualified,{timeout:10000});
+  const snapshot=await reader();
+  assert.ok(snapshot.seenStoryIds.includes(Number(qualified)),"seen IDs are persisted");
+  assert.ok(!snapshot.readIds.includes(Number(qualified)),"seen is not read");
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('.story-card[data-story-id="'+qualified+'"]').waitFor({state:'attached'});
+  await page.waitForFunction(id=>document.querySelector('.story-card[data-story-id="'+id+'"]')?.hidden===true,
+    qualified,{timeout:10000});
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonova-popup .popup-item',{hasText:'Settings'}).click();
+  await page.locator('.settings-category',{hasText:'Stories'}).click();
+  assert.equal(await page.locator('.setting-row',{hasText:'Hide read stories'}).locator('input').isChecked(),false);
+  await page.locator('.setting-row',{hasText:'Hide seen stories'}).locator('input').uncheck();
+  await page.locator('.settings-header .icon-button').first().click();
+  assert.equal(await page.locator('.story-card[data-story-id="'+qualified+'"]').evaluate(c=>c.hidden),false,
+    "disabling immediately restores filtered stories");
+}, {extraStories:19});
 
 await test("logout through the chip fetches, never navigates to /logout, and reloads signed out", async ({ page, hn }) => {
   await gotoFeed(page);

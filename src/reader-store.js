@@ -10,7 +10,7 @@
   const validUsername = value => typeof value==="string" && /^[A-Za-z0-9_-]{1,32}$/.test(value) && !["__proto__","prototype","constructor"].includes(value);
   const tags = value => Object.fromEntries(Object.entries(value && typeof value==="object" && !Array.isArray(value)?value:{}).slice(-500).filter(([key,v])=>validUsername(key)&&typeof v==="string"&&v.length<=40));
   const times = value => Object.fromEntries(Object.entries(value && typeof value==="object" && !Array.isArray(value)?value:{}).slice(-400).filter(([key,v])=>validId(Number(key))&&Number.isSafeInteger(v)&&v>=0));
-  const emptyData = () => ({ version: 1, revision: 0, pageOriginMigrated: false, readIds: [], bookmarks: [], tags: {}, blockedUsers: [], seenTimes: {} });
+  const emptyData = () => ({ version: 1, revision: 0, pageOriginMigrated: false, readIds: [], seenStoryIds: [], bookmarks: [], tags: {}, blockedUsers: [], seenTimes: {} });
   const emptyDrafts = () => ({ version: 2, drafts: {}, generations: {}, accountGenerations: {} });
   function create({ localGet, localSet, sessionGet, sessionSet, broadcast = async () => {} }) {
     let lock = Promise.resolve();
@@ -46,7 +46,7 @@
       if(record && (!Number.isSafeInteger(record.revision)||record.revision<0))throw new Error("INVALID_READER_SCHEMA");
       if (record?.version === 1 && Number.isSafeInteger(record.revision) && record.revision>=0) return {
         version:1,revision:record.revision,pageOriginMigrated:record.pageOriginMigrated===true,
-        readIds:cappedIds(record.readIds,1500),bookmarks:cappedIds(record.bookmarks,2000),tags:tags(record.tags),
+        readIds:cappedIds(record.readIds,1500),seenStoryIds:cappedIds(record.seenStoryIds,1500),bookmarks:cappedIds(record.bookmarks,2000),tags:tags(record.tags),
         blockedUsers:(Array.isArray(record.blockedUsers)?record.blockedUsers:[]).filter(validUsername).slice(-500),seenTimes:times(record.seenTimes),
       };
       const initial = emptyData();
@@ -70,6 +70,12 @@
       if (!validId(id)) throw new Error("INVALID_ID");
       if (state.readIds.includes(id)) return { ok: true, changed: false };
       state.readIds = cappedIds([...state.readIds, id], 1500);
+      return { changed: true };
+    });
+    const markStorySeen = id => mutateState(state => {
+      if (!validId(id)) throw new Error("INVALID_ID");
+      if (state.seenStoryIds.includes(id)) return { ok: true, changed: false };
+      state.seenStoryIds = cappedIds([...state.seenStoryIds, id], 1500);
       return { changed: true };
     });
     const markUnread = id => mutateState(state => {
@@ -241,7 +247,7 @@
       await sessionSet({ [TAB_KEY]: retained });
       return { ok: true, tabs: retained };
     });
-    return Object.freeze({ stateSnapshot, markRead, markUnread, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
+    return Object.freeze({ stateSnapshot, markRead, markUnread, markStorySeen, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
       beginDraft, saveDraft, clearDraft, clearAccountDrafts, retireDraft,
       getOriginalTabs, setOriginalTab, reconcileOriginalTabs });
   }

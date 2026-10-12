@@ -10,7 +10,7 @@ HarmoNova has no project server, analytics, or account. Normal reading uses publ
 | --- | --- |
 | Cosmetic and feed preferences, enabled state | Worker-owned `chrome.storage.local` with a validated `chrome.storage.sync` mirror. Sync may share these preferences with your browser account. Failed sync leaves a local recovery copy and shows a warning. |
 | Theme, font, text sizes and zoom recovery | Six cosmetic fields in HN-origin localStorage; the website can read/change these. They grant no network or AI permission. |
-| Normal bookmarks, read IDs, tags, blocked users, seen times | Versioned worker-owned local storage; shared between normal tabs. |
+| Normal bookmarks, read IDs, locally seen-story IDs, tags, blocked users, seen times | Versioned worker-owned local storage; shared between normal tabs. |
 | Normal composer drafts | Worker-owned session storage, at most 50 drafts of 20,000 UTF-8 bytes each, bound to account/item and composer revision. Browser-session end removes them. |
 | Original-HN bypass tab IDs | Session storage; removed when tabs close. |
 | OpenRouter key | Local storage if you choose profile persistence, or session storage if you choose browser-session-only storage. Never Chrome Sync, HN page storage, or exported reader data. The HN UI receives only whether a key exists. |
@@ -18,7 +18,7 @@ HarmoNova has no project server, analytics, or account. Normal reading uses publ
 | Summaries, searches, preview caches | Bounded tab/worker memory; no persistent summary history. |
 | Release update state | Local extension storage keeps the latest checked tag and ignored version. The notification preference is included in normal cosmetic preferences. |
 
-Chrome storage areas are restricted to trusted extension contexts. Normal content scripts use typed worker messages. Versioned repositories serialize writes and preserve unrelated tab changes; conflicting writers to the same draft receive a conflict instead of overwriting it. Export/import covers bounded reader data (including optional v1 seen times) only, never keys, AI consent, drafts, or tab IDs. Existing valid keys and reader data survive upgrades. Legacy page data is deleted only after an acknowledged migration; newer unknown store versions are refused without deletion.
+Chrome storage areas are restricted to trusted extension contexts. Normal content scripts use typed worker messages. Versioned repositories serialize writes and preserve unrelated tab changes; conflicting writers to the same draft receive a conflict instead of overwriting it. Scroll-seen story IDs (maximum 1,500, stored independently from opened-story read IDs) are kept on this device only, are not sent to HN as hide requests, and are not included in JSON exports. The switch for tracking them is off by default. Export/import covers bounded reader data (including optional v1 seen times) only, never keys, AI consent, drafts, or tab IDs. Existing valid keys and reader data survive upgrades. Legacy page data is deleted only after an acknowledged migration; newer unknown store versions are refused without deletion.
 
 ## Private windows
 

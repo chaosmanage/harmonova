@@ -52,6 +52,7 @@
         "src/content/summary-ui.js",
         "src/content/previews.js",
         "src/content/search-ui.js",
+        "src/content/seen-stories.js",
         "src/content/comments.js",
         "src/content/feed.js",
         "src/content/reader.js",

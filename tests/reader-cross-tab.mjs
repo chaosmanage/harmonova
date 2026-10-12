@@ -53,6 +53,8 @@ async function main() {
       request(two, { type: "HARMONOVA_SET_BOOKMARK", id: 920102, desired: true }),
       request(one, { type: "HARMONOVA_MARK_READ", id: 920103 }),
       request(two, { type: "HARMONOVA_MARK_READ", id: 920104 }),
+      request(one, { type: "HARMONOVA_MARK_STORY_SEEN", id: 920105 }),
+      request(two, { type: "HARMONOVA_MARK_STORY_SEEN", id: 920106 }),
     ]);
     assert.ok(responses.every(r => r.ok), JSON.stringify(responses));
     const state = await worker.evaluate(() =>
@@ -60,6 +62,7 @@ async function main() {
         v => resolve(v.harmonovaReaderStateV1))));
     assert.deepEqual([...state.bookmarks].sort((a,b)=>a-b), [920101,920102]);
     assert.deepEqual([...state.readIds].sort((a,b)=>a-b), [920103,920104]);
+    assert.deepEqual([...state.seenStoryIds].sort((a,b)=>a-b), [920105,920106]);
     const revision = state.revision;
     const repeated = await request(one, { type: "HARMONOVA_SET_BOOKMARK",
       id: 920101, desired: true });

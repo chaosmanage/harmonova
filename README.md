@@ -26,6 +26,7 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 - Customizable themes, typography, and story/comment layouts.
 - Vote, reply, submit, and save favorites with your Hacker News account; access profile actions in the toolbar or Settings.
 - Mark previously read stories unread from their right-click menu to restore their appearance.
+- Optionally hide stories you have scrolled through and viewed, without marking them read or hiding them on Hacker News (off by default).
 - Optional full-article and discussion AI summaries using your own OpenRouter API key.
 
 ## Install in Chrome

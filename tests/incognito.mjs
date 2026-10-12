@@ -23,6 +23,7 @@ test("P06 private reader data and drafts live only for this document", () => {
   const privateA = newPrivateStore();
   assert.deepEqual([...privateA.snapshot().readStoryIds], []);
   privateA.markRead(9);
+  privateA.markStorySeen(10);
   privateA.bookmark(8, true);
   privateA.tag("alice", "private tag");
   privateA.blocked("blockedauthor", true);
@@ -33,12 +34,14 @@ test("P06 private reader data and drafts live only for this document", () => {
   assert.equal(privateA.saveDraft("alice", 6, old.token, 0, "private-only").ok, true);
   assert.equal(privateA.beginDraft("alice", 6).text, "private-only");
   assert.deepEqual([...privateA.snapshot().readStoryIds], [9, 11]);
+  assert.deepEqual([...privateA.snapshot().seenStoryIds], [10]);
   privateA.markUnread(9);
   assert.deepEqual([...privateA.snapshot().readStoryIds], [11]);
   assert.deepEqual([...privateA.snapshot().harmonovaBookmarks], [8, 10]);
   assert.equal(privateA.snapshot().userTags.alice, "private tag");
   const privateB = newPrivateStore();
   assert.deepEqual([...privateB.snapshot().readStoryIds], []);
+  assert.deepEqual([...privateB.snapshot().seenStoryIds], []);
   assert.deepEqual([...privateB.snapshot().harmonovaBookmarks], []);
   assert.equal(privateB.beginDraft("alice",6).text, "");
   privateA.clearAccountDrafts("alice");
@@ -70,6 +73,7 @@ test("P06 private sender cannot access normal storage, preview or AI port", asyn
     {type:"HARMONOVA_LOCAL_STATE_GET"},
     {type:"HARMONOVA_MARK_READ",id:2},
     {type:"HARMONOVA_MARK_UNREAD",id:2},
+    {type:"HARMONOVA_MARK_STORY_SEEN",id:2},
     {type:"HARMONOVA_SET_BOOKMARK",id:2,desired:true},
     {type:"HARMONOVA_IMPORT_READER_DATA",data:{bookmarks:[4],readStoryIds:[7]}},
     {type:"HARMONOVA_MIGRATE_PAGE_DATA",data:{}},
