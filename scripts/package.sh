@@ -19,6 +19,7 @@ cp manifest.json content.js styles.css background.js url-policy.js message-bound
 cp content/state.js "$tmp/content/"
 cp worker/storage.js "$tmp/worker/"
 cp worker/ai.js "$tmp/worker/"
+cp worker/network.js "$tmp/worker/"
 cp icons/icon16.png icons/icon32.png icons/icon48.png icons/icon128.png icons/harmonova-icon.png icons/README.md "$tmp/icons/"
 cp fonts/GoogleSansFlexRounded-wght.ttf fonts/GoogleSansFlexRounded-Italic-wght.ttf fonts/OFL.txt "$tmp/fonts/"
 cp docs/*.md "$tmp/docs/"
