@@ -347,67 +347,12 @@
   function persistSeenTimes(...args){return stateUI.persistSeenTimes(...args);}
   function markRead(...args){return stateUI.markRead(...args);}
   function toggleBookmark(...args){return stateUI.toggleBookmark(...args);}
-  let nextPreviewRequest=0;
-  const getPreview = (story, signal) => new Promise((resolve) => {
-    if (INCOGNITO || !story?.url) return resolve({ image: null, tint: null, favicon: null });
-    const cached = state.previewById.get(story.id);
-    if (cached?.failedUntil && cached.failedUntil > Date.now()) return resolve(cached);
-    if (cached?.failedUntil) state.previewById.delete(story.id);
-    const requestId="preview"+ ++nextPreviewRequest;
-    const cancel=()=> {stateUI.runtimeMessage({type:"HARMONOVA_PREVIEW_CANCEL",requestId});resolve({image:null,tint:null,favicon:null});};
-    if(signal?.aborted) return cancel();
-    signal?.addEventListener("abort",cancel,{once:true});
-    const timer = setTimeout(cancel,7000);
-    const wantRich = state.settings.richPreviews !== false;
-    chrome.runtime.sendMessage({ type: "HARMONOVA_PREVIEW", url: story.url, rich: wantRich, requestId }, (response) => {
-      clearTimeout(timer); signal?.removeEventListener("abort",cancel);
-      const value = response?.ok ? response : { image: null, tint: null, favicon: null };
-      // Without rich facts the response stays uncached while the toggle is
-      // on, so enabling the feature refetches instead of waiting out the TTL.
-      if (value.rich || !wantRich) state.previewById.set(story.id, value);
-      while(state.previewById.size>200)state.previewById.delete(state.previewById.keys().next().value);
-      resolve(value);
-    });
-  });
 
-  // Preview requests are lazy for global-search results, with at most three
-  // concurrent metadata fetches. The same queue serves feed cards too.
-  const previewJobs = [];
-  let previewRunning = 0;
-  let previewObserver = null;
-  const previewCardScopes=new Map();
-  const previewCleanupObserver=new MutationObserver(()=> {
-    for(const [card,controller] of previewCardScopes) if(!card.isConnected) {
-      controller.abort();previewCardScopes.delete(card);previewObserver?.unobserve(card);delete card._loadHarmoNovaPreview;
-    }
-    for(let i=previewJobs.length-1;i>=0;i--) if(!previewJobs[i].card.isConnected)previewJobs.splice(i,1);
-  });
-  const pumpPreviews = () => {
-    while (previewRunning < 3 && previewJobs.length) {
-      const task = previewJobs.shift();
-      if (!task.card.isConnected || task.controller.signal.aborted) continue;
-      previewRunning++;
-      getPreview(task.story,task.controller.signal).then((result) => {
-        if (task.card.isConnected) task.show(result);
-      }).finally(() => { previewCardScopes.delete(task.card); previewRunning--; pumpPreviews(); });
-    }
-  };
-  const requestCardPreview = (card, story, show) => {
-    if(previewCardScopes.size>=200){const [old,controller]=previewCardScopes.entries().next().value;controller.abort();previewCardScopes.delete(old);previewObserver?.unobserve(old);delete old._loadHarmoNovaPreview;}
-    const controller=new AbortController();previewCardScopes.set(card,controller);
-    const add=()=> {
-      if(controller.signal.aborted||previewJobs.length>=100)return;
-      previewJobs.push({card,story,show,controller});Promise.resolve().then(pumpPreviews);
-    };
-    if(state.search.active&&typeof IntersectionObserver!=="undefined") {
-      if(!previewObserver)previewObserver=new IntersectionObserver(entries=>{
-        for(const entry of entries)if(entry.isIntersecting){previewObserver.unobserve(entry.target);entry.target._loadHarmoNovaPreview?.();delete entry.target._loadHarmoNovaPreview;}
-      },{root:storyList,rootMargin:"300px"});
-      card._loadHarmoNovaPreview=add;previewObserver.observe(card);
-    }else add();
-  };
-
-  const faviconUrl = () => null; // Unsupported remote favicons use a local placeholder.
+  const previewsUI=HarmoNovaContentPreviews.create({
+    get INCOGNITO(){return INCOGNITO;},
+    get stateUI(){return stateUI;},
+    get storyList(){return storyList;}
+  },stateFacet(["previewById","search","settings"]));
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
   let frontDateInput;
@@ -2161,7 +2106,7 @@ function openFeedMenu(anchor) {
   function storyMeta(story) {
     const meta = el("div", "story-meta");
     const fav = el("img", "story-favicon");
-    const favUrl = INCOGNITO ? null : faviconUrl(story);
+    const favUrl = INCOGNITO ? null : previewsUI.faviconUrl(story);
     if (favUrl) fav.src = favUrl;
     fav.alt = "";
     const points = el("span", "meta-points", compact(story.score) + (state.settings.compactPoints ? "" : " points"));
@@ -2308,7 +2253,7 @@ function openFeedMenu(anchor) {
     });
 
     if (story.url) {
-      requestCardPreview(card, story, (meta) => {
+      previewsUI.requestCardPreview(card, story, (meta) => {
         const favicon = card.querySelector(".story-favicon");
         const faviconSrc = safeImageSrc(meta.favicon || "");
         if (faviconSrc && favicon) favicon.src = faviconSrc;
@@ -3335,7 +3280,7 @@ async function refreshFeed() {
 
     if (item.url) {
       const fakeStory = { id: item.id, url: item.url };
-      const preview = await getPreview(fakeStory,scope.signal);
+      const preview = await previewsUI.getPreview(fakeStory,scope.signal);
       if (!scope.alive || state.selectedId !== item.id) return;
       const imageSrc = safeImageSrc(preview.image || "");
       if (imageSrc) {
@@ -3476,8 +3421,8 @@ async function refreshFeed() {
   // messages during navigation; debounced autosave remains the primary path.
   window.addEventListener("pagehide", () => {
     flushSettings();
-    feedScope.dispose();threadScope.dispose();abortSearch();stopActiveSummary();previewCleanupObserver.disconnect();previewObserver?.disconnect();
-    for(const controller of previewCardScopes.values())controller.abort();previewCardScopes.clear();
+    feedScope.dispose();threadScope.dispose();abortSearch();stopActiveSummary();previewsUI.previewCleanupObserver.disconnect();previewsUI.previewObserver?.disconnect();
+    for(const controller of previewsUI.previewCardScopes.values())controller.abort();previewsUI.previewCardScopes.clear();
     const composer = state.composer;
     composer?.scope?.dispose();
     if (!composer || composer.submitting || !composer.lastTrustedText?.trim()) return;
@@ -3507,7 +3452,7 @@ async function refreshFeed() {
     const feedInner = el("div", "feed-inner");
     storyList = el("div", "story-list");
     if(state.recoveryNotice)setTimeout(()=>showToast("Some old reader data could not be recovered. Your source data is kept."),0);
-    previewCleanupObserver.observe(storyList,{childList:true,subtree:true});
+    previewsUI.previewCleanupObserver.observe(storyList,{childList:true,subtree:true});
     storyList.addEventListener("scroll", () => {
       const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;
       if (state.search.active) {

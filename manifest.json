@@ -59,6 +59,7 @@
         "content/composer.js",
         "content/settings.js",
         "content/summary-ui.js",
+        "content/previews.js",
         "content.js"
       ],
       "css": [
