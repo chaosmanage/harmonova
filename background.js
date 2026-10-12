@@ -1,4 +1,4 @@
-importScripts("worker/network.js", "worker/ai.js", "worker/storage.js", "settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
+importScripts("worker/messages.js", "worker/network.js", "worker/ai.js", "worker/storage.js", "settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -143,143 +143,23 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   function saveAiKey(...args){return workerAI.saveAiKey(...args);}
   function clearAiKey(...args){return workerAI.clearAiKey(...args);}
   function abortAllAiRequests(...args){return workerAI.abortAllAiRequests(...args);}
-// SEC-52: message senders that carry user data must be the extension's own
-// top-frame content script running on Hacker News.
-function isTrustedHnContentSender(sender) {
-  return HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime) === "hn";
-}
 
-// ---------------------------------------------------------------------------
-// Composer drafts (Phase 3, SEC-50). Drafts live in chrome.storage.session —
-// they vanish with the browser session, are keyed by acting username + parent
-// item, are capped at 20 KB of text and 50 entries, and are only reachable
-// from trusted HarmoNova content-script senders.
-// ---------------------------------------------------------------------------
-
-function dispatchWorkerMessage(message, sender, sendResponse) {
-  if (!message) return;
-  const reply = promise => {
-    promise.then(sendResponse).catch(() => sendResponse({ ok: false, error: {
-      code: "STORAGE_UNAVAILABLE", message: "Reader data could not be saved", retryable: true } }));
-    return true;
-  };
-  if(message.type === "HARMONOVA_PREFERENCES_GET")return reply((sender.tab?.incognito ? privatePreferencesSnapshot():preferencesStore.snapshot()).then(value=>({ok:true,value})));
-  if(message.type === "HARMONOVA_PREFERENCES_PATCH")return reply(preferencesStore.patch(message.fields,message.enabled));
-  if(message.type === "HARMONOVA_MIGRATE_PREFERENCES")return reply(preferencesStore.migrate(message.appearance));
-  if(message.type === "HARMONOVA_NETWORK_POLICY_GET") return reply(currentNetworkPolicy().then(policy=>({ok:true,policy})));
-  if(message.type === "HARMONOVA_NETWORK_POLICY_SAVE") return reply(saveNetworkPolicy(message.policy));
-  if(message.type === "HARMONOVA_PREVIEW_CANCEL") {workerNetwork.previewConsumers.get(sender.tab.id+":"+message.requestId)?.abort();sendResponse({ok:true});return true;}
-  if (message.type === "HARMONOVA_LOCAL_STATE_GET")
-    return reply(readerStore.stateSnapshot().then(record => ({ ok: true,
-      revision: record.revision, pageOriginMigrated: record.pageOriginMigrated === true,
-      readStoryIds: record.readIds, harmonovaBookmarks: record.bookmarks,
-      userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
-  if (message.type === "HARMONOVA_MARK_READ") return reply(readerStore.markRead(message.id));
-  if (message.type === "HARMONOVA_SET_BOOKMARK") return reply(readerStore.setBookmark(message.id, message.desired));
-  if (message.type === "HARMONOVA_IMPORT_READER_DATA") return reply(readerStore.importData(message.data));
-  if (message.type === "HARMONOVA_MIGRATE_PAGE_DATA") return reply(readerStore.migratePageData(message.data));
-  if (message.type === "HARMONOVA_SET_TAG") return reply(readerStore.setTag(message.username, message.tag));
-  if (message.type === "HARMONOVA_SET_BLOCKED") return reply(readerStore.setBlocked(message.username, message.desired));
-  if (message.type === "HARMONOVA_MARK_SEEN") return reply(readerStore.markSeen(message.id, message.timestamp));
-  if (message.type === "HARMONOVA_DRAFT_BEGIN") return reply(readerStore.beginDraft(message.username, message.parentId));
-  if (message.type === "HARMONOVA_DRAFT_SET") return reply(readerStore.saveDraft(message.username,
-    message.parentId, message.token, message.revision, message.text));
-  if (message.type === "HARMONOVA_DRAFT_CLEAR") return reply(readerStore.clearDraft(message.username,
-    message.parentId, message.token));
-  if (message.type === "HARMONOVA_DRAFT_RETIRE") return reply(Promise.resolve(readerStore.retireDraft(message.token)));
-  if (message.type === "HARMONOVA_DRAFT_CLEAR_ALL") return reply(readerStore.clearAccountDrafts(message.username));
-  if (message.type === "HARMONOVA_AI_STATUS") {
-    const caller = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
-    Promise.all([aiKeyStatus(), currentAiPolicy()]).then(([status, policy]) => {
-      if (caller === "options") sendResponse({ ...status, policy });
-      else sendResponse({ ok: true, hasKey: Boolean(status.hasKey),
-        ...HarmoNovaAiPolicy.view(policy) });
-    }).catch(() => sendResponse({ ok: false,
-      error: { code: "STORAGE_UNAVAILABLE", message: "Status unavailable", retryable: true } }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_AI_POLICY_GET") {
-    currentAiPolicy().then(policy => sendResponse({ ok: true, policy }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_AI_POLICY_SAVE") {
-    saveAiPolicy(message.policy).then(sendResponse).catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (["HARMONOVA_AI_SAVE_KEY", "HARMONOVA_AI_CLEAR_KEY"].includes(message.type)
-      && sender.url !== chrome.runtime.getURL("ai-settings.html")) {
-    sendResponse({ ok: false, message: "Use the extension credential settings page" });
-    return;
-  }
-  if (message.type === "HARMONOVA_AI_SAVE_KEY") {
-    saveAiKey(message.apiKey, message.storage)
-      .then(sendResponse)
-      .catch((error) => sendResponse({ ok: false, message: error?.message || "Could not save API key" }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_AI_CLEAR_KEY") {
-    clearAiKey().then(sendResponse).catch((error) => sendResponse({ ok: false, message: error?.message || "Could not clear API key" }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_OPEN_AI_SETTINGS") {
-    chrome.runtime.openOptionsPage()
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_TAB_MODE") {
-    (async () => {
-      const kind = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
-      const tabId = kind === "hn" ? sender.tab.id : message.tabId;
-      if (kind === "popup") await verifiedHnTab(tabId);
-      const ids = await originalTabIds();
-      sendResponse({ ok: true, original: ids.includes(tabId) });
-    })().catch(() => sendResponse({ ok: false, original: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_OPEN_ORIGINAL") {
-    (async () => {
-      const kind = HarmoNovaMessageBoundary.senderKind(sender, chrome.runtime);
-      const ownerTab = kind === "popup" ? await verifiedHnTab(message.tabId) : sender.tab;
-      const tabId = await openOriginalTab(message.url, ownerTab.windowId);
-      sendResponse({ ok: true, tabId });
-    })().catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type === "HARMONOVA_ENABLE_TAB") {
-    verifiedHnTab(message.tabId)
-      .then(() => setOriginalTab(message.tabId, false))
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-  if (message.type !== "HARMONOVA_PREVIEW" || typeof message.url !== "string") return;
-  if (!isTrustedHnContentSender(sender)) {
-    sendResponse({ ok: false });
-    return true;
-  }
-  const requestKey=sender.tab.id+":"+message.requestId;
-  if(workerNetwork.previewConsumers.size>=100 || workerNetwork.previewConsumers.has(requestKey)) {sendResponse({ok:false});return true;}
-  const controller=new AbortController();workerNetwork.previewConsumers.set(requestKey,controller);
-  getMetadata(message.url, message.rich === true, controller.signal)
-    .then((value) => sendResponse({ ok: true, ...value }))
-    .catch(() => sendResponse({ ok: false }))
-    .finally(()=>workerNetwork.previewConsumers.delete(requestKey));
-  return true;
-}
-
-// One synchronous registration and one validated, initialized dispatcher.
-// Unknown senders/operations never reach business logic or storage.
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const permission = HarmoNovaMessageBoundary.validateMessage(message, sender, chrome.runtime);
-  if (!permission.ok) {
-    sendResponse(permission);
-    return true;
-  }
-  workerReady.then(() => dispatchWorkerMessage(message, sender, sendResponse))
-    .catch(() => sendResponse({
-      ok: false, error: { code: "WORKER_UNAVAILABLE", message: "Extension storage is unavailable", retryable: true },
-    }));
-  return true;
-});
+  const workerMessages=HarmoNovaWorkerMessages.create({
+    get aiKeyStatus(){return aiKeyStatus;},
+    get clearAiKey(){return clearAiKey;},
+    get currentAiPolicy(){return currentAiPolicy;},
+    get currentNetworkPolicy(){return currentNetworkPolicy;},
+    get getMetadata(){return getMetadata;},
+    get openOriginalTab(){return openOriginalTab;},
+    get originalTabIds(){return originalTabIds;},
+    get preferencesStore(){return preferencesStore;},
+    get privatePreferencesSnapshot(){return privatePreferencesSnapshot;},
+    get readerStore(){return readerStore;},
+    get saveAiKey(){return saveAiKey;},
+    get saveAiPolicy(){return saveAiPolicy;},
+    get saveNetworkPolicy(){return saveNetworkPolicy;},
+    get setOriginalTab(){return setOriginalTab;},
+    get verifiedHnTab(){return verifiedHnTab;},
+    get workerNetwork(){return workerNetwork;},
+    get workerReady(){return workerReady;}
+  },undefined);
