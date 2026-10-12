@@ -1,4 +1,4 @@
-importScripts("settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
+importScripts("worker/storage.js", "settings-schema.js", "preferences-store.js", "url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -10,58 +10,12 @@ const MAX_SUMMARY_CHARACTERS = 64 * 1024;
 
 // Read old on-disk keys exactly once during upgrades, then store them under the
 // HarmoNova namespace. Never overwrite existing new-format data.
-const oldStorageKey = (key) => key.replace(/^harmonova(?=[A-Z:])/, "harmonic");
-function storageCall(area, method, ...args) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (error, result) => {
-      if (settled) return;
-      settled = true;
-      if (error) reject(new Error("STORAGE_UNAVAILABLE"));
-      else resolve(result);
-    };
-    try {
-      const pending = area[method](...args, (value) => {
-        finish(chrome.runtime.lastError, value);
-      });
-      if (pending && typeof pending.then === "function") pending.then(
-        value => finish(null, value), error => finish(error),
-      );
-    } catch (error) { finish(error); }
-  });
-}
-async function migratedGet(area, keys) {
-  const defaults = Array.isArray(keys) ? {} : { ...keys };
-  const requested = Array.isArray(keys) ? keys : Object.keys(keys);
-  const prior = requested.map(oldStorageKey);
-  const raw = await storageCall(area, "get", [...requested, ...prior]);
-  const updates = {};
-  const removals = [];
-  const result = { ...defaults };
-  for (const key of requested) {
-    const older = oldStorageKey(key);
-    if (Object.hasOwn(raw, key)) {
-      result[key] = raw[key];
-    } else if (older !== key && Object.hasOwn(raw, older)) {
-      result[key] = raw[older];
-      updates[key] = raw[older];
-      removals.push(older);
-    }
-  }
-  if (Object.keys(updates).length) {
-    await storageCall(area, "set", updates);
-    await storageCall(area, "remove", removals);
-  }
-  return result;
-}
-const localGet = (keys) => migratedGet(chrome.storage.local, keys);
-const localSet = (value) => storageCall(chrome.storage.local, "set", value);
-const localRemove = (keys) => storageCall(chrome.storage.local, "remove", keys);
-const sessionGet = (keys) => migratedGet(chrome.storage.session, keys);
-const sessionSet = (value) => storageCall(chrome.storage.session, "set", value);
-const sessionRemove = (keys) => storageCall(chrome.storage.session, "remove", keys);
-const syncGet = (keys) => migratedGet(chrome.storage.sync, keys);
-const readerStore = HarmoNovaReaderStore.create({ localGet, localSet, sessionGet, sessionSet,
+
+  const workerStorage=HarmoNovaWorkerStorage.create({
+
+  },undefined);
+  function storageCall(...args){return workerStorage.storageCall(...args);}
+const readerStore = HarmoNovaReaderStore.create({ localGet: workerStorage.localGet, localSet: workerStorage.localSet, sessionGet: workerStorage.sessionGet, sessionSet: workerStorage.sessionSet,
   broadcast: async (record) => {
     if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return;
     const tabs = await chrome.tabs.query({ url: "https://news.ycombinator.com/*" });
@@ -73,7 +27,7 @@ const readerStore = HarmoNovaReaderStore.create({ localGet, localSet, sessionGet
 });
 
 const preferencesStore=HarmoNovaPreferencesStore.create({
-  get:keys=>storageCall(chrome.storage.local,"get",keys),set:localSet,
+  get:keys=>storageCall(chrome.storage.local,"get",keys),set:workerStorage.localSet,
   syncGet:keys=>storageCall(chrome.storage.sync,"get",keys),syncSet:values=>storageCall(chrome.storage.sync,"set",values),
   broadcast:async record=>{
     if(!chrome.tabs?.query||!chrome.tabs?.sendMessage)return;
@@ -96,13 +50,13 @@ const workerReady = Promise.all([chrome.storage.local, chrome.storage.session, c
 }));
 
 async function currentAiPolicy() {
-  const stored = await localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
+  const stored = await workerStorage.localGet({ [AI_POLICY_LOCAL_STORAGE_KEY]: null });
   return HarmoNovaAiPolicy.fromStorage(stored[AI_POLICY_LOCAL_STORAGE_KEY]);
 }
 async function saveAiPolicy(value) {
   const policy = HarmoNovaAiPolicy.normalize(value);
   if (!policy) return { ok: false, error: { code: "INVALID_AI_POLICY", message: "Check AI settings", retryable: false } };
-  await localSet({ [AI_POLICY_LOCAL_STORAGE_KEY]: policy });
+  await workerStorage.localSet({ [AI_POLICY_LOCAL_STORAGE_KEY]: policy });
   abortAllAiRequests(); // Existing consent/model is no longer authoritative.
   return { ok: true, policy };
 }
@@ -424,12 +378,12 @@ async function imageTint(url,signal) {return (await sanitizedImage(url,signal))?
 
 const NETWORK_POLICY_KEY="harmonovaNetworkPolicyV1";
 async function currentNetworkPolicy() {
-  const value=(await localGet({[NETWORK_POLICY_KEY]:null}))[NETWORK_POLICY_KEY];
+  const value=(await workerStorage.localGet({[NETWORK_POLICY_KEY]:null}))[NETWORK_POLICY_KEY];
   return {version:1,externalPreviewsEnabled:value?.version===1 && value.externalPreviewsEnabled===true};
 }
 async function saveNetworkPolicy(policy) {
   if(!policy||Object.keys(policy).some(k=>!["version","externalPreviewsEnabled"].includes(k))||policy.version!==1||typeof policy.externalPreviewsEnabled!=="boolean")return {ok:false};
-  await localSet({[NETWORK_POLICY_KEY]:policy});
+  await workerStorage.localSet({[NETWORK_POLICY_KEY]:policy});
   for(const controller of previewConsumers.values())controller.abort();
   previewConsumers.clear(); metadataCache.clear();paletteCache.clear();
   return {ok:true,policy};
@@ -513,15 +467,15 @@ async function fetchArticleText(url,signal) {
 }
 
 async function aiKeyStorageMode() {
-  const synced = await syncGet({ harmonovaAiKeyStorage: "persistent" });
+  const synced = await workerStorage.syncGet({ harmonovaAiKeyStorage: "persistent" });
   return synced.harmonovaAiKeyStorage === "session" ? "session" : "persistent";
 }
 
 async function getAiKey() {
   const mode = await aiKeyStorageMode();
   const key = mode === "session"
-    ? (await sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: "" }))[AI_KEY_SESSION_STORAGE_KEY]
-    : (await localGet({ [AI_KEY_LOCAL_STORAGE_KEY]: "" }))[AI_KEY_LOCAL_STORAGE_KEY];
+    ? (await workerStorage.sessionGet({ [AI_KEY_SESSION_STORAGE_KEY]: "" }))[AI_KEY_SESSION_STORAGE_KEY]
+    : (await workerStorage.localGet({ [AI_KEY_LOCAL_STORAGE_KEY]: "" }))[AI_KEY_LOCAL_STORAGE_KEY];
   return { mode, key: typeof key === "string" && new TextEncoder().encode(key).byteLength<=4096 ? key : "" };
 }
 
@@ -540,11 +494,11 @@ async function saveAiKey(value, storage) {
   const mode = storage === "session" ? "session" : "persistent";
   if (!key) throw new Error("API key is required");
   if (mode === "session") {
-    await sessionSet({ [AI_KEY_SESSION_STORAGE_KEY]: key });
-    await localRemove([AI_KEY_LOCAL_STORAGE_KEY, oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]);
+    await workerStorage.sessionSet({ [AI_KEY_SESSION_STORAGE_KEY]: key });
+    await workerStorage.localRemove([AI_KEY_LOCAL_STORAGE_KEY, workerStorage.oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]);
   } else {
-    await localSet({ [AI_KEY_LOCAL_STORAGE_KEY]: key });
-    await sessionRemove([AI_KEY_SESSION_STORAGE_KEY, oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]);
+    await workerStorage.localSet({ [AI_KEY_LOCAL_STORAGE_KEY]: key });
+    await workerStorage.sessionRemove([AI_KEY_SESSION_STORAGE_KEY, workerStorage.oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]);
   }
   await storageCall(chrome.storage.sync, "set", { harmonovaAiKeyStorage: mode });
   return aiKeyStatus();
@@ -553,8 +507,8 @@ async function saveAiKey(value, storage) {
 async function clearAiKey() {
   abortAllAiRequests();
   await Promise.all([
-    localRemove([AI_KEY_LOCAL_STORAGE_KEY, oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]),
-    sessionRemove([AI_KEY_SESSION_STORAGE_KEY, oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]),
+    workerStorage.localRemove([AI_KEY_LOCAL_STORAGE_KEY, workerStorage.oldStorageKey(AI_KEY_LOCAL_STORAGE_KEY)]),
+    workerStorage.sessionRemove([AI_KEY_SESSION_STORAGE_KEY, workerStorage.oldStorageKey(AI_KEY_SESSION_STORAGE_KEY)]),
   ]);
   return aiKeyStatus();
 }
