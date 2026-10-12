@@ -1,5 +1,5 @@
 import { chromium } from 'playwright-core';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { offlineProxy, installOfflineRoutes } from './network.mjs';
@@ -7,7 +7,20 @@ import { offlineProxy, installOfflineRoutes } from './network.mjs';
 export async function launchExtension({ destinations = new Map(), args = [], incognito = false } = {}) {
   const profile = await mkdtemp(path.join(os.tmpdir(), 'harmonova-test-'));
   const proxy = await offlineProxy(destinations);
-  let context;
+  let context, browserPid;
+  async function closeContext() {
+    if(!context)return;
+    let timer;
+    const pending=context.close();
+    const timedOut=await Promise.race([pending.then(()=>false,()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(true),10000);})]);
+    clearTimeout(timer);
+    if(timedOut && Number.isSafeInteger(browserPid)) {
+      // Kill only the browser launched with this unique synthetic profile.
+      const command=await readFile('/proc/'+browserPid+'/cmdline','utf8').catch(()=> '');
+      if(command.includes('--user-data-dir='+profile))try{process.kill(browserPid,'SIGKILL');}catch{}
+      await Promise.race([pending.catch(()=>{}),new Promise(resolve=>setTimeout(resolve,1000))]);
+    }
+  }
   try {
     const extensionPath = path.resolve(process.env.EXTENSION_PATH || '.');
     await mkdir(path.resolve(process.env.TEST_OUTPUT_DIR || 'test-results'), { recursive: true });
@@ -30,6 +43,10 @@ export async function launchExtension({ destinations = new Map(), args = [], inc
       await context.close();
       context = await chromium.launchPersistentContext(profile, launchOptions);
     }
+    const browserSession=await context.browser().newBrowserCDPSession();
+    const processes=await browserSession.send('SystemInfo.getProcessInfo');
+    browserPid=processes.processInfo.find(p=>p.type==='browser')?.id;
+    await browserSession.detach();
     const assertRoutes = await installOfflineRoutes(context);
     // CONNECT attempts can precede Playwright fulfillment and include Chromium
     // telemetry. The proxy denies them without opening a destination socket;
@@ -39,10 +56,10 @@ export async function launchExtension({ destinations = new Map(), args = [], inc
     await worker.evaluate(() => Boolean(chrome.runtime.id));
     console.log(`Runtime: Node ${process.version}; Chromium ${context.browser().version()}`);
     return { context, worker, proxy, assertOffline, async close() {
-      try { await context.close(); } finally { await proxy.close(); await rm(profile, { recursive: true, force: true }); }
+      try { await closeContext(); } finally { await proxy.close(); await rm(profile, { recursive: true, force: true }); }
     } };
   } catch (error) {
-    try { await context?.close(); } finally { await proxy.close(); await rm(profile, { recursive: true, force: true }); }
+    try { await closeContext(); } finally { await proxy.close(); await rm(profile, { recursive: true, force: true }); }
     throw error;
   }
 }

@@ -339,7 +339,9 @@ async function test(name, fn) {
       return route.fallback();
     });
     const page = await browser.newPage();
-    await fn({ page, hn });
+    let timer;
+    try {await Promise.race([fn({page,hn}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error("Offline action case exceeded 120 seconds")),120000);})]);}
+    finally {clearTimeout(timer);}
     harness.assertOffline();
     passed++;
     console.log("ok -", name);
@@ -655,12 +657,13 @@ await test("validationRequired on POST keeps the values and hands off to HN's st
   await page.locator(".submit-hn-open").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await page.locator(".submit-title").inputValue()), "Verification wall story", "values kept");
   // HN's stock form opens in a new original-mode tab (never auto-filled).
-  const hnTabPromise = page.context().waitForEvent("page", { timeout: 15000 });
   await page.locator(".submit-hn-open").click();
-  const hnTab = await hnTabPromise;
+  // Find the committed HN page, rather than racing the first blank target
+  // event during Chromium's popup initialization.
+  await waitFor(()=>browser.pages().some(p=>p!==page && p.url().startsWith("https://news.ycombinator.com/submit")),20000,50,"native submit navigation");
+  const hnTab=browser.pages().find(p=>p!==page && p.url().startsWith("https://news.ycombinator.com/submit"));
   // A native HN handoff succeeds once navigation commits; the public login
   // page may stall during network load on CI or in a headless browser.
-  await hnTab.waitForURL(/\/submit/, { timeout: 20000, waitUntil: "commit" });
   assert.ok(hnTab.url().startsWith("https://news.ycombinator.com/submit"), "stock HN submit form opens (never auto-filled)");
   await hnTab.close();
 });

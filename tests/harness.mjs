@@ -23,7 +23,7 @@ test('offline fixture server counts actual destinations and manual redirect is o
     else { res.writeHead(200); res.end('fixture'); }
   });
   try {
-    const destinations = new Map(['fixture.test:443', 'destination.test:443'].map(host => [host, server]));
+    const destinations = new Map(['api.github.com:443', 'destination.test:443'].map(host => [host, server]));
     await withExtension(async ({ context, worker }) => {
       await seedDummyKey(worker);
       assert.equal(await worker.evaluate(() => chrome.storage.session.get('harmonovaAiApiKeySession').then(value => Boolean(value.harmonovaAiApiKeySession))), true);
@@ -32,13 +32,13 @@ test('offline fixture server counts actual destinations and manual redirect is o
         const dimensions = [bitmap.width, bitmap.height]; bitmap.close(); return dimensions;
       }, [...tinyPng]);
       assert.deepEqual(dimensions, [1, 1]);
-      await context.route(/https:\/\/(fixture|destination)\.test\//, route => route.continue());
+      await context.route(/https:\/\/(api\.github\.com|destination\.test)\//, route => route.continue());
       const result = await worker.evaluate(async () => {
-        const r = await fetch('https://fixture.test/redirect', { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+        const r = await fetch('https://api.github.com/redirect', { redirect: 'manual', signal: AbortSignal.timeout(5000) });
         return { type: r.type, status: r.status, location: r.headers.get('location') };
       });
       assert.deepEqual(result, { type: 'opaqueredirect', status: 0, location: null });
-      assert.equal(server.hits.get('fixture.test/redirect'), 1);
+      assert.equal(server.hits.get('api.github.com/redirect'), 1);
       assert.equal(server.hits.get('destination.test/target') || 0, 0);
     }, { destinations });
   } finally { await server.close(); }
