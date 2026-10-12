@@ -172,6 +172,7 @@ const gotoFeed = async (page, seedSeen) => {
   // harmonova keys once at document start so every test starts clean, while
   // in-test reloads keep whatever the extension persisted.
   await page.addInitScript(() => {
+    if (location.hostname !== "news.ycombinator.com") return;
     if (sessionStorage.getItem("harmonovaWipeDone")) return;
     sessionStorage.setItem("harmonovaWipeDone", "1");
     for (const key of Object.keys(localStorage)) if (key.startsWith("harmonova")) localStorage.removeItem(key);
@@ -181,6 +182,7 @@ const gotoFeed = async (page, seedSeen) => {
     // applies on the first load only and the app's own seen-times win after.
     await page.addInitScript(
       (seed) => {
+        if (location.hostname !== "news.ycombinator.com") return;
         if (sessionStorage.getItem("harmonovaSeedDone")) return;
         sessionStorage.setItem("harmonovaSeedDone", "1");
         localStorage.setItem("harmonovaSeenComments", seed);

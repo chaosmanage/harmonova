@@ -227,6 +227,7 @@ async function test(name, fn) {
       await chrome.storage.sync.set({ harmonovaSettings: { feedHidden: [], feedOrder: [] } });
     }).catch(() => {});
     await page.addInitScript(() => {
+      if (location.hostname !== "news.ycombinator.com") return;
       if (sessionStorage.getItem("harmonovaParityInit")) return;
       sessionStorage.setItem("harmonovaParityInit", "1");
       try {
