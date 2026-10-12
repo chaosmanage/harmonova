@@ -7,7 +7,7 @@ import { offlineProxy, installOfflineRoutes } from './network.mjs';
 export async function launchExtension({ destinations = new Map(), args = [], incognito = false } = {}) {
   const profile = await mkdtemp(path.join(os.tmpdir(), 'harmonova-test-'));
   const proxy = await offlineProxy(destinations);
-  let context, browserPid;
+  let context, browserPid, restartedExtensionId;
   async function closeContext() {
     if(!context)return;
     let timer;
@@ -34,7 +34,7 @@ export async function launchExtension({ destinations = new Map(), args = [], inc
     context = await chromium.launchPersistentContext(profile, launchOptions);
     if (incognito) {
       const firstWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker",{timeout:15000});
-      const extensionId = new URL(firstWorker.url()).host;
+      const extensionId = new URL(firstWorker.url()).host;restartedExtensionId=extensionId;
       const settings = await context.newPage();
       await settings.goto("chrome://extensions/?id="+extensionId);
       const toggle = settings.locator("#allow-incognito");
@@ -42,6 +42,17 @@ export async function launchExtension({ destinations = new Map(), args = [], inc
       if (await toggle.getAttribute("checked") === null) await toggle.click();
       await context.close();
       context = await chromium.launchPersistentContext(profile, launchOptions);
+    }
+    if(restartedExtensionId) {
+      // MV3 may remain dormant after browser restart. A read-only owned popup
+      // wakes it without initializing reader history, migrations or AI.
+      const wake=await context.newPage();
+      await wake.goto('chrome://extensions/?id='+restartedExtensionId);
+      await wake.locator('#allow-incognito').waitFor({state:'visible'});
+      if(await wake.locator('#allow-incognito').getAttribute('checked')===null)throw new Error('Incognito permission did not persist');
+      await wake.close();
+      const popup=await context.newPage();await popup.goto('chrome-extension://'+restartedExtensionId+'/popup.html');
+      await popup.waitForFunction(()=>document.querySelector('#status')?.textContent.length>0);await popup.close();
     }
     const browserSession=await context.browser().newBrowserCDPSession();
     const processes=await browserSession.send('SystemInfo.getProcessInfo');

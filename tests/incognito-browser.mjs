@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { launchExtension } from "./helpers/extension.mjs";
-import { installOfflineRoutes } from "./helpers/network.mjs";
+import { hnRedirectFixture } from "./helpers/network.mjs";
 
 const fixtureHtml = fs.readFileSync(new URL("./fixtures/hn/news.html", import.meta.url), "utf8");
 const validateNoPrivateWrites = async (worker, before) => {
@@ -14,8 +14,16 @@ const validateNoPrivateWrites = async (worker, before) => {
 };
 
 export async function incognitoBrowserCheck() {
-  const h = await launchExtension({incognito:true});
-  let privateContext;
+  let signedIn=true;
+  const handleHn=route=> {
+    const pathname=new URL(route.request().url()).pathname;
+    if(pathname==='/logout')signedIn=false;
+    const file=pathname==='/item' ? (signedIn?'synthetic/item-in.html':'synthetic/item-out.html') : (signedIn?'synthetic/news-in.html':'news.html');
+    return route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(new URL('./fixtures/hn/'+file,import.meta.url),'utf8')});
+  };
+  const hnServer=await hnRedirectFixture(handleHn);
+  const h = await launchExtension({incognito:true,destinations:new Map([['news.ycombinator.com:443',hnServer]])}).catch(async error=>{await hnServer.close();throw error;});
+  let privateContext,privateWindow;
   try {
     await h.worker.evaluate(async () => {
       await chrome.storage.local.set({ harmonovaReaderStateV1: { version:1, revision:1,
@@ -30,15 +38,11 @@ export async function incognitoBrowserCheck() {
       sync: await chrome.storage.sync.get(null),
       session: await chrome.storage.session.get(["harmonovaDraftsV2"]),
     }));
-    privateContext = await h.context.browser().newContext({ ignoreHTTPSErrors:true });
-    await installOfflineRoutes(privateContext);
-    let signedIn=true;
-    await privateContext.route("https://news.ycombinator.com/**", route => {
-      const pathname=new URL(route.request().url()).pathname;
-      if (pathname==='/logout') signedIn=false;
-      const file=pathname==='/item' ? (signedIn?'synthetic/item-in.html':'synthetic/item-out.html') : (signedIn?'synthetic/news-in.html':'news.html');
-      return route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(new URL('./fixtures/hn/'+file,import.meta.url),'utf8')});
-    });
+    // Use a real Chrome private window. CDP-created browser contexts have
+    // virtual window IDs that chrome.tabs.create cannot address.
+    privateContext=h.context;
+    await privateContext.route("https://news.ycombinator.com/**",handleHn);
+    await privateContext.route("https://example.com/**",route=>route.fulfill({status:200,contentType:"text/html",body:"<html><body>Private synthetic article</body></html>"}));
     await privateContext.route("https://hacker-news.firebaseio.com/v0/**", route => {
       const url = new URL(route.request().url());
       if (url.pathname.endsWith("stories.json")) return route.fulfill({ status:200,
@@ -53,11 +57,15 @@ export async function incognitoBrowserCheck() {
         id:50022292,title:"Private fixture story",children:[],author:"fixture",points:10,
       }),
     }));
-    const page = await privateContext.newPage();
+    const openedPrivate=privateContext.waitForEvent('page');
+    privateWindow=await h.worker.evaluate(()=>chrome.windows.create({incognito:true,url:'about:blank'}));
+    assert.equal(privateWindow.incognito,true,'actual Chrome private window');
+    const page = await openedPrivate;
     await page.goto('https://news.ycombinator.com/news');
     await page.locator('.story-card').first().waitFor({timeout:15000});
     // This is a real browser incognito context: no mocked sender flags.
     const privateTab = await h.worker.evaluate(async () => (await chrome.tabs.query({url:'https://news.ycombinator.com/*'})).find(t=>t.incognito));
+    assert.equal(privateTab.windowId,privateWindow.id);
     assert.ok(privateTab?.incognito, 'real private tab must be visible to the extension');
     await page.locator('.story-card').first().click({button:'right'});
     await page.getByText('Bookmark',{exact:true}).click();
@@ -65,10 +73,20 @@ export async function incognitoBrowserCheck() {
     await page.locator('.settings-category', {hasText:'Data'}).click();
     await page.locator('input[type=file]').setInputFiles({name:'private.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({version:1,bookmarks:[50022292,910002],readStoryIds:[50022292],userTags:{privateauthor:'private'},blockedUsers:['privateblocked']}))});
     await page.waitForFunction(()=>document.querySelector('.harmonova-toast')?.textContent.includes('Imported'));
-    const downloaded = page.waitForEvent('download');
+    // Real native private windows prompt for download confirmation in headless
+    // Chrome. Capture the exact browser-created export Blob before that dialog;
+    // no alternate serializer or reader implementation is used.
+    await page.evaluate(()=>{
+      window.privateExportBytes=null;
+      document.addEventListener('click',async event=>{
+        if(event.target instanceof HTMLAnchorElement && event.target.download==='harmonova-user-data.json'){
+          event.preventDefault();window.privateExportBytes=await (await fetch(event.target.href)).text();
+        }
+      },{capture:true});
+    });
     await page.getByRole('button',{name:'Export user data (JSON)',exact:true}).click();
-    const download = await downloaded;
-    const exported = JSON.parse(fs.readFileSync(await download.path(),'utf8'));
+    await page.waitForFunction(()=>typeof window.privateExportBytes==='string');
+    const exported = JSON.parse(await page.evaluate(()=>window.privateExportBytes));
     assert.ok(exported.bookmarks.includes(910002));
     assert.ok(!exported.bookmarks.includes(42));
     assert.equal(exported.userTags.privateauthor,'private');
@@ -104,20 +122,23 @@ export async function incognitoBrowserCheck() {
     await page.waitForFunction(()=>document.querySelector('.account-chip') && !document.querySelector('.account-chip').classList.contains('logged-in'));
     await validateNoPrivateWrites(h.worker,baseline);
     await page.locator('.feed-toolbar [aria-label="More"]').click();
-    const opened=privateContext.waitForEvent('page');
+    const existingPages=new Set(privateContext.pages());
     await page.locator('.popup-item',{hasText:'Open original Hacker News'}).click();
-    const original=await opened;
-    await original.waitForURL('https://news.ycombinator.com/news');
-    assert.equal(original.context(),privateContext,'original HN must stay in actual private context');
+    let original;
+    for(let i=0;i<600&&!original;i++) {
+      original=privateContext.pages().find(p=>!existingPages.has(p)&&p.url()==='https://news.ycombinator.com/news');
+      if(!original)await page.waitForTimeout(50);
+    }
+    assert.ok(original,'committed native private HN tab');
     const originalTab=await h.worker.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://news.ycombinator.com/*'});const ids=await originalTabIds();return tabs.find(t=>ids.includes(t.id));});
     assert.equal(originalTab.incognito,true);assert.equal(originalTab.windowId,privateTab.windowId);
     assert.equal(await original.locator('.harmonova-app').count(),0,'bypass recorded before native navigation');
     await original.close();
     await validateNoPrivateWrites(h.worker,baseline);
-    await privateContext.close(); privateContext=null;
+    await h.worker.evaluate(id=>chrome.windows.remove(id),privateWindow.id);privateWindow=null;privateContext=null;
     await validateNoPrivateWrites(h.worker,baseline);
     console.log('PASS P06 real private imports/export/bookmarks/reload: normal stores unchanged');
     h.assertOffline();
-  } finally { await privateContext?.close(); await h.close(); }
+  } finally { if(privateWindow)await h.worker.evaluate(id=>chrome.windows.remove(id),privateWindow.id).catch(()=>{});await h.close();await hnServer.close(); }
 }
 await incognitoBrowserCheck();

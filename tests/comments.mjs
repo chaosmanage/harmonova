@@ -608,8 +608,8 @@ await test("Edit shows a not-supported prompt, then opens HN's native editor wit
   await openCommentAction(page, ownRow, "Edit");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/edit'),30000,50,'committed native edit page');
-  const native=browser.pages().find(p=>new URL(p.url()).pathname==='/edit');
+  await waitFor(()=>browser.pages().some(p=>p.url().startsWith('https://news.ycombinator.com/edit?')),30000,50,'committed native edit page');
+  const native=browser.pages().find(p=>p.url().startsWith('https://news.ycombinator.com/edit?'));
   assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
   assert.equal(await native.locator('#harmonova-app').count(), 0, "stock HN edit page is not replaced by HarmoNova");
   await native.locator('form[action="xedit"] textarea[name="text"]').waitFor();
@@ -633,8 +633,8 @@ await test("Delete prompts for a native HN confirmation; cancel and handoff neve
   await openCommentAction(page, ownRow, "Delete");
   await prompt.waitFor({ state: 'visible', timeout: 5000 });
   await prompt.locator('.harmonova-confirm-confirm').click();
-  await waitFor(()=>browser.pages().some(p=>new URL(p.url()).pathname==='/delete-confirm'),30000,50,'committed native delete page');
-  const native=browser.pages().find(p=>new URL(p.url()).pathname==='/delete-confirm');
+  await waitFor(()=>browser.pages().some(p=>p.url().startsWith('https://news.ycombinator.com/delete-confirm?')),30000,50,'committed native delete page');
+  const native=browser.pages().find(p=>p.url().startsWith('https://news.ycombinator.com/delete-confirm?'));
   assert.equal(new URL(native.url()).searchParams.get('id'),String(OWN_COMMENT));
   assert.equal(new URL(native.url()).searchParams.get('goto'),'item?id='+STORY_ID);
   assert.equal(await native.locator('#harmonova-app').count(), 0, 'stock HN delete page is not replaced by HarmoNova');
