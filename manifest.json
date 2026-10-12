@@ -64,6 +64,7 @@
         "content/comments.js",
         "content/feed.js",
         "content/reader.js",
+        "content/actions.js",
         "content.js"
       ],
       "css": [
