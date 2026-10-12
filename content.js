@@ -2169,412 +2169,28 @@ async function refreshFeed() {
     }
   }
 
-  const replyCountCache = new WeakMap();
-  const descendantCount = (comment) => {
-    if (!comment || typeof comment !== "object") return 0;
-    if (replyCountCache.has(comment)) return replyCountCache.get(comment);
-    const count = (comment.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
-    replyCountCache.set(comment, count);
-    return count;
-  };
 
-  const sortedComments = (comments) => {
-    const list = [...(comments || [])];
-    switch (state.settings.commentSort) {
-      case "Newest first":
-        list.sort((a, b) => (b.created_at_i || 0) - (a.created_at_i || 0));
-        break;
-      case "Oldest first":
-        list.sort((a, b) => (a.created_at_i || 0) - (b.created_at_i || 0));
-        break;
-      case "Reply count":
-        list.sort((a, b) => descendantCount(b) - descendantCount(a));
-        break;
-      default:
-        break;
-    }
-    return list;
-  };
-
-  const COLOR_RAILS = ["#5E97F6", "#9CCC65", "#FFB74D", "#BA68C8", "#4DD0E1", "#EF5350", "#FFD54F"];
-  const MATERIAL_RAILS = ["#526A78", "#7B94A2", "#6D7F89", "#8DA5B2", "#9AAEBB", "#41545F", "#72828B"];
-
-  function authorRailColor(author) {
-    let hash = 2166136261 >>> 0;
-    for (let i = 0; i < String(author || "").length; i++) {
-      hash ^= String(author || "").charCodeAt(i);
-      hash = Math.imul(hash, 16777619) >>> 0;
-    }
-    const hue = hash % 360;
-    const saturation = 50 + (Math.floor(hash / 360) % 21);
-    const lightness = 46 + (Math.floor(hash / (360 * 21)) % 17);
-    return `hsl(${hue} ${saturation}% ${lightness}%)`;
-  }
-
-  function railColor(depth, author) {
-    const mode = state.settings.depthMode;
-    if (mode === "none") return "transparent";
-    if (mode === "mono" || mode === "monochrome") return "#808080";
-    if (mode === "author") return authorRailColor(author);
-    const palette = mode === "material" || mode === "material_you" ? MATERIAL_RAILS : COLOR_RAILS;
-    return palette[Math.abs(depth) % palette.length];
-  }
-
-  function renderComment(comment, depth = 0) {
-    const row = el("div", "comment-row");
-    row.dataset.depth = String(depth);
-    row.dataset.commentId = String(comment.id || 0); // used by search comment hits to scroll into view
-    row.dataset.createdAt = String(comment.created_at_i || 0);
-    row.dataset.replies = String(descendantCount(comment));
-    if (comment.author) row.dataset.author = comment.author;
-    row.style.setProperty("--depth", String(depth));
-    row.style.setProperty("--rail", railColor(depth, comment.author || ""));
-
-    // Phase 7 part 2: OP highlight, new-comment marker, [delayed] hiding.
-    if (comment.author && comment.author === state.threadAuthor) row.classList.add("by-op");
-    if (state.settings.hideDelayed && comment.text && /\[delayed\]/i.test(comment.text)) row.classList.add("is-delayed");
-    const storyId = Number.isInteger(state.selectedId) ? state.selectedId : null;
-    if (state.settings.markNewComments && storyId && state.seenTimes.has(storyId) && Number(comment.created_at_i || 0) > state.seenTimes.get(storyId)) {
-      row.classList.add("is-new");
-    }
-    const isBlockedAuthor = comment.author && state.blockedUsers.has(comment.author);
-    if (isBlockedAuthor) row.classList.add("is-blocked");
-
-    const card = el("article", "comment-card");
-    card.tabIndex = 0;
-    const meta = el("div", "comment-meta");
-    // Generated avatars: deterministic, purely local color + initial.
-    if (state.settings.showAvatars && comment.author) {
-      const avatar = el("span", "comment-avatar", comment.author.charAt(0).toUpperCase());
-      avatar.style.background = hashTint(comment.author);
-      meta.appendChild(avatar);
-    }
-    const author = el("a", "comment-author", comment.author || "[deleted]");
-    if (comment.author) {
-      author.href = "https://news.ycombinator.com/user?id=" + encodeURIComponent(comment.author);
-      author.target = "_blank";
-      author.rel = "noopener";
-    }
-    if (comment.author && comment.author === state.threadAuthor) {
-      author.appendChild(el("span", "op-badge", "(OP)"));
-    }
-    meta.appendChild(author);
-    const tag = comment.author ? state.userTags.get(comment.author) : null;
-    if (tag) {
-      const tagChip = el("button", "comment-tag", tag);
-      tagChip.type = "button";
-      tagChip.title = "Edit tag for " + comment.author;
-      tagChip.addEventListener("click", (event) => {
-        if (!event.isTrusted) return;
-        openTagDialog(comment.author);
-      });
-      meta.appendChild(tagChip);
-    }
-    // Newness is a thin rail, not a badge on every comment.
-    const age = el("a", "comment-age", relativeTime(comment.created_at_i || 0));
-    age.href = "https://news.ycombinator.com/item?id=" + comment.id;
-    age.target = "_blank";
-    age.rel = "noopener";
-    const voteMark = el("span", "comment-vote-mark", "↑");
-    voteMark.dataset.commentVoteMark = "1";
-    voteMark.hidden = !state.itemState?.comments?.[comment.id]?.voted;
-    if (state.itemState?.comments?.[comment.id]?.votedDirection === "down") voteMark.textContent = "↓";
-    meta.append(voteMark, age);
-
-    const body = el("div", "comment-body");
-    if (comment.text) appendSanitizedHtml(body, comment.text);
-    else body.textContent = "[deleted]";
-
-    const collapsed = el("div", "collapsed-comment");
-    collapsed.append(
-      el("span", "collapsed-author", comment.author || "[deleted]"),
-      el("span", "collapsed-preview", body.textContent.trim().slice(0, 90)),
-      el("span", "collapsed-count", descendantCount(comment) ? descendantCount(comment) + " replies" : "")
-    );
-
-    // Phase 2: per-comment action row — vote, downvote (when HN offers it),
-    // reply hand-off, and a "More" menu (share/copy/parent/top-level/user).
-    const session = window.HarmoNovaHN?.session?.() || null;
-    const actionsRow = el("div", "comment-actions");
-    const voteButton = el("button", "comment-action");
-    voteButton.type = "button";
-    voteButton.title = "Upvote";
-    voteButton.setAttribute("aria-label", "Upvote");
-    voteButton.setAttribute("data-comment-vote", "1");
-    voteButton.append(svg("up"));
-    voteButton.addEventListener("click", (event) => handleCommentVote(event, comment.id));
-    const downButton = el("button", "comment-action");
-    downButton.type = "button";
-    downButton.setAttribute("data-comment-vote-down", "1");
-    downButton.hidden = true; // shown once item state says HN allows it
-    downButton.append(svg("down"));
-    downButton.addEventListener("click", (event) => handleCommentVote(event, comment.id));
-    // Apply any already-known item state (e.g. after a re-render) so buttons
-    // don't briefly flash as unvoted.
-    const known = state.itemState?.comments?.[comment.id] || null;
-    if (known) {
-      voteButton.classList.toggle("active", Boolean(known.voted && known.votedDirection !== "down"));
-      voteButton.title = known.voted ? "Unvote" : "Upvote";
-      voteButton.setAttribute("aria-label", voteButton.title);
-      downButton.hidden = !known.canDown;
-      downButton.classList.toggle("active", Boolean(known.voted && known.votedDirection === "down"));
-    }
-    const replyButton = el("button", "comment-action");
-    replyButton.type = "button";
-    replyButton.title = session ? "Reply" : "Sign in to reply";
-    replyButton.setAttribute("aria-label", replyButton.title);
-    replyButton.append(svg("comment"));
-    const beginReply = (event) => {
-      if (!event.isTrusted) return;
-      if (!session) {
-        showToast("Sign in to reply");
-        return;
-      }
-      openComposer({ parentId: comment.id, storyId: state.selectedId || comment.id, anchor: row });
-    };
-    replyButton.addEventListener("click", beginReply);
-    const isOwn = session && comment.author && comment.author === session.username;
-    const canEditOwn = Boolean(isOwn && comment.created_at_i && Date.now() / 1000 - comment.created_at_i < 2 * 3600);
-    const editButton = el("button", "comment-action");
-    editButton.type = "button";
-    editButton.title = "Edit";
-    editButton.setAttribute("aria-label", "Edit comment");
-    editButton.append(svg("edit"));
-    editButton.hidden = !canEditOwn;
-    // Editing and deleting are intentionally handled by stock HN until their
-    // authenticated action protocol is verified on real accounts. A user must
-    // confirm the handoff; HarmoNova never fetches or POSTs either mutation.
-    const handoffCommentAction = (action, event) => {
-      if (!event.isTrusted || !canEditOwn) return;
-      const deleting = action === "delete";
-      const storyId = Number.isSafeInteger(state.selectedId) && state.selectedId > 0
-        ? state.selectedId : comment.id;
-      const path = deleting
-        ? "/delete-confirm?id=" + comment.id + "&goto=" + encodeURIComponent("item?id=" + storyId)
-        : "/edit?id=" + comment.id;
-      openConfirmDialog({
-        title: deleting ? "Deleting comments isn't supported in HarmoNova yet"
-          : "Editing comments isn't supported in HarmoNova yet",
-        message: deleting
-          ? "Continue on the original Hacker News page to review and confirm deletion. Nothing will be deleted in HarmoNova."
-          : "Continue on the original Hacker News page to edit this comment. Nothing will be changed in HarmoNova.",
-        confirmLabel: "Continue on Hacker News",
-        onConfirm: () => openOriginalHackerNews(path),
-      });
-    };
-    const beginEdit = (event) => handoffCommentAction("edit", event);
-    editButton.addEventListener("click", beginEdit);
-    const deleteButton = el("button", "comment-action");
-    deleteButton.type = "button";
-    deleteButton.title = "Delete";
-    deleteButton.setAttribute("aria-label", "Delete comment");
-    deleteButton.append(svg("trash"));
-    deleteButton.hidden = !canEditOwn;
-    const beginDelete = (event) => handoffCommentAction("delete", event);
-    deleteButton.addEventListener("click", beginDelete);
-    const moreButton = el("button", "comment-action");
-    moreButton.type = "button";
-    moreButton.title = "More";
-    moreButton.setAttribute("aria-label", "More comment actions");
-    moreButton.append(svg("more"));
-    const showCommentActions = (event) => {
-      if (!event.isTrusted) return;
-      const parentRow = row.parentElement?.closest?.(".comment-row");
-      const parentId = parentRow?.dataset?.commentId;
-      const hnLink = "https://news.ycombinator.com/item?id=" + comment.id;
-      const offeredByHn = state.itemState?.status === "ok"
-        && state.itemState?.comments?.[comment.id]?.replyAvailable === true;
-      const canReply = Boolean(session && offeredByHn && comment.author && comment.text
-        && !comment.dead && !comment.deleted
-        && Date.now() / 1000 - (comment.created_at_i || 0) < 14 * 86400);
-      const voteState = state.itemState?.comments?.[comment.id] || null;
-      openPopup(moreButton, [
-        { heading: (comment.author || "[deleted]") +
-          (comment.author === state.threadAuthor ? " (OP)" : "") },
-        { heading: (body.textContent || "").trim().slice(0, 250) },
-        ...(session ? [
-          { label: voteState?.voted ? "Unvote" : "Vote up", icon: "up",
-            action: (clicked) => handleCommentVote(clicked, comment.id, false) },
-          ...(voteState?.canDown || voteState?.votedDirection === "down"
-            ? [{ label: voteState?.votedDirection === "down" ? "Undown" : "Vote down",
-              icon: "down", action: (clicked) => handleCommentVote(clicked, comment.id, true) }] : []),
-        ] : []),
-        { label: state.bookmarks.has(comment.id) ? "Remove bookmark" : "Bookmark",
-          icon: "star", action: () => toggleBookmark(comment.id) },
-        ...(session ? [{ label: "Favorite", icon: "heart",
-          action: async () => {
-            const result = await window.HarmoNovaHN.setFavorite(comment.id, true);
-            showToast(result.status === "success" ? "Favorited" : result.message || "Favorite unavailable");
-          } }] : []),
-        ...(canEditOwn ? [
-          { label: "Edit", icon: "edit", action: beginEdit },
-          { label: "Delete", icon: "trash", action: beginDelete },
-        ] : []),
-        ...(canReply ? [{ label: "Reply", icon: "comment", action: beginReply }] : []),
-        {
-          label: "Share link",
-          icon: "share",
-          action: async () => {
-            try {
-              await navigator.clipboard.writeText(hnLink);
-              showToast("Link copied");
-            } catch {
-              window.open(hnLink, "_blank", "noopener");
-            }
-          },
-        },
-        {
-          label: "Copy text",
-          icon: "comment",
-          action: async () => {
-            const text = body.textContent || "";
-            try {
-              await navigator.clipboard.writeText(text);
-              showToast("Comment text copied");
-            } catch {}
-          },
-        },
-        ...(parentId && Number(parentId) > 0
-          ? [{ label: "Open parent", icon: "link", action: () => window.open("https://news.ycombinator.com/item?id=" + parentId, "_blank", "noopener") }]
-          : []),
-        {
-          label: "Open top level",
-          icon: "link",
-          action: () => window.open("https://news.ycombinator.com/item?id=" + (state.selectedId || comment.id), "_blank", "noopener"),
-        },
-        ...(comment.author
-          ? [{ label: "View user", icon: "user", action: () => openUserPanel(comment.author) }]
-          : []),
-        ...(comment.author
-          ? [
-              { label: state.userTags.has(comment.author) ? "Edit user tag" : "Set user tag", icon: "star", action: () => openTagDialog(comment.author) },
-              {
-                label: state.blockedUsers.has(comment.author) ? "Unblock user" : "Block user",
-                icon: "eyeOff",
-                action: async () => {
-                  if (state.blockedUsers.has(comment.author)) {
-                    state.blockedUsers.delete(comment.author);
-                    showToast("Unblocked " + comment.author);
-                  } else {
-                    state.blockedUsers.add(comment.author);
-                    showToast("Blocked " + comment.author + " — their comments stay hidden here");
-                  }
-                  persistBlockedUsers(comment.author);
-                  if (state.thread) await renderThread(state.thread);
-                },
-              },
-            ]
-          : []),
-        // Phase 4: flag a comment only when HN offers the link (SEC-36 dialog).
-        ...(state.itemState?.comments?.[comment.id]?.flagAvailable
-          ? [{ label: "Flag comment", icon: "flag", action: (popupEvent) => confirmFlagItem(popupEvent, comment.id, "comment") }]
-          : []),
-      ], event.type === "contextmenu" || event.type === "pointerdown" ? { x: event.clientX, y: event.clientY } : null);
-    };
-    moreButton.addEventListener("click", showCommentActions);
-    meta.appendChild(moreButton);
-    card.append(meta, body, collapsed);
-    row.appendChild(card);
-
-    const children = el("div", "comment-children");
-    for (const child of sortedComments(comment.children || [])) children.appendChild(renderComment(child, depth + 1));
-    if (children.childElementCount) row.appendChild(children);
-
-    // Blocked authors keep their place in the thread but collapse into a note.
-    if (isBlockedAuthor) {
-      const note = el("div", "blocked-note");
-      note.append(el("span", "", "Hidden comment from a blocked user (" + comment.author + ")"));
-      const unblock = el("button", "blocked-unblock", "Unblock");
-      unblock.type = "button";
-      unblock.addEventListener("click", (event) => {
-        if (!event.isTrusted) return;
-        state.blockedUsers.delete(comment.author);
-        persistBlockedUsers(comment.author);
-        row.classList.remove("is-blocked");
-        note.remove();
-      });
-      note.appendChild(unblock);
-      row.insertBefore(note, card);
-    }
-
-    card.addEventListener("click", (event) => {
-      if (event.target.closest("a, button") || window.getSelection()?.toString()) return;
-      if (state.settings.swapCommentActions) showCommentActions(event);
-      else row.classList.toggle("collapsed");
-    });
-    card.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      showCommentActions(event);
-    });
-    card.addEventListener("keydown", (event) => {
-      if (event.key.toLowerCase() === "a" && !event.ctrlKey && !event.altKey && !event.metaKey) {
-        event.preventDefault();
-        showCommentActions(event);
-      }
-    });
-    let held = 0;
-    card.addEventListener("pointerdown", (event) => {
-      if (!event.isTrusted || event.button !== 0 || event.target.closest("a, button")) return;
-      held = setTimeout(() => {
-        if (state.settings.swapCommentActions) row.classList.toggle("collapsed");
-        else showCommentActions(event);
-      }, 550);
-    });
-    for (const name of ["pointerup", "pointercancel", "pointerleave"]) {
-      card.addEventListener(name, () => clearTimeout(held));
-    }
-    return row;
-  }
-
-  // Phase 7 part 2: per-author tags — a small local dialog, no prompts.
-  function openTagDialog(author) {
-    document.querySelector(".tag-overlay")?.remove();
-    const overlay = el("div", "tag-overlay");
-    const panel = el("section", "tag-panel");
-    panel.append(el("h3", "", "Tag for " + author));
-    const input = el("input", "tag-input");
-    input.type = "text";
-    input.maxLength = 40;
-    input.value = state.userTags.get(author) || "";
-    input.placeholder = "e.g. HN legend, careful reviewer";
-    const row = el("div", "tag-actions");
-    const save = el("button", "tag-save", "Save");
-    save.type = "button";
-    save.addEventListener("click", () => {
-      const value = input.value.trim().slice(0, 40);
-      if (value) state.userTags.set(author, value);
-      else state.userTags.delete(author);
-      persistUserTags(author);
-      overlay.remove();
-      if (state.thread) renderThread(state.thread);
-    });
-    const remove = el("button", "tag-remove", "Remove tag");
-    remove.type = "button";
-    remove.hidden = !state.userTags.has(author);
-    remove.addEventListener("click", () => {
-      state.userTags.delete(author);
-      persistUserTags(author);
-      overlay.remove();
-      if (state.thread) renderThread(state.thread);
-    });
-    const cancel = el("button", "tag-cancel", "Cancel");
-    cancel.type = "button";
-    cancel.addEventListener("click", () => overlay.remove());
-    row.append(save, remove, cancel);
-    panel.append(input, row);
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-    input.focus();
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && event.isTrusted) save.click();
-      if (event.key === "Escape" && event.isTrusted) overlay.remove();
-    });
-    overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) overlay.remove();
-    });
-  }
-
-
+  const commentsUI=HarmoNovaContentComments.create({
+    get appendSanitizedHtml(){return appendSanitizedHtml;},
+    get confirmFlagItem(){return confirmFlagItem;},
+    get el(){return el;},
+    get encodeURIComponent(){return encodeURIComponent;},
+    get handleCommentVote(){return handleCommentVote;},
+    get hashTint(){return hashTint;},
+    get openComposer(){return openComposer;},
+    get openConfirmDialog(){return openConfirmDialog;},
+    get openOriginalHackerNews(){return openOriginalHackerNews;},
+    get openPopup(){return openPopup;},
+    get openUserPanel(){return openUserPanel;},
+    get persistBlockedUsers(){return persistBlockedUsers;},
+    get persistUserTags(){return persistUserTags;},
+    get relativeTime(){return relativeTime;},
+    get renderThread(){return renderThread;},
+    get showToast(){return showToast;},
+    get svg(){return svg;},
+    get toggleBookmark(){return toggleBookmark;}
+  },stateFacet(["blockedUsers","bookmarks","itemState","seenTimes","selectedId","settings","thread","threadAuthor","userTags"]));
+  function renderComment(...args){return commentsUI.renderComment(...args);}
   const summaryUI=HarmoNovaContentSummary.create({
     get el(){return el;},
     get openSettings(){return openSettings;},
@@ -2687,7 +2303,7 @@ async function refreshFeed() {
     domain.rel = "noopener";
     domain.append(svg("link"), el("span", "", "(" + domainOf(item.url) + ")"));
 
-    const totalComments = (item.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
+    const totalComments = (item.children || []).reduce((sum, child) => sum + 1 + commentsUI.descendantCount(child), 0);
     const stat = (iconName, value) => {
       const node = el("span", "thread-stat");
       node.append(svg(iconName), el("span", "", value));
@@ -2844,7 +2460,7 @@ async function refreshFeed() {
       startStorySummary(item, { automatic: true });
     }
 
-    const total = (item.children || []).reduce((sum, child) => sum + 1 + descendantCount(child), 0);
+    const total = (item.children || []).reduce((sum, child) => sum + 1 + commentsUI.descendantCount(child), 0);
     const heading = el("div", "comments-heading");
     heading.append(el("h2", "", total + " comments"));
 
@@ -2896,7 +2512,7 @@ async function refreshFeed() {
     threadPane.appendChild(heading);
 
     const comments = el("section", "comments");
-    for (const comment of sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
+    for (const comment of commentsUI.sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
     if (!comments.childElementCount) comments.appendChild(el("div", "empty-comments", "No comments yet."));
     threadPane.appendChild(comments);
     if (state.threadOpOnly) filterThreadComments(searchBox.value, matchLabel, total);

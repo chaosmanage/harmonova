@@ -61,6 +61,7 @@
         "content/summary-ui.js",
         "content/previews.js",
         "content/search-ui.js",
+        "content/comments.js",
         "content.js"
       ],
       "css": [
