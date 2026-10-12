@@ -308,6 +308,7 @@
 
   // SEC-51: incognito keeps read state, bookmarks, drafts, and search history in memory only.
   const INCOGNITO = Boolean(chrome.extension?.inIncognitoContext);
+  const privateReader = INCOGNITO ? HarmoNovaPrivateStore.create() : null;
 
   const normalizeQuotedParagraphs = (target) => {
     const stripQuoteMarkers = (quote) => {
@@ -389,7 +390,7 @@
         remove.push(older[i]);
       }
     });
-    if (Object.keys(update).length) {
+    if (!INCOGNITO && Object.keys(update).length) {
       await new Promise((resolve) => chrome.storage.sync.set(update, resolve));
       await new Promise((resolve) => chrome.storage.sync.remove(remove, resolve));
     }
@@ -404,6 +405,7 @@
   });
 
   function pageStorageGet(key) {
+    if (INCOGNITO) return undefined; // never read page-origin storage in private mode
     try {
       let value = localStorage.getItem(key);
       if (value === null && key.startsWith("harmonova")) {
@@ -429,7 +431,7 @@
     const synced = await chromeSyncGet(["harmonovaEnabled"]);
     let enabled = typeof synced.harmonovaEnabled === "boolean" ? synced.harmonovaEnabled : pageStorageGet(ENABLED_BACKUP_KEY);
     if (typeof enabled !== "boolean") enabled = true;
-    if (typeof synced.harmonovaEnabled !== "boolean") await chromeSyncSet({ harmonovaEnabled: enabled });
+    if (!INCOGNITO && typeof synced.harmonovaEnabled !== "boolean") await chromeSyncSet({ harmonovaEnabled: enabled });
     pageStorageSet(ENABLED_BACKUP_KEY, enabled);
     return enabled;
   }
@@ -444,6 +446,7 @@
   }
 
   async function saveSettings() {
+    if (INCOGNITO) return; // private cosmetic changes never write normal sync or backups
     const settings = { ...state.settings };
     for (const key of ["aiEnabled", "aiModel", "aiSystemPrompt", "aiStreamResponses", "aiAutoSummarize"]) delete settings[key];
     pageStorageSet(SETTINGS_BACKUP_KEY, settings);
@@ -451,10 +454,9 @@
   }
 
   async function loadPersistentState() {
-    let [stored, synced] = await Promise.all([
-      runtimeMessage({ type: "HARMONOVA_LOCAL_STATE_GET" }),
-      chromeSyncGet(["harmonovaSettings"]),
-    ]);
+    const synced = await chromeSyncGet(["harmonovaSettings"]);
+    let stored = INCOGNITO ? privateReader.snapshot()
+      : await runtimeMessage({ type: "HARMONOVA_LOCAL_STATE_GET" });
     const backedUpSettings = pageStorageGet(SETTINGS_BACKUP_KEY);
     state.readerRevision = Number.isSafeInteger(stored?.revision) ? stored.revision : 0;
     const readIds = Array.isArray(stored?.readStoryIds) ? stored.readStoryIds : [];
@@ -488,11 +490,11 @@
     state.seenTimes = new Map(Object.entries(!INCOGNITO ? (stored?.seenTimes || {}) : {})
       .map(([id,ts]) => [Number(id), ts]));
     pageStorageSet(SETTINGS_BACKUP_KEY, state.settings);
-    if (!synced.harmonovaSettings) await chromeSyncSet({ harmonovaSettings: state.settings });
+    if (!INCOGNITO && !synced.harmonovaSettings) await chromeSyncSet({ harmonovaSettings: state.settings });
   }
 
   function persistUserTags(author) {
-    if (INCOGNITO) return;
+    if (INCOGNITO) return void privateReader.tag(author, state.userTags.get(author) ?? null);
     runtimeMessage({ type: "HARMONOVA_SET_TAG", username: author,
       tag: state.userTags.get(author) ?? null }).then(result => {
       if (!result?.ok) showToast("Could not save user tag");
@@ -500,7 +502,7 @@
   }
 
   function persistBlockedUsers(author) {
-    if (INCOGNITO) return;
+    if (INCOGNITO) return void privateReader.blocked(author, state.blockedUsers.has(author));
     runtimeMessage({ type: "HARMONOVA_SET_BLOCKED", username: author,
       desired: state.blockedUsers.has(author) }).then(result => {
       if (!result?.ok) showToast("Could not save blocked-user setting");
@@ -508,7 +510,7 @@
   }
 
   function persistSeenTimes(id) {
-    if (INCOGNITO) return;
+    if (INCOGNITO) return void privateReader.markSeen(id, state.seenTimes.get(id));
     runtimeMessage({ type: "HARMONOVA_MARK_SEEN", id,
       timestamp: state.seenTimes.get(id) }).then(() => {});
   }
@@ -517,6 +519,7 @@
     if (!Number.isSafeInteger(id) || id <= 0) return;
     const previous = state.readIds.has(id);
     state.readIds.add(id);
+    if (INCOGNITO) privateReader.markRead(id);
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("is-read");
     if (!INCOGNITO) {
       const result = await runtimeMessage({ type: "HARMONOVA_MARK_READ", id });
@@ -531,6 +534,7 @@
     if (!Number.isSafeInteger(id) || id <= 0) return;
     const desired = !state.bookmarks.has(id);
     if (desired) state.bookmarks.add(id); else state.bookmarks.delete(id);
+    if (INCOGNITO) privateReader.bookmark(id, desired);
     document.querySelectorAll('[data-bookmark-id="' + id + '"]').forEach((node) =>
       node.classList.toggle("active", desired));
     if (!INCOGNITO) {
@@ -545,7 +549,7 @@
   }
 
   const getPreview = (story) => new Promise((resolve) => {
-    if (!story?.url) return resolve({ image: null, tint: null, favicon: null });
+    if (INCOGNITO || !story?.url) return resolve({ image: null, tint: null, favicon: null });
     const cached = state.previewById.get(story.id);
     if (cached && (!cached.failedUntil || cached.failedUntil > Date.now())) return resolve(cached);
     if (cached?.failedUntil) state.previewById.delete(story.id);
@@ -1941,15 +1945,20 @@ function updateFeedVoteBadges() {
 // Drafts live in chrome.storage.session via the background worker (SEC-50):
 // keyed by acting username + parent item, ≤20 KB each, ≤50 entries, cleared on
 // logout and after a successful post. They never touch disk or sync.
-const draftBegin = (parentId, username) => runtimeMessage({ type: "HARMONOVA_DRAFT_BEGIN", parentId, username });
+const draftBegin = (parentId, username) => INCOGNITO
+  ? Promise.resolve(privateReader.beginDraft(username, parentId))
+  : runtimeMessage({ type: "HARMONOVA_DRAFT_BEGIN", parentId, username });
 const draftSet = (composer, text) => {
   // Serial writes from one composer and compare-and-set against other tabs.
   composer.draftWrite = (composer.draftWrite || Promise.resolve()).then(async () => {
     await composer.draftReady;
     if (!composer.draftToken) return false;
-    const response = await runtimeMessage({ type: "HARMONOVA_DRAFT_SET",
-      parentId: composer.parentId, username: composer.username,
-      token: composer.draftToken, revision: composer.draftRevision, text });
+    const response = INCOGNITO
+      ? privateReader.saveDraft(composer.username, composer.parentId,
+        composer.draftToken, composer.draftRevision, text)
+      : await runtimeMessage({ type: "HARMONOVA_DRAFT_SET",
+        parentId: composer.parentId, username: composer.username,
+        token: composer.draftToken, revision: composer.draftRevision, text });
     if (response?.ok) { composer.draftRevision = response.revision; return true; }
     composer.status.hidden = false;
     composer.status.classList.add("error");
@@ -1965,13 +1974,16 @@ const draftClear = async (composer) => {
   await composer.draftReady;
   await composer.draftWrite;
   if (!composer.draftToken) return false;
-  const result = await runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR",
-    username: composer.username, parentId: composer.parentId, token: composer.draftToken });
+  const result = INCOGNITO
+    ? privateReader.clearDraft(composer.username, composer.parentId, composer.draftToken)
+    : await runtimeMessage({ type: "HARMONOVA_DRAFT_CLEAR",
+      username: composer.username, parentId: composer.parentId, token: composer.draftToken });
   if (result?.ok) composer.draftToken = null;
   return result?.ok === true;
 };
 const draftClearAll = (username) => new Promise((resolve) => {
   if (!username) return resolve(true);
+  if (INCOGNITO) return resolve(privateReader.clearAccountDrafts(username).ok);
   chrome.runtime.sendMessage({ type: "HARMONOVA_DRAFT_CLEAR_ALL", username }, (response) => resolve(!chrome.runtime.lastError && response?.ok === true));
 });
 
@@ -2121,7 +2133,8 @@ function openComposer(options) {
     const spacer = el("span", "composer-spacer");
     return spacer;
   })(), cancel, submit);
-  const footnote = el("div", "composer-footnote", "Posting as " + session.username + " · Ctrl+Enter posts · Esc keeps your draft");
+  const footnote = el("div", "composer-footnote", "Posting as " + session.username + " · Ctrl+Enter posts · Esc keeps your draft" +
+    (INCOGNITO ? " · Private draft disappears when this tab closes" : ""));
   node.append(header, textarea, previewWrap, status, actions, footnote);
 
   // Draft restore note + autosave (debounced).
@@ -2425,7 +2438,10 @@ async function closeComposer({ keepDraft = true } = {}) {
     showToast("Your draft was not saved. Keep this tab open.");
     return false;
   }
-  if (composer.draftToken) await runtimeMessage({ type: "HARMONOVA_DRAFT_RETIRE", token: composer.draftToken });
+  if (composer.draftToken) {
+    if (INCOGNITO) privateReader.retire(composer.draftToken);
+    else await runtimeMessage({ type: "HARMONOVA_DRAFT_RETIRE", token: composer.draftToken });
+  }
   composer.draftToken = null;
   composer.node?.remove();
   if (state.composer === composer) state.composer = null;
@@ -2451,6 +2467,10 @@ function openFeedMenu(anchor) {
 
   async function disableHarmoNova() {
     pageStorageSet(ENABLED_BACKUP_KEY, false);
+    if (INCOGNITO) {
+      showToast("Use the extension popup in a regular window to change enabled state.");
+      return;
+    }
     await chromeSyncSet({ harmonovaEnabled: false });
     location.reload();
   }
@@ -2826,7 +2846,7 @@ function openFeedMenu(anchor) {
   function storyMeta(story) {
     const meta = el("div", "story-meta");
     const fav = el("img", "story-favicon");
-    const favUrl = faviconUrl(story);
+    const favUrl = INCOGNITO ? null : faviconUrl(story);
     if (favUrl) fav.src = favUrl;
     fav.alt = "";
     const points = el("span", "meta-points", compact(story.score) + (state.settings.compactPoints ? "" : " points"));
@@ -4669,10 +4689,13 @@ async function refreshFeed() {
     // Private tabs only alter their in-document state; normal imports are
     // committed atomically by the worker before updating this view.
     if (INCOGNITO) {
-      for (const id of bookmarks) state.bookmarks.add(id);
-      for (const id of readStoryIds) state.readIds.add(id);
-      if (userTags) for (const [author, tag] of Object.entries(userTags)) state.userTags.set(author, tag);
-      if (blockedUsers) for (const author of blockedUsers) state.blockedUsers.add(author);
+      const outcome = privateReader.importData({ bookmarks, readStoryIds,
+        ...(userTags ? { userTags } : {}), ...(blockedUsers ? { blockedUsers } : {}) });
+      if (!outcome.ok) return void showToast("Private import unavailable");
+      state.bookmarks = new Set(outcome.value.harmonovaBookmarks);
+      state.readIds = new Set(outcome.value.readStoryIds);
+      state.userTags = new Map(Object.entries(outcome.value.userTags));
+      state.blockedUsers = new Set(outcome.value.blockedUsers);
     } else {
       const outcome = await runtimeMessage({ type: "HARMONOVA_IMPORT_READER_DATA", data: {
         bookmarks, readStoryIds, ...(userTags ? { userTags } : {}),

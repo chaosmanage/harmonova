@@ -108,7 +108,9 @@
     if (!kind || !message || typeof message !== "object" || Array.isArray(message)) return fail("INVALID_SENDER");
     const policy = RULES[message.type];
     if (!policy || !policy.from.includes(kind)) return fail("UNAUTHORIZED_OPERATION");
-    if (policy.reader && sender.tab?.incognito === true) return fail("PRIVATE_STATE_UNAVAILABLE");
+    if (sender.tab?.incognito === true &&
+        !["HARMONOVA_TAB_MODE", "HARMONOVA_OPEN_ORIGINAL"].includes(message.type))
+      return fail("PRIVATE_STATE_UNAVAILABLE");
     if (!noFields(message, ["type", ...policy.fields]) || (policy.valid && !policy.valid(message, kind)))
       return fail("INVALID_REQUEST");
     return { ok: true, kind, tabId: kind === "hn" ? sender.tab.id : null,

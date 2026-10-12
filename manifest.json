@@ -3,6 +3,7 @@
   "name": "HarmoNova for Hacker News",
   "version": "0.13.10",
   "description": "A modern Hacker News reading experience, inspired by Harmonic.",
+  "incognito": "spanning",
   "permissions": [
     "storage",
     "activeTab"
@@ -38,6 +39,7 @@
         "url-policy.js",
         "hn-session.js",
         "hn-search.js",
+        "incognito-state.js",
         "content.js"
       ],
       "css": [
