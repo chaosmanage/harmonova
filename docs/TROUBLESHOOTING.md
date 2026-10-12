@@ -60,3 +60,12 @@ Browsers that support loading unpacked Chromium extensions may work, but Chrome/
 [Open an issue](https://github.com/chaosmanage/harmonova/issues) with your browser version, extension version (shown at `chrome://extensions`), which HN page you were on, what you clicked, and what happened. A screenshot is useful when reporting a visual problem.
 
 **Do not include API keys, login credentials, browser cookies, authorization tokens, or private drafts** in issue descriptions, screenshots, or logs.
+
+## Preview or article summary is unavailable
+
+External previews start disabled. Open the extension's AI and preview settings
+page and save the preview preference if you want supported GitHub, Wikipedia and
+arXiv previews. Ordinary article URLs, unsupported images/favicons, redirected
+provider responses and denied provider permissions use placeholders. You can
+always open the article normally, or summarize the public HN discussion after
+saving fresh AI consent. Private tabs do not use AI or external previews.

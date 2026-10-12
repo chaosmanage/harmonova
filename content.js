@@ -547,7 +547,7 @@
   const getPreview = (story, signal) => new Promise((resolve) => {
     if (INCOGNITO || !story?.url) return resolve({ image: null, tint: null, favicon: null });
     const cached = state.previewById.get(story.id);
-    if (cached && (!cached.failedUntil || cached.failedUntil > Date.now())) return resolve(cached);
+    if (cached?.failedUntil && cached.failedUntil > Date.now()) return resolve(cached);
     if (cached?.failedUntil) state.previewById.delete(story.id);
     const requestId="preview"+ ++nextPreviewRequest;
     const cancel=()=> {runtimeMessage({type:"HARMONOVA_PREVIEW_CANCEL",requestId});resolve({image:null,tint:null,favicon:null});};

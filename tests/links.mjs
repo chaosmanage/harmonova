@@ -260,6 +260,7 @@ async function test(name, fixtures, fn) {
     const sw = browser.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"));
     if (sw) {
       await sw.evaluate(() => Promise.all([chrome.storage.sync.clear(), chrome.storage.local.clear()])).catch(() => {});
+      await sw.evaluate(()=>chrome.storage.local.set({harmonovaNetworkPolicyV1:{version:1,externalPreviewsEnabled:true}}));
       if (fixtures.settings) await sw.evaluate((value) => chrome.storage.sync.set({ harmonovaSettings: value }), fixtures.settings);
     }
     await fn({ page, providers: activeMocks.providers });

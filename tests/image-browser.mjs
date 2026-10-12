@@ -17,20 +17,21 @@ await withExtension(async({context,worker})=> {
     assert.match(safe.tint,/^#[0-9a-f]{6}$/);
   }
   const images=[],remoteDom=[];
-  await context.addCookies([{name:'synthetic-image-cookie',value:'dummy',domain:'images.example.test',path:'/',secure:true,sameSite:'None'}]);
+  await context.addCookies([{name:'synthetic-image-cookie',value:'dummy',domain:'avatars.githubusercontent.com',path:'/',secure:true,sameSite:'None'}]);
   context.on('request',request=> {if(request.resourceType()==='image' && new URL(request.url()).hostname!=='news.ycombinator.com' && /^https?:/.test(request.url()))remoteDom.push(request.url());});
-  await context.route('https://images.example.test/**',route=> {
+  await context.route('https://avatars.githubusercontent.com/**',route=> {
     images.push(route.request().headers());return route.fulfill({status:200,contentType:'image/png',body:Buffer.from(samples['image/png'])});
   });
-  await context.route('https://source.example.test/**',route=>route.fulfill({status:200,contentType:'text/html',body:'<meta property="og:image" content="https://images.example.test/safe.png"><link rel="icon" href="https://images.example.test/safe.png">'}));
+  await context.route('https://api.github.com/repos/fixture/images',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({full_name:'fixture/images',owner:{avatar_url:'https://avatars.githubusercontent.com/u/1?v=4'}})}));
+  await worker.evaluate(()=>saveNetworkPolicy({version:1,externalPreviewsEnabled:true}));
   await context.route('https://news.ycombinator.com/**',route=>route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(new URL('./fixtures/hn/news.html',import.meta.url),'utf8')}));
-  const story={id:910001,type:'story',title:'Image fixture',url:'https://source.example.test/article',by:'fixture',time:1700000000,score:10,descendants:0};
+  const story={id:910001,type:'story',title:'Image fixture',url:'https://github.com/fixture/images',by:'fixture',time:1700000000,score:10,descendants:0};
   await context.route('https://hacker-news.firebaseio.com/v0/**',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(route.request().url().endsWith('stories.json')?[910001]:story)}));
   await context.route('https://hn.algolia.com/**',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:910001,title:story.title,url:story.url,author:'fixture',children:[]})}));
   console.log('Raster decoders passed');
   await page.goto('https://news.ycombinator.com/news');
   await page.waitForFunction(()=>document.querySelector('.story-preview-image')?.getAttribute('src')?.startsWith('data:image/png;base64,'));
-  await page.locator('.story-card').first().click();
+  await page.locator('.story-comment-button').first().click();
   await page.waitForFunction(()=>document.querySelector('.thread-hero-image')?.getAttribute('src')?.startsWith('data:image/png;base64,'));
   assert.ok(images.length>=1);assert.ok(images.every(headers=>!headers.cookie&&!headers.referer));assert.deepEqual(remoteDom,[]);
   await page.evaluate(()=>{for(const img of document.querySelectorAll('img[src^="data:image/png"]')) img.dispatchEvent(new Event('error'));});

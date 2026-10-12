@@ -37,7 +37,7 @@ vm.runInContext(fs.readFileSync(new URL('../background.js', import.meta.url), 'u
 const stream = (chunks) => new Response(new ReadableStream({ start(controller) {
   for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
   controller.close();
-} }));
+} }),{headers:{"content-type":"text/event-stream"}});
 
 test('SSE handles fragmented CRLF, comments, usage events and completion', async () => {
   const progress = [];
@@ -56,18 +56,13 @@ test('SSE rejects errors, empty summaries, malformed and oversized events', asyn
   ]) await assert.rejects(worker.streamOpenRouter(stream([body]), () => {}), error);
 });
 
-test('article extraction handles plain text, malformed HTML, input limits and unsupported types', async () => {
-  worker.fetch = async () => new Response('<body><script>secret()</script><p>Visible &amp; readable &#x1f600;</p>' + 'x'.repeat(18000), { headers: { 'content-type': 'text/html' } });
-  const text = await worker.fetchArticleText('https://example.com/article');
-  assert.equal(text.length, 15000);
-  assert.ok(text.startsWith('Visible & readable 😀'));
-  assert.ok(!text.includes('secret()'));
-  worker.fetch = async () => new Response('plain article', { headers: { 'content-type': 'text/plain' } });
-  assert.equal(await worker.fetchArticleText('https://example.com'), 'plain article');
-  worker.fetch = async () => new Response('binary', { headers: { 'content-type': 'application/pdf' } });
-  await assert.rejects(worker.fetchArticleText('https://example.com'), /not readable/);
-  await assert.rejects(worker.fetchArticleText('file:///secret'), /Unsupported/);
-  await assert.rejects(worker.readResponseTextLimited(stream(['oversized']), 2), /size limit/);
+test('strict extraction uses supported provider text and refuses arbitrary articles before Fetch',async()=>{
+  let calls=0;worker.fetch=async()=>{calls++;return new Response(JSON.stringify({title:'Fixture',extract:'Provider extract',type:'standard'}),{headers:{'content-type':'application/json'}});};
+  assert.equal(await worker.fetchArticleText('https://en.wikipedia.org/wiki/Fixture'),'Fixture\nProvider extract');
+  assert.equal(calls,1);
+  await assert.rejects(worker.fetchArticleText('https://example.com/article'),/REMOTE_FETCH_BLOCKED/);assert.equal(calls,1);
+  await assert.rejects(worker.fetchArticleText('file:///secret'),/Unsupported/);
+  await assert.rejects(worker.readResponseTextLimited(stream(['oversized']),2),/size limit/);
 });
 
 test('credentials move between persistent and session stores and reject content-script mutation', async () => {
@@ -89,22 +84,22 @@ test('non-streaming request uses private credentials and the capped article', as
   await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, streamResponses: false });
   let request;
   worker.fetch = async (url, options) => {
-    if (url.includes('firebaseio.com')) return new Response(JSON.stringify({ id: 1, type: 'story', url: 'https://example.com' }));
+    if (url.includes('firebaseio.com')) return new Response(JSON.stringify({ id: 1, type: 'story', url: 'https://example.com' }),{headers:{'content-type':'application/json'}});
     if (url.includes('openrouter.ai')) {
       request = options;
-      return new Response(JSON.stringify({ choices: [{ message: { content: '- Summary' } }] }));
+      return new Response(JSON.stringify({ choices: [{ message: { content: '- Summary' } }] }),{headers:{'content-type':'application/json'}});
     }
     return new Response('x'.repeat(20000), { headers: { 'content-type': 'text/plain' } });
   };
   const progress = [];
-  await worker.summarizeWithOpenRouter({ postMessage: (value) => progress.push(value) }, { storyId: 1, url: 'https://example.com', model: 'openrouter/free', systemPrompt: 'Summarize', streamResponses: false }, new AbortController());
+  await worker.summarizeWithOpenRouter({ postMessage: (value) => progress.push(value) }, { storyId: 1, source:'discussion',discussionText:'x'.repeat(20000), url: 'https://example.com', model: 'openrouter/free', systemPrompt: 'Summarize', streamResponses: false }, new AbortController());
   assert.equal(request.headers.Authorization, 'Bearer test-private-key');
   assert.equal(JSON.parse(request.body).messages[1].content.length, 15000);
   assert.equal(progress.at(-1).type, 'success');
   assert.equal(progress.at(-1).text, '- Summary');
   assert.ok(!JSON.stringify(progress).includes('test-private-key'));
   await worker.clearAiKey();
-  await assert.rejects(worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, url: 'https://example.com', model: 'openrouter/free', systemPrompt: 'Summarize' }, new AbortController()), /key is not configured/);
+  await assert.rejects(worker.summarizeWithOpenRouter({ postMessage() {} }, { storyId: 1, source:'discussion',discussionText:'x'.repeat(20000), url: 'https://example.com', model: 'openrouter/free', systemPrompt: 'Summarize' }, new AbortController()), /key is not configured/);
 });
 
 
@@ -113,15 +108,15 @@ test('empty streamed reasoning output retries once without streaming', async () 
   await worker.saveAiPolicy({ ...worker.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, model: 'example/reasoning', allowEmptyRetry: true });
   const requests = [];
   worker.fetch = async (url, options) => {
-    if (url.includes('firebaseio.com')) return new Response(JSON.stringify({ id: 77, type: 'story', url: 'https://example.com/story' }));
+    if (url.includes('firebaseio.com')) return new Response(JSON.stringify({ id: 77, type: 'story', url: 'https://example.com/story' }),{headers:{'content-type':'application/json'}});
     if (!url.includes('openrouter.ai')) return new Response('Article content', { headers: { 'content-type': 'text/plain' } });
     const request = JSON.parse(options.body);
     requests.push(request);
     if (request.stream) return stream(['data: {"choices":[{"delta":{"reasoning":"thinking"},"finish_reason":"length"}],"usage":{"completion_tokens":2200}}\n\n', 'data: [DONE]\n\n']);
-    return new Response(JSON.stringify({ choices: [{ message: { content: 'Recovered summary' } }] }));
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Recovered summary' } }] }),{headers:{'content-type':'application/json'}});
   };
   const events = [];
-  await worker.summarizeWithOpenRouter({ postMessage: (event) => events.push(event) }, { storyId: 77, url: 'https://example.com/story', model: 'example/reasoning', systemPrompt: 'Summarize', streamResponses: true }, new AbortController());
+  await worker.summarizeWithOpenRouter({ postMessage: (event) => events.push(event) }, { storyId: 77, source:'discussion',discussionText:'A sufficiently long public Hacker News discussion for this fixture.', url: 'https://example.com/story', model: 'example/reasoning', systemPrompt: 'Summarize', streamResponses: true }, new AbortController());
   assert.equal(requests.length, 2, 'one recovery request only');
   assert.equal(requests[0].max_tokens, 2200);
   assert.equal(requests[1].max_tokens, 3500);
@@ -131,14 +126,9 @@ test('empty streamed reasoning output retries once without streaming', async () 
   await worker.clearAiKey();
 });
 
-test('HTTP 403 gives a clear access restriction instead of a generic fetch error', async () => {
-  worker.fetch = async () => new Response('Forbidden', { status: 403, headers: { 'content-type': 'text/html' } });
-  await assert.rejects(worker.fetchArticleText('https://example.com/blocked'), (error) => {
-    assert.equal(error.code, 'ARTICLE_ACCESS_DENIED');
-    assert.match(error.message, /website does not allow HarmoNova to read/i);
-    assert.match(error.message, /discussion instead/i);
-    return true;
-  });
+test('provider denial produces controlled unavailable text without arbitrary fallback', async()=> {
+  let calls=0;worker.fetch=async()=>{calls++;return new Response('Forbidden',{status:403,headers:{'content-type':'text/html'}});};
+  await assert.rejects(worker.fetchArticleText('https://en.wikipedia.org/wiki/Denied'),/Provider text unavailable/);assert.equal(calls,1);
 });
 
 test('opt-in discussion summary does not fetch blocked articles or mislabel source', async () => {

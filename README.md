@@ -106,3 +106,10 @@ You can always open **original Hacker News** from the menu or turn off HarmoNova
 HarmoNova uses its supplied icon and banner artwork. The default font is locally bundled Google Sans Flex Rounded (SIL Open Font License 1.1); System UI and Serif remain available. See [branding details](icons/README.md).
 
 HarmoNova is an independent project and is **not affiliated with or endorsed by** the Harmonic developer, Hacker News, or Y Combinator. This extension is licensed under [Apache License 2.0](LICENSE).
+
+Security remediation on this branch limits external previews to supported
+GitHub, Wikipedia and arXiv providers. Enable previews in the extension settings
+page; they begin disabled. AI needs a fresh saved consent policy. Arbitrary
+article extraction and remote favicon fallbacks are unavailable. Private reader
+history and drafts stay in the individual private tab and disappear on reload or
+closure; private AI and previews are disabled. See [privacy](docs/PRIVACY.md).

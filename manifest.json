@@ -9,8 +9,18 @@
     "activeTab"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*"
+    "https://hacker-news.firebaseio.com/*",
+    "https://openrouter.ai/*",
+    "https://api.github.com/*",
+    "https://export.arxiv.org/*",
+    "https://avatars.githubusercontent.com/*",
+    "https://upload.wikimedia.org/*",
+    "https://en.wikipedia.org/*",
+    "https://de.wikipedia.org/*",
+    "https://fr.wikipedia.org/*",
+    "https://es.wikipedia.org/*",
+    "https://ja.wikipedia.org/*",
+    "https://zh.wikipedia.org/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

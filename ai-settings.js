@@ -139,3 +139,11 @@ chrome.storage.sync.get(["harmonovaSettings", "harmonicSettings"], record => {
     importButton.hidden = true;
   }, { once: true });
 });
+
+const previewEnabled=document.querySelector("#previews-enabled"),previewStatus=document.querySelector("#previews-status");
+send({type:"HARMONOVA_NETWORK_POLICY_GET"}).then(result=>{previewEnabled.checked=result?.policy?.externalPreviewsEnabled===true;});
+document.querySelector("#previews-save").addEventListener("click",async event=>{
+  if(!event.isTrusted)return;
+  const result=await send({type:"HARMONOVA_NETWORK_POLICY_SAVE",policy:{version:1,externalPreviewsEnabled:previewEnabled.checked}});
+  previewStatus.textContent=result?.ok ? "Preview preference saved." : "Could not save preview preference.";
+});

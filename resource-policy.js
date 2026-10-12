@@ -79,7 +79,7 @@
       response = await raced(fetchImpl(url,{...init,signal,credentials:"omit",referrerPolicy:"no-referrer",redirect:"error"}));
       const type=(response.headers.get("content-type") || "").split(";")[0].toLowerCase().trim();
       if (response.type === "opaqueredirect" || response.status >=300 && response.status <400) throw failure("REMOTE_FETCH_BLOCKED");
-      if (types?.length && !types.includes(type)) throw failure("UNSUPPORTED_CONTENT_TYPE");
+      if (response.ok && types?.length && !types.includes(type)) throw failure("UNSUPPORTED_CONTENT_TYPE");
       const cap=response.ok ? budget.bytes : 16*1024;
       const length=Number(response.headers.get("content-length"));
       if (length > cap) throw failure("RESPONSE_TOO_LARGE");
@@ -185,6 +185,7 @@
         }
       },
       delete(key) { const e = entries.get(key); if (e) size -= e.bytes; entries.delete(key); },
+      clear() {entries.clear();size=0;},
       get count() { return entries.size; },
       get bytes() { return size; },
     });

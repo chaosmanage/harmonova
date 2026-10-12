@@ -96,17 +96,18 @@ test("SEC-23: policy identifies Hacker News hosts for refusal", () => {
 
 test("SEC-22: every background fetch uses credentials omit and validated URLs", async () => {
   const calls = [];
-  const response = () => new Response("ok", { headers: { "content-type": "text/plain" } });
+  const response = () => new Response("{}", { headers: { "content-type": "application/json" } });
   const { context } = loadBackground({
     fetchImpl: async (url, options) => {
       calls.push({ url: String(url), options });
       return response();
     },
   });
-  await context.fetchArticleText("https://example.com/article");
-  await context.getMetadata("https://example.com/article");
-  await context.imageTint("https://example.com/pic.png");
-  assert.ok(calls.length >= 3, "expected metadata, article and tint fetches");
+  for(const [url,resourceKind] of [['https://api.github.com/repos/a/b','richJson'],['https://hacker-news.firebaseio.com/v0/item/1.json','storyLookup']]) {
+    const response=await context.fetchPolicy(url,{resourceKind});await context.readResponseTextLimited(response,100);
+  }
+  await context.imageTint('https://avatars.githubusercontent.com/u/1?v=4');
+  assert.equal(calls.length,3,'only explicit provider paths are fetched');
   for (const call of calls) {
     assert.equal(call.options.credentials, "omit", "credentials omit for " + call.url);
     assert.equal(call.options.redirect, "error", "redirects rejected for " + call.url);
@@ -134,7 +135,7 @@ test("SEC-22: OpenRouter requests carry no cookies", async () => {
   await context.saveAiPolicy({ ...context.HarmoNovaAiPolicy.defaults, consentVersion: 1, enabled: true, streamResponses: false });
   await context.summarizeWithOpenRouter(
     { postMessage() {} },
-    { storyId: 1, url: "https://example.com/a", model: "openrouter/free", systemPrompt: "p", streamResponses: false },
+    { storyId: 1, source:"discussion",discussionText:"A public Hacker News discussion with enough fixture content to summarize.", url: "https://example.com/a", model: "openrouter/free", systemPrompt: "p", streamResponses: false },
     new AbortController()
   );
   const openrouter = calls.find((call) => call.url.includes("openrouter.ai"));
@@ -202,8 +203,8 @@ test("SEC-24: redirects are refused before a second hop", async () => {
       return new Response(null, { status: 302, headers: { location: "https://example.com/" + (n + 1) } });
     },
   });
-  await assert.rejects(() => context.fetchArticleText("https://example.com/0"), /REMOTE_FETCH_BLOCKED/);
-  assert.deepEqual(requested, ["https://example.com/0"], "no subsequent redirect hops");
+  await assert.rejects(() => context.fetchPolicy("https://api.github.com/repos/a/b",{resourceKind:"richJson"}), /REMOTE_FETCH_BLOCKED/);
+  assert.deepEqual(requested, ["https://api.github.com/repos/a/b"], "no subsequent redirect hops");
   // getMetadata swallows fetch errors by design; it must still return empty metadata.
   const meta = await context.getMetadata("https://example.com/0");
   assert.equal(meta.image, null);
@@ -305,7 +306,7 @@ const runBrowserTests = async () => {
     { id: 910002, path: "article-two" },
   ];
   const algoliaItem = (story) => JSON.stringify({
-    id: story.id, title: "HarmoNova security fixture " + story.id, url: "https://example.test/" + story.path,
+    id: story.id, title: "HarmoNova security fixture " + story.id, url: "https://en.wikipedia.org/wiki/" + story.path,
     author: "harmonova_test", points: 42, created_at_i: Math.floor(Date.now() / 1000) - 3600,
     text: null, children: [{
       id: story.id + 10, author: "harmonova_test", created_at_i: Math.floor(Date.now() / 1000) - 1800,
@@ -314,7 +315,7 @@ const runBrowserTests = async () => {
   });
   const storyFixture = (story) => JSON.stringify({
     id: story.id, type: "story", by: "harmonova_test", title: "HarmoNova security fixture " + story.id,
-    url: "https://example.test/" + story.path, score: 42, time: Math.floor(Date.now() / 1000) - 3600,
+    url: "https://en.wikipedia.org/wiki/" + story.path, score: 42, time: Math.floor(Date.now() / 1000) - 3600,
     descendants: 1, kids: [],
   });
 
@@ -335,6 +336,10 @@ const runBrowserTests = async () => {
     }
     articleRequests.push({ url: request.url(), cookie: request.headers()["cookie"] || null });
     return route.fulfill({ status: 200, contentType: "text/html", body: ARTICLE_HTML });
+  });
+  await context.route('https://en.wikipedia.org/api/rest_v1/page/summary/**',route=> {
+    articleRequests.push({url:route.request().url(),cookie:route.request().headers().cookie||null});
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({type:'standard',title:'Fixture',extract:'A public provider extract long enough for an offline summary.'})});
   });
   let aiPosts = 0;
   await context.route("https://openrouter.ai/api/v1/chat/completions", (route) => {
@@ -393,6 +398,9 @@ const runBrowserTests = async () => {
     await settingsPage.locator('input[name="storage"][value="session"]').check();
     await settingsPage.click("#save");
     await settingsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"), null, { timeout: 5000 });
+    await settingsPage.locator("#previews-enabled").check();
+    await settingsPage.locator("#previews-save").click();
+    await settingsPage.waitForFunction(()=>document.querySelector("#previews-status")?.textContent.includes("saved"));
     await settingsPage.locator("#policy-enabled").check();
     await settingsPage.locator("#policy-save").click();
     await settingsPage.waitForFunction(() => document.querySelector("#policy-message")?.textContent?.includes("saved"));
@@ -428,6 +436,7 @@ const runBrowserTests = async () => {
     assert.equal(aiPosts, 2, "synthetic selection with automatic consent still does not bill");
 
     // -- SEC-22: background requests never carry cookies --------------------
+    await context.addCookies([{name:"provider-cookie",value:"synthetic",domain:"en.wikipedia.org",path:"/",secure:true,sameSite:"None"}]);
     articleRequests.length = 0; // drop the pre-cookie preview requests
     const cookiePage = await context.newPage();
     await cookiePage.goto("https://example.test/cookie-page", { waitUntil: "domcontentloaded" });

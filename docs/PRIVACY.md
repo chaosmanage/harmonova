@@ -64,3 +64,28 @@ The tests in `tests/security.mjs` cover the key security boundaries. For develop
 It doesn't operate a private copy of HN, ask for your HN password in its UI, run analytics, add a tracker, sell personal data, or send AI summary requests unless you initiate them. Standard visits to external articles and third-party features still follow those websites' own privacy policies.
 
 For a problem report, **never upload a key, HN cookie, authentication URL, or draft containing private information**. Use [GitHub Issues](https://github.com/chaosmanage/harmonova/issues) for reproducible issues without secrets.
+
+Security remediation: external previews start disabled, including on upgrades.
+Enable them only in the extension's AI and preview settings page. Switching them
+off cancels preview work. Appearance switches on Hacker News do not grant network
+access. Private tabs have no external previews or AI access.
+
+Background requests are restricted to exact HTTPS provider origins and paths:
+HN Firebase item lookup; OpenRouter chat completions after fresh explicit consent;
+GitHub's repository API; Wikipedia summaries in English, German, French, Spanish,
+Japanese and Chinese; and arXiv's query API. Supported images use only GitHub's
+avatars.githubusercontent.com numeric user paths and upload.wikimedia.org's
+Wikipedia image paths. Google/DuckDuckGo and arbitrary-site favicons are disabled.
+
+Arbitrary article pages and metadata are no longer downloaded by the extension.
+Supported provider extracts and public HN discussions can be summarized; other
+articles can be opened normally in your browser. All background redirects are
+rejected before following. Fixed provider hostnames rely on the user's DNS/TLS
+environment and the providers themselves; this is not an IP-bound transport or a
+guarantee against a compromised resolver/provider.
+
+Preview images are bounded PNG/JPEG/non-animated WebP inputs fetched without
+cookies or referrers, dimension-checked, and re-encoded as bounded PNG data before
+display. Original remote image URLs are never placed in the reader DOM. Unsupported
+formats (including SVG, GIF and ICO), destinations, redirects and data-image CSP
+failures show placeholders without an external fallback.

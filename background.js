@@ -1,4 +1,4 @@
-importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js");
+importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js", "provider-policy.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -152,9 +152,12 @@ async function fetchPolicy(value, init = {}) {
   const target = HarmoNovaUrlPolicy.canonicalRemoteUrl(value);
   if (!target) throw remoteFetchBlocked();
   const { resourceKind = "metadata", expectedTypes, ...settings } = init;
+  if(!HarmoNovaProviderPolicy.allowed(value,resourceKind,settings.method || "GET"))throw remoteFetchBlocked();
   const budget=HarmoNovaResourcePolicy.Limits[resourceKind];
   if (!budget) throw remoteFetchBlocked();
-  return HarmoNovaResourcePolicy.request(fetch,target,settings,budget,expectedTypes);
+  const types={storyLookup:["application/json"],richJson:["application/json"],atom:["application/atom+xml","application/xml","text/xml"],image:["image/png","image/jpeg","image/webp"],aiJson:["application/json"],aiStream:["text/event-stream"]};
+  try {return await HarmoNovaResourcePolicy.request(fetch,target,settings,budget,types[resourceKind]);}
+  catch(error) {if(error?.code?.startsWith("RESOURCE_") || ["RESPONSE_TOO_LARGE","UNSUPPORTED_CONTENT_TYPE"].includes(error?.code))throw error;throw remoteFetchBlocked();}
 }
 
 async function verifiedStoryArticleUrl(storyId, signal) {
@@ -181,7 +184,7 @@ const richPendingCache = metadataCache;
 
 const capText = (value, max) => {
   if (typeof value !== "string") return null;
-  const text = value.replace(/\s+/g, " ").trim();
+  const text = value.slice(0,max*4).replace(/\s+/g, " ").trim();
   return text ? text.slice(0, max) : null;
 };
 
@@ -226,14 +229,14 @@ function githubRich(url) {
       if (lang) lines.push("Language: " + lang);
       const license = plainObject(data.license) ? capText(data.license.spdx_id, 40) : null;
       if (license && license !== "NOASSERTION") lines.push("License: " + license);
-      return { provider: "github", title: capText(data.full_name, 200), lines };
+      return { provider: "github", title: capText(data.full_name, 200), lines, imageUrl:typeof data.owner?.avatar_url==="string" ? data.owner.avatar_url.slice(0,4096) : null };
     },
   };
 }
 
 function wikipediaRich(url) {
   const m = /^https:\/\/([a-z-]{2,8})\.wikipedia\.org\/wiki\/([^\/?#]+?)(?:[\/?#]|$)/.exec(url);
-  if (!m) return null;
+  if (!m || !HarmoNovaProviderPolicy.languages.includes(m[1])) return null;
   let title = "";
   try { title = decodeURIComponent(m[2]); } catch { title = m[2]; }
   title = title.slice(0, 300);
@@ -245,7 +248,7 @@ function wikipediaRich(url) {
       const lines = [];
       const extract = capText(data.extract, 600);
       if (extract) lines.push(extract);
-      return { provider: "wikipedia", title: capText(data.title, 300), lines };
+      return { provider: "wikipedia", title: capText(data.title, 300), lines, imageUrl:typeof data.thumbnail?.source==="string" ? data.thumbnail.source.slice(0,4096) : null };
     },
   };
 }
@@ -411,46 +414,34 @@ async function sanitizedImage(url,signal) {
 }
 async function imageTint(url,signal) {return (await sanitizedImage(url,signal))?.tint || null;}
 
-async function getMetadataWork(url, wantRich = false, signal) {
-  const cached = metadataCache.get("meta:"+url);
-  if (cached && Date.now() - cached.time < 1800000) {
-    // A rich preview requested later than the page metadata is filled in once.
-    if (wantRich && cached.value.richState === "notRequested") { cached.value.rich = await getRichPreview(url,signal); cached.value.richState=cached.value.rich ? "available" : "unavailable"; }
-    return cached.value;
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
-  const richPromise = wantRich ? getRichPreview(url,signal).catch(() => null) : null;
-  let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false, rich: null, richState: wantRich ? "unavailable" : "notRequested" };
-  try {
-    // SEC-23: never preview or summarize Hacker News pages.
-    if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
-      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmoNovaUrlPolicy.isHackerNewsUrl(url), rich: null, richState: wantRich ? "unavailable" : "notRequested" };
-      metadataCache.set("meta:"+url, { time: Date.now(), value }, !value.image && !value.rich);
-      return value;
-    }
-    const response = await fetchPolicy(url, {
-      signal: signal ? AbortSignal.any([signal,controller.signal]) : controller.signal,
-      headers: { Accept: "text/html,application/xhtml+xml" }
-    });
-    const type = response.headers.get("content-type") || "";
-    if (!response.ok || !type.includes("text/html")) { await response.body?.cancel(); throw new Error("not html"); }
-    const html = await readResponseTextLimited(response, 1500000);
-    const base = response.url || url;
-    const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
-    const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
-    // HarmoNova tints from the preview image first, then the favicon when a story has no preview.
-    const raster=await sanitizedImage(image,signal);
-    const icon=await sanitizedImage(favicon,signal);
-    value = { image:raster?.src || null, favicon:icon?.src || null,
-      imageDimensions:raster ? {width:raster.width,height:raster.height} : null,
-      pageUrl: base, tint:raster?.tint || icon?.tint || null, refused: false,
-      rich:richPromise ? await richPromise : null, richState:wantRich ? "available" : "notRequested" };
-  } catch {} finally {
-    clearTimeout(timer);
-  }
-  metadataCache.set("meta:"+url, { time: Date.now(), value }, !value.image && !value.rich);
-  return value;
+const NETWORK_POLICY_KEY="harmonovaNetworkPolicyV1";
+async function currentNetworkPolicy() {
+  const value=(await localGet({[NETWORK_POLICY_KEY]:null}))[NETWORK_POLICY_KEY];
+  return {version:1,externalPreviewsEnabled:value?.version===1 && value.externalPreviewsEnabled===true};
+}
+async function saveNetworkPolicy(policy) {
+  if(!policy||Object.keys(policy).some(k=>!["version","externalPreviewsEnabled"].includes(k))||policy.version!==1||typeof policy.externalPreviewsEnabled!=="boolean")return {ok:false};
+  await localSet({[NETWORK_POLICY_KEY]:policy});
+  for(const controller of previewConsumers.values())controller.abort();
+  previewConsumers.clear(); metadataCache.clear();paletteCache.clear();
+  return {ok:true,policy};
+}
+async function getMetadataWork(url,wantRich=false,signal) {
+  const empty={image:null,favicon:null,tint:null,rich:null,richState:wantRich?"unavailable":"notRequested",pageUrl:url,
+    refused:HarmoNovaUrlPolicy.isHackerNewsUrl(url),unavailableReason:"Previews are available only for supported providers."};
+  if(!(await currentNetworkPolicy()).externalPreviewsEnabled)return {...empty,unavailableReason:"External previews are disabled."};
+  const canonical=HarmoNovaUrlPolicy.canonicalRemoteUrl(url);if(!canonical)return empty;
+  const key="meta:"+wantRich+":"+canonical;
+  const cached=metadataCache.get(key);if(cached)return cached;
+  if(!wantRich)return empty;
+  const facts=await getRichPreview(canonical,signal);
+  const raster=await sanitizedImage(facts?.imageUrl,signal);
+  if(signal?.aborted || !(await currentNetworkPolicy()).externalPreviewsEnabled)return empty;
+  const value={...empty,image:raster?.src||null,tint:raster?.tint||null,
+    imageDimensions:raster?{width:raster.width,height:raster.height}:null,
+    rich:wantRich && facts ? {provider:facts.provider,title:facts.title,lines:facts.lines}:null,
+    richState:wantRich?(facts?"available":"unavailable"):"notRequested"};
+  metadataCache.set(key,value,!facts);return value;
 }
 
 const previewConsumers = new Map();
@@ -502,36 +493,15 @@ async function readResponseTextLimited(response, maxBytes) {
   return HarmoNovaResourcePolicy.readText(response, maxBytes);
 }
 
-async function fetchArticleText(url, signal) {
-  // SEC-23/SEC-24: articles are public, non-HN http(s) documents only.
-  if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
-    if (HarmoNovaUrlPolicy.isHackerNewsUrl(url)) throw new Error("Hacker News pages can't be summarized");
-    throw new Error("Unsupported article URL");
-  }
-  const parsed = new URL(url);
-  const response = await fetchPolicy(parsed.href, {
-    resourceKind:"article", signal,
-    headers: { Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    if (response.status === 401 || response.status === 403) {
-      const error = new Error("Article access denied (HTTP " + response.status + "). This website does not allow HarmoNova to read the article automatically. You can open it in your browser or summarize the public Hacker News discussion instead.");
-      error.code = "ARTICLE_ACCESS_DENIED";
-      throw error;
-    }
-    if (response.status === 429) throw new Error("Article website is rate-limiting requests (HTTP 429). Please try later.");
-    throw new Error("Article website returned HTTP " + response.status);
-  }
-  const contentType = (response.headers.get("content-type") || "").toLowerCase();
-  if (contentType && !contentType.includes("html") && !contentType.includes("text/plain") && !contentType.includes("xml")) {
-    await response.body?.cancel();
-    throw new Error("Article is not readable text");
-  }
-  const raw = await readResponseTextLimited(response, MAX_ARTICLE_BYTES);
-  const text = contentType.includes("text/plain") ? raw.trim() : articleTextFromHtml(raw);
-  if (!text) throw new Error("Could not extract article text");
-  return text.slice(0, MAX_ARTICLE_CHARACTERS);
+async function fetchArticleText(url,signal) {
+  if(HarmoNovaUrlPolicy.isHackerNewsUrl(url))throw new Error("Hacker News pages can't be summarized");
+  const canonical=HarmoNovaUrlPolicy.canonicalRemoteUrl(url);
+  if(!canonical)throw new Error("Unsupported article URL");
+  if(!(githubRich(canonical)||wikipediaRich(canonical)||arxivRich(canonical)))throw remoteFetchBlocked();
+  const facts=await getRichPreview(canonical,signal);
+  const text=[facts?.title,...facts?.lines||[]].filter(Boolean).join("\n").slice(0,MAX_ARTICLE_CHARACTERS);
+  if(!text)throw new Error("Provider text unavailable. Summarize the public Hacker News discussion instead.");
+  return text;
 }
 
 async function aiKeyStorageMode() {
@@ -814,7 +784,7 @@ chrome.runtime.onConnect.addListener((port) => {
           port.postMessage({
             type: "error",
             storyId: Number(message.storyId), requestId: message.requestId,
-            message: error?.code === "REMOTE_FETCH_BLOCKED" ? "Source unavailable under network privacy rules" : "Summary unavailable",
+            message: error?.code === "REMOTE_FETCH_BLOCKED" ? "Article text is unavailable for this site. Open the article or summarize the public discussion." : "Summary unavailable",
             code: error?.code === "REMOTE_FETCH_BLOCKED" ? "REMOTE_FETCH_BLOCKED" : "AI_REQUEST_FAILED",
           });
         } catch {}
@@ -855,6 +825,8 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
       code: "STORAGE_UNAVAILABLE", message: "Reader data could not be saved", retryable: true } }));
     return true;
   };
+  if(message.type === "HARMONOVA_NETWORK_POLICY_GET") return reply(currentNetworkPolicy().then(policy=>({ok:true,policy})));
+  if(message.type === "HARMONOVA_NETWORK_POLICY_SAVE") return reply(saveNetworkPolicy(message.policy));
   if(message.type === "HARMONOVA_PREVIEW_CANCEL") {previewConsumers.get(sender.tab.id+":"+message.requestId)?.abort();sendResponse({ok:true});return true;}
   if (message.type === "HARMONOVA_LOCAL_STATE_GET")
     return reply(readerStore.stateSnapshot().then(record => ({ ok: true,

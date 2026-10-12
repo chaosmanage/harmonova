@@ -98,3 +98,9 @@ You have two choices that do not require uninstalling anything:
 - **Disable HarmoNova** in the extension toolbar popup or in-page menu turns off the HarmoNova layout. Switch **Enable HarmoNova** back on to restore it.
 
 If something isn't displaying correctly, see [Troubleshooting](TROUBLESHOOTING.md). For implementation details, see [Architecture](ARCHITECTURE.md).
+
+Security update: external previews require a saved preference in the extension
+settings page and work only with supported GitHub, Wikipedia and arXiv links.
+Other links show a placeholder and still open normally. AI requires fresh consent,
+including after upgrading; saving a key alone does not enable it. Arbitrary article
+extraction is unavailable; public HN discussion summaries remain supported.

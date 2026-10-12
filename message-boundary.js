@@ -57,6 +57,8 @@
       valid: m => typeof m.token === "string" && m.token.length <= 100 },
     HARMONOVA_DRAFT_CLEAR_ALL: { from: ["hn"], fields: ["username"], reader: true,
       valid: m => username(m.username) },
+    HARMONOVA_NETWORK_POLICY_GET: {from:["hn","options"],fields:[]},
+    HARMONOVA_NETWORK_POLICY_SAVE: {from:["options"],fields:["policy"],valid:m=>m.policy && typeof m.policy==="object" && !Array.isArray(m.policy)},
     HARMONOVA_AI_STATUS: { from: ["hn", "options"], fields: [] },
     HARMONOVA_AI_POLICY_GET: { from: ["options"], fields: [] },
     HARMONOVA_AI_POLICY_SAVE: { from: ["options"], fields: ["policy"],
