@@ -164,284 +164,45 @@
   let searchPanel, searchFilters, searchRecent, searchChips, searchSubmit;
   let accountChip;
 
-  function applySettings() {
-    if (!app) return;
-    app.dataset.preview = state.settings.previewImages;
-    app.dataset.tint = String(state.settings.tintedCards);
-    app.dataset.favicons = String(state.settings.showFavicons);
-    app.dataset.points = String(state.settings.showPoints);
-    app.dataset.comments = String(state.settings.showComments);
-    app.dataset.index = String(state.settings.showIndex);
-    app.dataset.dimread = String(state.settings.dimRead);
-    app.dataset.commentStyle = state.settings.commentStyle;
-    app.dataset.depth = state.settings.depthMode;
-    app.dataset.roundedRails = String(state.settings.roundedRails);
-    app.dataset.continuousRails = String(state.settings.continuousRails);
-    app.dataset.headerTint = String(state.settings.headerTint);
-    app.dataset.headerImage = String(state.settings.headerImage);
-    app.dataset.compactPoints = String(state.settings.compactPoints);
-    app.dataset.showDomain = String(state.settings.showDomain !== false);
-    filterStories();
-    const contentScale = Math.max(0.75, Math.min(1.25, Number(state.settings.contentScale || 100) / 100));
-    const storySetting = Number(state.settings.storyTextSize || 17.5);
-    const storyScale = storySetting / 17.5;
-    const commentSetting = Number(state.settings.commentTextSize || 15);
-    const commentScale = Math.max(0.7, Math.min(1.3, Number(state.settings.commentZoom ?? 100) / 100));
-    app.dataset.cardClickComments = String(state.settings.cardClickComments);
-    // HarmoNova's semantic settings rendered at desktop density. The Android app's dp/sp
-    // values are physically larger on a high-density display, so this preserves the same
-    // visual scale on a standard-density laptop instead of shrinking the UI.
-    app.style.setProperty("--story-text-size", ((23 + (storySetting - 17.5) * 1.25) * contentScale) + "px");
-    app.style.setProperty("--story-index-size", ((22 + (storySetting - 17.5) * 1.2) * contentScale) + "px");
-    app.style.setProperty("--story-meta-size", (16.5 * storyScale * contentScale) + "px");
-    app.style.setProperty("--story-comment-count-size", (19 * storyScale * contentScale) + "px");
-    app.style.setProperty("--comment-text-size", ((19 + (commentSetting - 15) * 1.2) * contentScale * commentScale) + "px");
-    app.style.setProperty("--comment-meta-size", (17 * contentScale * commentScale) + "px");
-    app.style.setProperty("--comment-row-gap", (10 * contentScale * commentScale) + "px");
-    app.style.setProperty("--comment-indent", (12 * contentScale * commentScale) + "px");
-    app.style.setProperty("--comment-paragraph-gap", (14 * contentScale * commentScale) + "px");
-    app.style.setProperty("--story-pad-y", (15 * contentScale) + "px");
-    app.style.setProperty("--story-pad-x", (13 * contentScale) + "px");
-    app.style.setProperty("--story-gap", (9 * contentScale) + "px");
-    app.style.setProperty("--comment-pad-y", (14 * contentScale * commentScale) + "px");
-    app.style.setProperty("--comment-pad-x", (16 * contentScale * commentScale) + "px");
-    app.style.setProperty("--thread-title-size", (32 * contentScale) + "px");
-    app.style.setProperty("--thread-meta-size", (17 * contentScale) + "px");
-    // Phase 7 part 3: appearance — surface theme and interface font live on
-    // the document element so they reach the body background as well.
-    const root = document.documentElement;
-    const themes = ["amoled", "charcoal", "navy"];
-    root.dataset.theme = themes.includes(state.settings.uiTheme) ? state.settings.uiTheme : "amoled";
-    const fonts = ["rounded", "system", "serif"];
-    root.dataset.font = fonts.includes(state.settings.uiFont) ? state.settings.uiFont : "rounded";
-  }
 
-  function showToast(message, options = {}) {
-    let toast = document.querySelector(".harmonova-toast");
-    if (!toast) {
-      toast = domUI.el("div", "harmonova-toast");
-      document.body.appendChild(toast);
-    }
-    // Phase 4: toasts can carry one action button (e.g. Undo for hide).
-    toast.replaceChildren();
-    toast.appendChild(domUI.el("span", "harmonova-toast-message", message));
-    if (options.actionLabel && typeof options.onAction === "function") {
-      const action = domUI.el("button", "harmonova-toast-action", options.actionLabel);
-      action.type = "button";
-      action.addEventListener("click", () => {
-        clearTimeout(showToast.timer);
-        toast.classList.remove("show");
-        options.onAction();
-      });
-      toast.appendChild(action);
-    }
-    toast.classList.add("show");
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove("show"), options.duration || 2200);
-  }
-
-  function createToolbar() {
-    const toolbar = domUI.el("header", "feed-toolbar");
-    const row = domUI.el("div", "feed-toolbar-row");
-    const titleButton = domUI.el("button", "feed-title-button");
-    feedTitle = domUI.el("span", "feed-title", FEEDS[state.feed].label);
-    titleButton.append(feedTitle, domUI.svg("chevron", "feed-chevron"));
-    titleButton.addEventListener("click", (event) => openFeedMenu(event.currentTarget));
-    // Phase 7: date picker for the Past Frontpages feed.
-    frontDateInput = domUI.el("input", "feed-date-input");
-    frontDateInput.type = "date";
-    frontDateInput.value = validFrontDate(state.settings.frontDate) || frontDayOffset(1);
-    frontDateInput.max = frontDayOffset(0);
-    frontDateInput.addEventListener("change", async () => {
-      state.settings.frontDate = validFrontDate(frontDateInput.value) ? frontDateInput.value : "";
-      await saveSettings("frontDate");
-      refreshFeed();
-    });
-
-    const actions = domUI.el("div", "feed-toolbar-actions");
-    const searchButton = domUI.button("search", "Search");
-    searchButton.addEventListener("click", toggleSearch);
-    const refreshButton = domUI.button("refresh", "Refresh");
-    refreshButton.addEventListener("click", refreshFeed);
-    const newPostButton = domUI.button("plus", "New post");
-    newPostButton.addEventListener("click", (event) => {
-      if (!event.isTrusted) return; // SEC-30
-      startNewPost();
-    });
-    const moreButton = domUI.button("more", "More");
-    moreButton.addEventListener("click", (event) => openMoreMenu(event.currentTarget));
-    accountChip = domUI.el("button", "account-chip");
-    accountChip.type = "button";
-    accountChip.id = "harmonova-account-chip";
-    accountChip.addEventListener("click", (event) => {
-      if (!event.isTrusted) return; // SEC-30: scripted clicks never open menus
-      openAccountMenu(event.currentTarget);
-    });
-    actions.append(searchButton, refreshButton, moreButton);
-    accountChip.classList.add("thread-secondary-action");
-    row.append(titleButton, frontDateInput, actions, accountChip);
-    updateAccountChip();
-
-    updatedLabel = domUI.el("div", "last-updated", "Last updated: " + linksUI.formatTime(state.updatedAt));
-    searchWrap = domUI.el("div", "feed-search");
-    searchInput = domUI.el("input", "feed-search-input");
-    searchInput.type = "search";
-    searchInput.placeholder = "Search all Hacker News";
-    searchInput.autocomplete = "off";
-    searchInput.addEventListener("input", onSearchInput);
-    searchInput.addEventListener("keydown", onSearchKeydown);
-    searchInput.addEventListener("focus", renderRecentSearches);
-    const closeSearchButton = domUI.button("close", "Close search", "feed-search-close");
-    closeSearchButton.addEventListener("click", (event) => {
-      if (!event.isTrusted) return;
-      closeSearch();
-    });
-    searchWrap.append(domUI.svg("search"), searchInput, closeSearchButton);
-    toolbar.append(row, updatedLabel, searchWrap, createSearchPanel());
-    return toolbar;
-  }
-
-  // Search covers all of Hacker News. Recent searches stay in memory only.
-  function createSearchPanel() {
-    searchPanel = domUI.el("div", "hn-search-panel");
-
-    searchFilters = domUI.el("div", "hn-search-filters");
-
-    searchChips = domUI.el("div", "hn-search-chips");
-    const chips = [
-      ["story", "Stories"],
-      ["comment", "Comments"],
-      ["ask_hn", "Ask"],
-      ["show_hn", "Show"],
-      ["poll", "Polls"],
-      ["front_page", "Front page"],
-    ];
-    for (const [tag, label] of chips) {
-      const chip = domUI.el("button", "hn-search-chip" + (state.search.tag === tag ? " active" : ""), label);
-      chip.type = "button";
-      chip.dataset.tag = tag;
-      chip.addEventListener("click", () => {
-        state.search.tag = tag;
-        searchChips.querySelectorAll(".hn-search-chip").forEach((node) => node.classList.toggle("active", node === chip));
-        queueGlobalSearch(0);
-      });
-      searchChips.appendChild(chip);
-    }
-
-    const controls = domUI.el("div", "hn-search-controls");
-    const rangeSelect = domUI.el("select", "hn-search-select");
-    rangeSelect.setAttribute("aria-label", "Date range");
-    for (const [value, label] of [["any", "Any time"], ["day", "Past 24 hours"], ["week", "Past week"], ["month", "Past month"], ["year", "Past year"]]) {
-      const option = domUI.el("option", "", label);
-      option.value = value;
-      if (value === state.search.range) option.selected = true;
-      rangeSelect.appendChild(option);
-    }
-    rangeSelect.addEventListener("change", () => {
-      state.search.range = rangeSelect.value;
-      queueGlobalSearch(0);
-    });
-
-    const sortSelect = domUI.el("select", "hn-search-select");
-    sortSelect.setAttribute("aria-label", "Sort");
-    for (const [value, label] of [["relevance", "Relevance"], ["newest", "Newest"]]) {
-      const option = domUI.el("option", "", label);
-      option.value = value;
-      if (value === state.search.sort) option.selected = true;
-      sortSelect.appendChild(option);
-    }
-    sortSelect.addEventListener("change", () => {
-      state.search.sort = sortSelect.value;
-      queueGlobalSearch(0);
-    });
-
-    const pointsInput = domUI.el("input", "hn-search-number");
-    pointsInput.type = "number";
-    pointsInput.min = "0";
-    pointsInput.step = "1";
-    pointsInput.placeholder = "Min points";
-    pointsInput.setAttribute("aria-label", "Minimum points");
-    pointsInput.value = state.search.minPoints;
-    pointsInput.addEventListener("input", () => {
-      state.search.minPoints = pointsInput.value;
-      queueGlobalSearch(0);
-    });
-
-    const authorInput = domUI.el("input", "hn-search-text");
-    authorInput.type = "text";
-    authorInput.placeholder = "Author";
-    authorInput.setAttribute("aria-label", "Author");
-    authorInput.spellcheck = false;
-    authorInput.autocomplete = "off";
-    authorInput.value = state.search.author;
-    authorInput.addEventListener("input", () => {
-      state.search.author = authorInput.value;
-      queueGlobalSearch(0);
-    });
-
-    controls.append(rangeSelect, sortSelect, pointsInput, authorInput);
-    searchFilters.append(searchChips, controls);
-
-    searchSubmit = domUI.el("button", "hn-search-submit");
-    searchSubmit.type = "button";
-    searchSubmit.hidden = true;
-    searchSubmit.addEventListener("click", () => runGlobalSearch(0));
-    searchRecent = domUI.el("div", "hn-search-recent");
-    searchRecent.hidden = true;
-
-    searchPanel.append(searchSubmit, searchFilters, searchRecent);
-    return searchPanel;
-  }
-
-  function openPopup(anchor, items, pointer = null) {
-    document.querySelector(".harmonova-popup")?.remove();
-    const popup = domUI.el("div", "harmonova-popup");
-    for (const item of items) {
-      if (item.heading) {
-        popup.appendChild(domUI.el("div", "popup-heading", item.heading));
-        continue;
-      }
-      const row = domUI.el("button", "popup-item");
-      row.type = "button";
-      if (item.icon) {
-        row.dataset.icon = item.icon;
-        row.appendChild(domUI.svg(item.icon));
-      }
-      row.appendChild(domUI.el("span", "", item.label));
-      row.addEventListener("click", (event) => {
-        if (!event.isTrusted) return; // SEC-30: scripted menu clicks never act
-        popup.remove();
-        item.action(event);
-      });
-      popup.appendChild(row);
-    }
-    document.body.appendChild(popup);
-    const rect = anchor.getBoundingClientRect();
-    const margin = 8;
-    const width = popup.offsetWidth;
-    const height = popup.offsetHeight;
-    const targetX = pointer ? pointer.x : rect.right - width;
-    const targetY = pointer ? pointer.y : rect.bottom + margin;
-    popup.style.left = Math.max(margin, Math.min(targetX, window.innerWidth - width - margin)) + "px";
-    popup.style.top = Math.max(margin, Math.min(targetY, window.innerHeight - height - margin)) + "px";
-    setTimeout(() => {
-      const close = (e) => {
-        if (!popup.contains(e.target)) {
-          popup.remove();
-          document.removeEventListener("pointerdown", close, true);
-        }
-      };
-      document.addEventListener("pointerdown", close, true);
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-// Phase 1: account chip (session chip, login hand-off, logout)
-// ---------------------------------------------------------------------------
-
-// SEC-02: the only login hand-off. The goto value is built from an allowlist of
-// HarmoNova's own known paths — user-supplied query strings are never reflected.
-
+  const toolbarUI=HarmoNovaContentToolbar.create({
+    get FEEDS(){return FEEDS;},
+    get accountChip(){return accountChip;},set accountChip(value){accountChip=value;},
+    get app(){return app;},
+    get closeSearch(){return closeSearch;},
+    get domUI(){return domUI;},
+    get feedTitle(){return feedTitle;},set feedTitle(value){feedTitle=value;},
+    get filterStories(){return filterStories;},
+    get frontDateInput(){return frontDateInput;},set frontDateInput(value){frontDateInput=value;},
+    get frontDayOffset(){return frontDayOffset;},
+    get linksUI(){return linksUI;},
+    get onSearchInput(){return onSearchInput;},
+    get onSearchKeydown(){return onSearchKeydown;},
+    get openAccountMenu(){return openAccountMenu;},
+    get openFeedMenu(){return openFeedMenu;},
+    get openMoreMenu(){return openMoreMenu;},
+    get queueGlobalSearch(){return queueGlobalSearch;},
+    get refreshFeed(){return refreshFeed;},
+    get renderRecentSearches(){return renderRecentSearches;},
+    get runGlobalSearch(){return runGlobalSearch;},
+    get saveSettings(){return saveSettings;},
+    get searchChips(){return searchChips;},set searchChips(value){searchChips=value;},
+    get searchFilters(){return searchFilters;},set searchFilters(value){searchFilters=value;},
+    get searchInput(){return searchInput;},set searchInput(value){searchInput=value;},
+    get searchPanel(){return searchPanel;},set searchPanel(value){searchPanel=value;},
+    get searchRecent(){return searchRecent;},set searchRecent(value){searchRecent=value;},
+    get searchSubmit(){return searchSubmit;},set searchSubmit(value){searchSubmit=value;},
+    get searchWrap(){return searchWrap;},set searchWrap(value){searchWrap=value;},
+    get startNewPost(){return startNewPost;},
+    get toggleSearch(){return toggleSearch;},
+    get updateAccountChip(){return updateAccountChip;},
+    get updatedLabel(){return updatedLabel;},set updatedLabel(value){updatedLabel=value;},
+    get validFrontDate(){return validFrontDate;}
+  },stateFacet(["feed","search","settings","updatedAt"]));
+  function applySettings(...args){return toolbarUI.applySettings(...args);}
+  function showToast(...args){return toolbarUI.showToast(...args);}
+  function createToolbar(...args){return toolbarUI.createToolbar(...args);}
+  function openPopup(...args){return toolbarUI.openPopup(...args);}
   const actionsUI=HarmoNovaContentActions.create({
     get ALGOLIA_API(){return ALGOLIA_API;},
     get FEEDS(){return FEEDS;},
@@ -663,6 +424,7 @@ function openFeedMenu(anchor) {
   },stateFacet(["blockedUsers","bookmarks","itemState","seenTimes","selectedId","settings","thread","threadAuthor","userTags"]));
   function renderComment(...args){return commentsUI.renderComment(...args);}
   const summaryUI=HarmoNovaContentSummary.create({
+    get INCOGNITO(){return INCOGNITO;},
     get el(){return domUI.el;},
     get openSettings(){return openSettings;},
     get safeHref(){return linksUI.safeHref;},
