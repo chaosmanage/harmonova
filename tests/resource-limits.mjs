@@ -118,3 +118,17 @@ test('P13 malformed transports and throwing cancellation release scheduler', asy
   assert.equal(await policy.readText(next,10),'ok');
   assert.equal(policy.activeCount,0);
 });
+
+test('P13 failed cache entries use short TTL without defeating successful cache retention',()=>{
+ let now=1000;class Clock extends Date {static now(){return now;}}
+ const isolated=vm.createContext({URL,ArrayBuffer,TextEncoder,TextDecoder,Date:Clock,Promise,Uint8Array,Set,Map,AbortController,setTimeout,clearTimeout,ReadableStream});vm.runInContext(script,isolated);
+ const cache=isolated.HarmoNovaResourcePolicy.lru({ttl:100,failureTtl:10});cache.set('bad',null,true);cache.set('good',{ok:true});
+ assert.equal(cache.get('bad'),null);now=1011;assert.equal(cache.get('bad'),undefined);assert.equal(cache.get('good').ok,true);now=1101;assert.equal(cache.get('good'),undefined);assert.equal(cache.bytes,0);
+});
+
+test('P13 scheduler refuses excess pending work and all canceled consumers free capacity',async()=>{
+ const a=await policy.acquire('https://capacity.test/'),b=await policy.acquire('https://capacity.test/');
+ const controllers=Array.from({length:100},()=>new AbortController());const jobs=controllers.map(c=>policy.acquire('https://capacity.test/',c.signal));
+ await assert.rejects(policy.acquire('https://capacity.test/'),/RESOURCE_BUSY/);assert.equal(policy.queuedCount,100);
+ controllers.forEach(c=>c.abort());await Promise.allSettled(jobs);a();b();assert.equal(policy.queuedCount,0);assert.equal(policy.activeCount,0);
+});

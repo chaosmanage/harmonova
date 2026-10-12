@@ -32,3 +32,15 @@ test('P13 WebP animation flag is refused before any decoder call',()=>{
  const header=Buffer.alloc(30);header.write('RIFF');header.writeUInt32LE(22,4);header.write('WEBP',8);header.write('VP8X',12);header.writeUInt32LE(10,16);header[20]=2;
  assert.throws(()=>policy.dimensions(new Uint8Array(header),'image/webp'),/UNSUPPORTED/);
 });
+
+test('P13 output overflow/type/canvas failures close bitmaps and next decode proceeds',async()=>{
+ let closed=0,mode='oversized';
+ realm.createImageBitmap=async()=>({width:1,height:1,close(){closed++;}});
+ realm.OffscreenCanvas=class {
+  constructor(width,height){this.width=width;this.height=height;}
+  getContext(){return mode==='canvas-null'?null:{drawImage(){},getImageData(){return {data:new Uint8Array([100,100,100,255])};}};}
+  async convertToBlob(){return new Blob([mode==='oversized'?new Uint8Array(300000):png],{type:mode==='wrong-type'?'image/jpeg':'image/png'});}
+ };
+ for(mode of ['oversized','wrong-type','canvas-null'])await assert.rejects(policy.sanitize(png,'image/png'));
+ assert.equal(closed,3);mode='valid';assert.ok((await policy.sanitize(png,'image/png')).src.startsWith('data:image/png;base64,'));assert.equal(closed,4);
+});
