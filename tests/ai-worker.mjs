@@ -162,3 +162,10 @@ test('opt-in discussion summary does not fetch blocked articles or mislabel sour
   assert.equal(messages.at(-1).text, 'Summary of commenters');
   await worker.clearAiKey();
 });
+
+test('P07 heartbeat-only streams have a total event budget and cancel on failure', async()=> {
+  let canceled=false;
+  const body=new ReadableStream({pull(c){c.enqueue(new TextEncoder().encode(': heartbeat\n\n'.repeat(500)));},cancel(){canceled=true;}});
+  await assert.rejects(worker.streamOpenRouter(new Response(body),()=>{}),/count exceeded/);
+  assert.equal(canceled,true);
+});

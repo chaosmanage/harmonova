@@ -1,4 +1,4 @@
-importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js");
+importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -150,19 +150,15 @@ function remoteFetchBlocked() {
 async function fetchPolicy(value, init = {}) {
   const target = HarmoNovaUrlPolicy.canonicalRemoteUrl(value);
   if (!target) throw remoteFetchBlocked();
-  let response;
-  try {
-    response = await fetch(target, { ...init, redirect: "error", credentials: "omit", referrerPolicy: "no-referrer" });
-  } catch {
-    throw remoteFetchBlocked();
-  }
-  if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) throw remoteFetchBlocked();
-  return response;
+  const { resourceKind = "metadata", expectedTypes, ...settings } = init;
+  const budget=HarmoNovaResourcePolicy.Limits[resourceKind];
+  if (!budget) throw remoteFetchBlocked();
+  return HarmoNovaResourcePolicy.request(fetch,target,settings,budget,expectedTypes);
 }
 
 async function verifiedStoryArticleUrl(storyId, signal) {
   if (!Number.isSafeInteger(storyId) || storyId <= 0) throw remoteFetchBlocked();
-  const response = await fetchPolicy(`https://hacker-news.firebaseio.com/v0/item/${storyId}.json`, { signal });
+  const response = await fetchPolicy(`https://hacker-news.firebaseio.com/v0/item/${storyId}.json`, { signal, resourceKind:"storyLookup" });
   if (!response.ok) throw remoteFetchBlocked();
   const record = JSON.parse(await readResponseTextLimited(response, 8192));
   if (record?.type !== "story" || record?.id !== storyId || typeof record.url !== "string")
@@ -172,15 +168,15 @@ async function verifiedStoryArticleUrl(storyId, signal) {
   return url;
 }
 
-const metadataCache = new Map();
-const paletteCache = new Map();
+const metadataCache = HarmoNovaResourcePolicy.lru();
+const paletteCache = HarmoNovaResourcePolicy.lru({maxEntries:40,maxBytes:8*1024*1024,ttl:600000});
 
 // Phase 7 part 3: rich link previews. Public provider APIs only — fixed,
 // allowlisted API hosts derived from the article URL by strict regexes. Every
 // field is validated and capped before use; the content script renders the
 // result as text only (never HTML). SEC-22/24: fetchPolicy sends no cookies
 // and re-validates every redirect hop.
-const richPendingCache = new Map();
+const richPendingCache = metadataCache;
 
 const capText = (value, max) => {
   if (typeof value !== "string") return null;
@@ -198,13 +194,13 @@ const plainObject = (value) => Boolean(value) && typeof value === "object" && !A
 
 async function fetchRichJson(url) {
   const response = await fetchPolicy(url, {
-    signal: AbortSignal.timeout(6000),
+    resourceKind:"article", signal: AbortSignal.timeout(6000),
+    resourceKind:"richJson", expectedTypes:["application/json"],
     headers: { Accept: "application/json" },
   });
   const type = response.headers ? response.headers.get("content-type") || "" : "";
-  if (!response.ok || !type.includes("json")) throw new Error("not json");
-  const raw = await response.text();
-  if (raw.length > 262144) throw new Error("too large");
+  if (!response.ok || !type.includes("json")) { await response.body?.cancel(); throw new Error("not json"); }
+  const raw = await readResponseTextLimited(response, 256 * 1024);
   return JSON.parse(raw);
 }
 
@@ -281,7 +277,7 @@ function arxivRich(url) {
 }
 
 async function getRichPreview(url) {
-  const cached = richPendingCache.get(url);
+  const cached = richPendingCache.get("rich:"+url);
   if (cached) return cached;
   const job = (async () => {
     const provider = githubRich(url) || wikipediaRich(url) || arxivRich(url);
@@ -290,10 +286,11 @@ async function getRichPreview(url) {
       if (provider.api.endsWith("/api/query") || provider.api.includes("export.arxiv.org")) {
         const response = await fetchPolicy(provider.api, {
           signal: AbortSignal.timeout(6000),
+          resourceKind:"atom",
           headers: { Accept: "application/atom+xml, application/xml, text/xml" },
         });
-        const raw = await response.text();
-        if (!response.ok || raw.length > 524288) throw new Error("arxiv");
+        if (!response.ok) { await response.body?.cancel(); throw new Error("arxiv"); }
+        const raw = await readResponseTextLimited(response, 512 * 1024);
         return provider.parse(raw);
       }
       return provider.parse(await fetchRichJson(provider.api));
@@ -301,8 +298,9 @@ async function getRichPreview(url) {
       return null;
     }
   })();
-  richPendingCache.set(url, job);
-  return job;
+  const result = await job;
+  richPendingCache.set("rich:"+url,result,!result);
+  return result;
 }
 
 function decodeEntities(text) {
@@ -398,15 +396,15 @@ function safeImageSrc(value, base) {
 
 async function imageTint(url) {
   if (!url) return null;
-  if (paletteCache.has(url)) return paletteCache.get(url);
+  if (paletteCache.get(url) !== undefined) return paletteCache.get(url);
   if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
     paletteCache.set(url, null);
     return null;
   }
   try {
-    const response = await fetchPolicy(url, { signal: AbortSignal.timeout(6000) });
+    const response = await fetchPolicy(url, { signal: AbortSignal.timeout(6000), resourceKind:"image" });
     if (!response.ok) throw new Error("image");
-    const bitmap = await createImageBitmap(await response.blob());
+    const bitmap = await createImageBitmap(new Blob([await HarmoNovaResourcePolicy.readBytes(response, 2*1024*1024)], {type: response.headers.get("content-type")}));
     const canvas = new OffscreenCanvas(32, 32);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(bitmap, 0, 0, 32, 32);
@@ -441,41 +439,47 @@ async function imageTint(url) {
   }
 }
 
-async function getMetadata(url, wantRich = false) {
-  const cached = metadataCache.get(url);
+async function getMetadataWork(url, wantRich = false, signal) {
+  const cached = metadataCache.get("meta:"+url);
   if (cached && Date.now() - cached.time < 1800000) {
     // A rich preview requested later than the page metadata is filled in once.
-    if (wantRich && cached.value.rich === undefined) cached.value.rich = await getRichPreview(url);
+    if (wantRich && cached.value.richState === "notRequested") { cached.value.rich = await getRichPreview(url); cached.value.richState=cached.value.rich ? "available" : "unavailable"; }
     return cached.value;
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
   const richPromise = wantRich ? getRichPreview(url).catch(() => null) : null;
-  let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false, rich: null };
+  let value = { image: null, favicon: null, pageUrl: url, tint: null, refused: false, rich: null, richState: wantRich ? "unavailable" : "notRequested" };
   try {
     // SEC-23: never preview or summarize Hacker News pages.
     if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
-      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmoNovaUrlPolicy.isHackerNewsUrl(url), rich: null };
-      metadataCache.set(url, { time: Date.now(), value });
+      value = { image: null, favicon: null, pageUrl: url, tint: null, refused: HarmoNovaUrlPolicy.isHackerNewsUrl(url), rich: null, richState: wantRich ? "unavailable" : "notRequested" };
+      metadataCache.set("meta:"+url, { time: Date.now(), value }, !value.image && !value.rich);
       return value;
     }
     const response = await fetchPolicy(url, {
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal,controller.signal]) : controller.signal,
       headers: { Accept: "text/html,application/xhtml+xml" }
     });
     const type = response.headers.get("content-type") || "";
-    if (!response.ok || !type.includes("text/html")) throw new Error("not html");
-    const html = (await response.text()).slice(0, 1500000);
+    if (!response.ok || !type.includes("text/html")) { await response.body?.cancel(); throw new Error("not html"); }
+    const html = await readResponseTextLimited(response, 1500000);
     const base = response.url || url;
     const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
     const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
     // HarmoNova tints from the preview image first, then the favicon when a story has no preview.
-    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false, rich: richPromise ? await richPromise : null };
+    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon), refused: false, rich: richPromise ? await richPromise : null, richState: wantRich ? "available" : "notRequested" };
   } catch {} finally {
     clearTimeout(timer);
   }
-  metadataCache.set(url, { time: Date.now(), value });
+  metadataCache.set("meta:"+url, { time: Date.now(), value }, !value.image && !value.rich);
   return value;
+}
+
+const previewConsumers = new Map();
+async function getMetadata(url, wantRich=false, signal) {
+  const key=String(wantRich)+":"+url;
+  return HarmoNovaResourcePolicy.shared(key, controller=>getMetadataWork(url,wantRich,controller.signal), signal);
 }
 
 
@@ -518,23 +522,7 @@ function articleTextFromHtml(html) {
 }
 
 async function readResponseTextLimited(response, maxBytes) {
-  const reader = response.body?.getReader();
-  if (!reader) return (await response.text()).slice(0, maxBytes);
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > maxBytes) {
-      await reader.cancel();
-      throw new Error("Response exceeded size limit");
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  text += decoder.decode();
-  return text;
+  return HarmoNovaResourcePolicy.readText(response, maxBytes);
 }
 
 async function fetchArticleText(url, signal) {
@@ -545,10 +533,11 @@ async function fetchArticleText(url, signal) {
   }
   const parsed = new URL(url);
   const response = await fetchPolicy(parsed.href, {
-    signal,
+    resourceKind:"article", signal,
     headers: { Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
   });
   if (!response.ok) {
+    await response.body?.cancel();
     if (response.status === 401 || response.status === 403) {
       const error = new Error("Article access denied (HTTP " + response.status + "). This website does not allow HarmoNova to read the article automatically. You can open it in your browser or summarize the public Hacker News discussion instead.");
       error.code = "ARTICLE_ACCESS_DENIED";
@@ -559,6 +548,7 @@ async function fetchArticleText(url, signal) {
   }
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
   if (contentType && !contentType.includes("html") && !contentType.includes("text/plain") && !contentType.includes("xml")) {
+    await response.body?.cancel();
     throw new Error("Article is not readable text");
   }
   const raw = await readResponseTextLimited(response, MAX_ARTICLE_BYTES);
@@ -654,8 +644,13 @@ async function streamOpenRouter(response, onProgress) {
   let summary = "";
   let finishReason = "";
   let usage = null;
+  let streamBytes = 0;
+  let eventCount = 0;
+  let finished = false;
 
   const consumeEvent = (event) => {
+    eventCount++;
+    if (eventCount > 10000) throw new Error("Streaming event count exceeded size limit");
     const data = event.split("\n")
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).trim())
@@ -677,27 +672,34 @@ async function streamOpenRouter(response, onProgress) {
     return false;
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (value) buffer += decoder.decode(value, { stream: true });
-    buffer = buffer.replace(/\r\n/g, "\n");
-    if (buffer.length > MAX_SUMMARY_CHARACTERS * 2) throw new Error("Streaming event exceeded size limit");
-    let boundary;
-    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-      const event = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      if (consumeEvent(event)) {
-        await reader.cancel();
-        if (!summary.trim()) throw emptySummaryError(finishReason, usage);
-        return summary;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) { finished = true; break; }
+      if (!ArrayBuffer.isView(value) || value.BYTES_PER_ELEMENT !== 1) throw new Error("Invalid streaming data");
+      streamBytes += value.byteLength;
+      if (streamBytes > 2 * 1024 * 1024) throw new Error("Streaming response exceeded size limit");
+      buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
+      if (buffer.length > 128 * 1024) throw new Error("Streaming event exceeded size limit");
+      let boundary;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const event = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        if (consumeEvent(event)) {
+          if (!summary.trim()) throw emptySummaryError(finishReason, usage);
+          return summary;
+        }
       }
     }
-    if (done) break;
+    buffer += decoder.decode();
+    if (buffer.trim()) consumeEvent(buffer);
+    if (!summary.trim()) throw emptySummaryError(finishReason, usage);
+    return summary;
+  } finally {
+    if (!finished) try { await reader.cancel(); } catch {}
+    try { reader.releaseLock(); } catch {}
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) consumeEvent(buffer);
-  if (!summary.trim()) throw emptySummaryError(finishReason, usage);
-  return summary;
 }
 
 async function jsonOpenRouterSummary(response) {
@@ -745,6 +747,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
     ],
   };
   const response = await fetchPolicy(OPENROUTER_CHAT_URL, {
+    resourceKind: stream ? "aiStream" : "aiJson",
     method: "POST",
     signal: controller.signal,
     credentials: "omit",
@@ -773,6 +776,7 @@ async function summarizeWithOpenRouter(port, message, controller) {
       // Make at most one non-streaming recovery attempt with a larger budget.
       port.postMessage({ type: "status", requestId: message.requestId, storyId, status: "generating", detail: "Retrying without streaming…" });
       const retry = await fetchPolicy(OPENROUTER_CHAT_URL, {
+        resourceKind:"aiJson",
         method: "POST", signal: controller.signal, credentials: "omit",
         headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "Accept": "application/json", "X-Title": "HarmoNova for Hacker News" },
         body: JSON.stringify({ ...requestPayload, stream: false, max_tokens: 3500 }),
