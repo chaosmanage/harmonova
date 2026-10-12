@@ -57,6 +57,7 @@
         "incognito-state.js",
         "content/state.js",
         "content/composer.js",
+        "content/settings.js",
         "content.js"
       ],
       "css": [
