@@ -47,7 +47,7 @@ Editing and deleting comments are a special case: they currently **open HN's ori
 
 ## An AI summary fails
 
-Check that your OpenRouter API key is configured, that the model ID is available to your account, and that OpenRouter is responding. Article websites sometimes reject automated requests or provide no readable article content. Try **Discussion** if you want a summary of public comments instead, but note that it summarizes different material.
+Check that your key and fresh AI permissions are saved on the extension settings page and that the model is available to your OpenRouter account. The Article button supports provider excerpts and abstracts only; arbitrary article extraction is unavailable. Try Discussion for public HN comments. Private tabs have no AI summaries.
 
 An API key is optional for normal reading and HN account features. See [Privacy & security](PRIVACY.md) before enabling summaries.
 
@@ -69,3 +69,11 @@ arXiv previews. Ordinary article URLs, unsupported images/favicons, redirected
 provider responses and denied provider permissions use placeholders. You can
 always open the article normally, or summarize the public HN discussion after
 saving fresh AI consent. Private tabs do not use AI or external previews.
+
+## Draft or sign-out outcome is uncertain
+
+A failed/ambiguous post is not retried automatically. Keep the draft and inspect the ordinary HN page before submitting again. Sign-out is reported as confirmed only after a signed-out page is read back; “Could not confirm sign-out” keeps drafts. After a worker restart, reopen the composer to obtain a new draft token. Same-draft conflicts preserve the other writer instead of silently overwriting it.
+
+## Preferences could not be saved
+
+Local storage is authoritative and sync is a mirror. A sync warning can leave a local recovery copy. Reload after recovery; legacy page data is retained after a failed migration. Unknown newer store versions are refused safely. Private cosmetic changes are temporary and do not change normal settings.

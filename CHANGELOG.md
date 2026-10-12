@@ -1,3 +1,13 @@
+## v0.14.0 — Security and privacy remediation
+
+- Require fresh AI consent in extension settings; stored keys and page preferences never authorize spending. Automatic summaries need separate consent and a real selection.
+- Default external previews off and restrict them to supported GitHub, Wikipedia and arXiv operations. Arbitrary article extraction and remote favicon fallbacks are unavailable; local placeholders keep ordinary reading usable.
+- Reject external redirects, omit cookies/referrers, enforce streamed size/time limits and render bounded sanitized PNG images. PNG/JPEG/nonanimated WebP are supported when origin, dimensions and encoded size pass checks.
+- Isolate private reader data and drafts in document memory; reload/navigation loses that state. Private AI and external previews are disabled; original-HN handoffs stay private.
+- Require trusted final account actions and definitive logout verification. Ambiguous posts are not replayed; uncertain outcomes retain drafts. Serialize reader/draft/preferences mutations, preserve unrelated tab updates and show draft conflicts.
+- Migrate legacy data only after successful writes, keep safe appearance recovery fields and refuse unknown newer schemas without deletion. Reader imports report truncation and support optional v1 seen times.
+- Split classic runtime modules and add offline source/package CI, recursive fixture scanning, syntax/lint checks and ZIP/source integrity checks. No live accounts or billable calls in default tests.
+
 ## v0.13.10 — Google Sans Flex Rounded default font
 
 - Made Google's official **Google Sans Flex Rounded** the default for new installations, while retaining System UI and Serif as options.

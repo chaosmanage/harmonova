@@ -41,7 +41,7 @@ const paletteCache = HarmoNovaResourcePolicy.lru({maxEntries:40,maxBytes:8*1024*
 // allowlisted API hosts derived from the article URL by strict regexes. Every
 // field is validated and capped before use; the content script renders the
 // result as text only (never HTML). SEC-22/24: fetchPolicy sends no cookies
-// and re-validates every redirect hop.
+// and rejects every external redirect.
 const richPendingCache = metadataCache;
 
 const capText = (value, max) => {

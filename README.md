@@ -17,7 +17,7 @@ HarmoNova for Hacker News is a Chrome extension that gives [Hacker News](https:/
 - Top, New, Best, Ask HN, Show HN, Jobs, and site-wide search.
 - Customizable themes, typography, and story/comment layouts.
 - Vote, reply, submit, and save favorites with your Hacker News account.
-- Optional AI summaries of articles or discussions using your own OpenRouter API key.
+- Optional AI summaries of supported provider excerpts or discussions using your own OpenRouter API key.
 
 ## Install in Chrome
 
@@ -62,7 +62,7 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 - **Search all of Hacker News.** Find stories or comments and filter by date, author, and more.
 - **Make it yours.** Dark themes, fonts, story previews, comment styles, and other settings.
 - **Use your HN account.** Vote, reply, submit stories, and manage favorites, using Hacker News's own login.
-- **Summarize with AI (optional).** Use your own OpenRouter key to summarize an article or its HN discussion.
+- **Summarize with AI (optional).** Use your own OpenRouter key to summarize a supported provider excerpt or its HN discussion.
 
 ### A closer look
 
@@ -76,14 +76,13 @@ If you've never used Harmonic on Android, that's fine. All you need to know is t
 
 [Explore the full feature guide, including more screenshots →](docs/FEATURES.md)
 
-## AI summaries: articles or discussions
+## Optional previews and AI
 
-Sometimes I want the main points of an article before reading it. Other times the **Hacker News comments** are the interesting part. HarmoNova has a separate button for each:
+External previews start disabled. Enable them on the extension's **AI and external previews** settings page for GitHub repositories, Wikipedia in six supported languages and arXiv papers. Other links, redirected providers and unsupported images show local placeholders. Favicons use local domain markers. Ordinary article links still open normally.
 
-- **Article** reads the linked page and summarizes its content.
-- **Discussion** summarizes the public Hacker News conversation instead.
+The **Article** summary button uses a supported provider's excerpt or abstract; full arbitrary article extraction is unavailable. **Discussion** summarizes public HN comments. Save an OpenRouter key and fresh AI permission on the extension settings page. Saving a key alone enables nothing. Automatic summaries need separate consent and a real story selection. The selected public text is sent to OpenRouter and may incur charges.
 
-Both use [OpenRouter](https://openrouter.ai/) and are optional. Add your own API key in **Settings → AI** and select a model. Nothing is summarized unless you request it (unless you choose to enable automatic summaries in Settings). The text being summarized is sent to OpenRouter; not every article site allows automatic reading.
+In private windows, reader data and drafts stay only in the current document and disappear on reload, navigation or closure. Private AI and external previews are disabled. See [Privacy](docs/PRIVACY.md) for exact storage and request behavior.
 
 ![AI summary of the Nanolathe Total Annihilation article in the discussion reader](docs/assets/ai-summary-demo.png)
 
@@ -106,10 +105,3 @@ You can always open **original Hacker News** from the menu or turn off HarmoNova
 HarmoNova uses its supplied icon and banner artwork. The default font is locally bundled Google Sans Flex Rounded (SIL Open Font License 1.1); System UI and Serif remain available. See [branding details](icons/README.md).
 
 HarmoNova is an independent project and is **not affiliated with or endorsed by** the Harmonic developer, Hacker News, or Y Combinator. This extension is licensed under [Apache License 2.0](LICENSE).
-
-Security remediation on this branch limits external previews to supported
-GitHub, Wikipedia and arXiv providers. Enable previews in the extension settings
-page; they begin disabled. AI needs a fresh saved consent policy. Arbitrary
-article extraction and remote favicon fallbacks are unavailable. Private reader
-history and drafts stay in the individual private tab and disappear on reload or
-closure; private AI and previews are disabled. See [privacy](docs/PRIVACY.md).

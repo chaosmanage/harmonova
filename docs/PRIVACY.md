@@ -1,102 +1,42 @@
 # Privacy, permissions, and security
 
-[← Back to README](../README.md) · [Architecture](ARCHITECTURE.md)
+[← README](../README.md) · [Architecture](ARCHITECTURE.md)
 
-HarmoNova is a browser extension, not a hosted reading service. There is no HarmoNova account, project-owned server, or analytics pipeline. It uses Hacker News and public metadata services to build the reading view. Optional AI summaries contact OpenRouter using your own key.
+HarmoNova has no project server, analytics, or account. Normal reading uses public Hacker News Firebase and Algolia APIs. Account actions use Hacker News's own authenticated pages and forms. Optional previews and AI contact the providers described below; those providers can retain requests under their own policies.
 
-This page explains **what the extension can access**, **what gets stored**, and **what leaves your browser**. It is a description of the implementation, not a guarantee that third-party services never retain information.
+## Data locations
 
-## Permissions explained
-
-| Manifest permission | Why HarmoNova requests it |
+| Data | Location and lifetime |
 | --- | --- |
-| `storage` | Remember appearance/feed preferences, enable state, read/bookmark history, temporary session data, and an optional OpenRouter credential. |
-| `activeTab` | Let the extension popup inspect and act on the tab you explicitly open it from, such as opening Settings or switching HN modes. |
-| HTTP/HTTPS host permissions | Load link previews, favicons, preview images, external article text (only for requested summaries), and provider APIs. Stories can link to almost any public domain. |
+| Cosmetic and feed preferences, enabled state | Worker-owned `chrome.storage.local` with a validated `chrome.storage.sync` mirror. Sync may share these preferences with your browser account. Failed sync leaves a local recovery copy and shows a warning. |
+| Theme, font, text sizes and zoom recovery | Six cosmetic fields in HN-origin localStorage; the website can read/change these. They grant no network or AI permission. |
+| Normal bookmarks, read IDs, tags, blocked users, seen times | Versioned worker-owned local storage; shared between normal tabs. |
+| Normal composer drafts | Worker-owned session storage, at most 50 drafts of 20 KiB each, bound to account/item and composer revision. Browser-session end removes them. |
+| Original-HN bypass tab IDs | Session storage; removed when tabs close. |
+| OpenRouter key | Local storage if you choose profile persistence, or session storage if you choose browser-session-only storage. Never Chrome Sync, HN page storage, or exported reader data. The HN UI receives only whether a key exists. |
+| AI consent/model/prompt and preview permission | Local storage, edited only through the extension's own settings page. Existing keys and old page/sync AI preferences grant no consent. |
+| Summaries, searches, preview caches | Bounded tab/worker memory; no persistent summary history. |
 
-The content script is restricted to **`https://news.ycombinator.com/*`**. Host permissions are broader because HN stories link to arbitrary sites, but that does **not** mean HarmoNova replaces other sites or reads their contents as you browse them. Background requests have URL validation and redirect restrictions.
+Chrome storage areas are restricted to trusted extension contexts. Normal content scripts use typed worker messages. Versioned repositories serialize writes and preserve unrelated tab changes; conflicting writers to the same draft receive a conflict instead of overwriting it. Export/import covers bounded reader data (including optional v1 seen times) only, never keys, AI consent, drafts, or tab IDs. Existing valid keys and reader data survive upgrades. Legacy page data is deleted only after an acknowledged migration; newer unknown store versions are refused without deletion.
 
-## What is stored where?
+## Private windows
 
-| Data | Storage | Notes |
-| --- | --- | --- |
-| Appearance, feed, and reader preferences; enabled/disabled state | `chrome.storage.sync` | May sync with your browser account when Chrome Sync is available. |
-| Non-secret preference recovery copy | HN origin `localStorage` | Helps recover interface settings if loading from a different unpacked path changes the extension ID. Only preferences and enabled state. |
-| Bookmarks, read-story history, author tags/blocks | Local browser/extension storage | Used for your reading experience; not posted to HN or a HarmoNova server. Export/import is manual. |
-| Saved reply drafts | `chrome.storage.session` | Temporary, account- and parent-specific. Clears with the extension's session lifecycle; account logout also clears drafts. |
-| Optional OpenRouter API key (remember mode) | Extension-owned `chrome.storage.local` | Not in Chrome Sync or HN page storage. |
-| Optional OpenRouter API key (session mode) | `chrome.storage.session` | Must be re-entered when the browser session ends. |
-| AI summary output | Current page memory | Not stored in synced preferences or sent to a HarmoNova backend. |
-| Original-HN tab bypass information | `chrome.storage.session` | Holds tab IDs so a requested original HN tab doesn't immediately get replaced by HarmoNova. |
+If you allow this extension in incognito, reader state and drafts exist only in the current document's memory. They disappear on reload, navigation or tab closure, and are not shared with another private tab. Imports and exports use that document's private reader state. Private reading, draft cleanup and logout do not modify normal reader stores. Private tabs may read a sanitized cosmetic snapshot but do not migrate or save normal preferences. AI and external previews are disabled privately. Original-HN handoffs stay in the originating private window. Exporting a private file still saves a file to your chosen download location.
 
-A remembered API key is **not** OS-keychain encrypted by the extension. Someone with access to local browser profile files may be able to access it. Use session-only mode if you prefer not to keep a key on disk.
+## Requests and permission boundaries
 
-Chrome can retain extension data beyond an individual tab's lifetime. Browser sync, profile backup, and the behavior of third-party service accounts are outside this project's control. Private/incognito-mode activity is handled in memory rather than intentionally persisted to normal read/bookmark storage.
+The content scripts run only on `https://news.ycombinator.com/*`. `storage` supports the stores above; `activeTab` supports the popup's explicit tab controls. Required host permissions are exact HTTPS origins: HN, Firebase, OpenRouter, GitHub API, arXiv export, GitHub avatars, Wikimedia uploads, and Wikipedia in English, German, French, Spanish, Japanese and Chinese. Algolia's public reading/search API is accessed by the content client. There are no wildcard HTTP/HTTPS host permissions, optional arbitrary-origin permissions, cookies permission, or webRequest permission.
 
-## Network requests
+External previews start **disabled**, including upgrades. Enable them on the extension's AI and external previews page. Supported sources are GitHub repository metadata, Wikipedia summaries in those six languages, and arXiv abstracts. Only corresponding API operations and vetted GitHub-avatar/Wikimedia raster paths are fetched. Arbitrary article HTML, arbitrary metadata URLs and external favicon services are unsupported. Local domain markers and placeholders keep reading usable when previews are off, denied, redirected, oversized or unsupported.
 
-| When | Service | What is involved |
-| --- | --- | --- |
-| Reading feeds | HN Firebase API | Story IDs, titles, scores, and other public item data. |
-| Opening discussions or running site-wide search | Algolia HN API | Public discussion trees; for site-wide search, your query and selected filters. |
-| Using your HN account | `news.ycombinator.com` | HN's own pages, session, action tokens, and forms. The extension doesn't collect a password. |
-| Displaying cards with enabled image/metadata features | Linked public sites and favicon/preview providers | Page metadata, favicons, or images for the stories on screen. |
-| Opening a supported rich link preview | GitHub, Wikipedia, or arXiv public APIs | Public URL-derived data for those links. |
-| **You click Article summary** | Selected article site, then OpenRouter | Extracted readable article text and the configured prompt are sent to OpenRouter with your API key. |
-| **You click Discussion summary** | Public HN discussion, then OpenRouter | Public comment text and the prompt are sent to OpenRouter with your API key. |
+External worker requests omit browser cookies and referrers and reject every redirect before another request. Host, path, method and response type checks are enforced in the worker. Bodies are streamed under byte and time budgets, with bounded queues and caches. Images accept only bounded, nonanimated PNG/JPEG/WebP with validated dimensions, then decode and re-encode as small PNG data images. The page never fetches provider image URLs itself; image errors and restrictive page CSP yield placeholders without a remote fallback.
 
-Algolia search is not contacted merely because you type into the **Loaded stories** filter. Site-wide search uses a separate explicit search mode. Preview services and external sites may have their own logging and retention policies.
+This is a **fixed-provider trust policy**, not a DNS firewall. Browser DNS, TLS and those providers remain trusted. Literal private/public IP addresses and arbitrary hostnames are rejected, but the code cannot inspect the browser's resolved address. Restoring arbitrary-origin fetches would require separate transport enforcement. Authenticated HN requests use native HN redirects and verify the final origin; this trusts HN and does not claim to prevent every intermediate redirect side effect.
 
-**No project-owned proxy sits between the extension and OpenRouter.** Your configured provider/model may process or retain inputs according to OpenRouter and model-provider policies; check those policies before summarizing sensitive material. Article summarization is not a private offline operation.
+## AI consent and billing
 
-## Account actions and safeguards
+Saving a key alone enables nothing. On the extension settings page, explicitly save permission for summaries, a model and a prompt. Automatic summaries require separate saved consent and a real user selection; opening/reloading a thread or changing HN page storage does not authorize a billable request. The worker fixes model/prompt/stream policy from its own store and derives article URLs from the public story record. It accepts no arbitrary privileged proxy request from the page.
 
-HarmoNova does not implement its own login page. It hands sign-in to HN, and authenticated votes/replies/submissions use HN's own session and one-time form fields. Actions are guarded against accidental scripted clicks, mutations are not blindly retried, and ambiguous post outcomes keep drafts where possible.
+The Article button summarizes supported **provider text**, such as a Wikipedia excerpt or arXiv abstract, rather than the full arbitrary linked article. Discussion summaries use public HN discussion text. The selected text, configured prompt/model and key authorization are sent to OpenRouter. Summary output can be inaccurate. At most one request per tab is active; cancellation, disconnect, ambiguous failures and worker restart do not automatically replay it. A single empty-stream recovery request is allowed only if you separately enable that option, which may incur another charge. Cancellation cannot guarantee a provider reverses charges for an already received request.
 
-Editing and deleting existing comments currently use **an explicit handoff** to HN's original form rather than pretending to complete the action in HarmoNova. This is a deliberate limitation while native handling is unavailable.
-
-Remote background fetches omit browser credentials, validate public HTTP(S) destinations, reject private/loopback hosts, and re-check redirects. The background message handlers validate who sent a request. Rendered external links and AI text are sanitized; AI-rendered Markdown cannot inject active image requests or execute HN actions.
-
-The tests in `tests/security.mjs` cover the key security boundaries. For developers, commands and release checks are listed in [Development](DEVELOPMENT.md).
-
-## What this project does not do
-
-It doesn't operate a private copy of HN, ask for your HN password in its UI, run analytics, add a tracker, sell personal data, or send AI summary requests unless you initiate them. Standard visits to external articles and third-party features still follow those websites' own privacy policies.
-
-For a problem report, **never upload a key, HN cookie, authentication URL, or draft containing private information**. Use [GitHub Issues](https://github.com/chaosmanage/harmonova/issues) for reproducible issues without secrets.
-
-Security remediation: external previews start disabled, including on upgrades.
-Enable them only in the extension's AI and preview settings page. Switching them
-off cancels preview work. Appearance switches on Hacker News do not grant network
-access. Private tabs have no external previews or AI access.
-
-Background requests are restricted to exact HTTPS provider origins and paths:
-HN Firebase item lookup; OpenRouter chat completions after fresh explicit consent;
-GitHub's repository API; Wikipedia summaries in English, German, French, Spanish,
-Japanese and Chinese; and arXiv's query API. Supported images use only GitHub's
-avatars.githubusercontent.com numeric user paths and upload.wikimedia.org's
-Wikipedia image paths. Google/DuckDuckGo and arbitrary-site favicons are disabled.
-
-Arbitrary article pages and metadata are no longer downloaded by the extension.
-Supported provider extracts and public HN discussions can be summarized; other
-articles can be opened normally in your browser. All background redirects are
-rejected before following. Fixed provider hostnames rely on the user's DNS/TLS
-environment and the providers themselves; this is not an IP-bound transport or a
-guarantee against a compromised resolver/provider.
-
-Preview images are bounded PNG/JPEG/non-animated WebP inputs fetched without
-cookies or referrers, dimension-checked, and re-encoded as bounded PNG data before
-display. Original remote image URLs are never placed in the reader DOM. Unsupported
-formats (including SVG, GIF and ICO), destinations, redirects and data-image CSP
-failures show placeholders without an external fallback.
-
-Normal reader tags, blocks, seen timestamps, read IDs and bookmarks are stored in
-extension-local reader storage. Normal drafts use extension-session memory;
-private drafts and reader state use only their private document's memory. Normal
-cosmetic preferences are committed in extension-local storage and mirrored to
-Chrome Sync; a sync failure retains local recovery and reports that status. HN
-page storage keeps only theme/font/text-size/zoom recovery fields (plus the
-non-sensitive enabled-view backup where present), never reader data, drafts,
-credentials, AI consent or network policy. Valid legacy page data is removed only
-after the worker acknowledges its migration; malformed data produces a recovery
-notice. Newer store schemas are never automatically downgraded.
+HN mutations require real user events, bind the account/form/text at dispatch, and are not blindly retried after an ambiguous outcome. Logout success requires a definitive signed-out read-back; uncertainty retains drafts and offers an ordinary HN handoff. The isolated-world code and browser are trusted boundaries. A shared web-page DOM can still deceive users about what they see; it is not a general defense against all UI deception.
