@@ -1873,419 +1873,62 @@ function openFeedMenu(anchor) {
   function createSummarySurface(...args){return summaryUI.createSummarySurface(...args);}
   function stopActiveSummary(...args){return summaryUI.stopActiveSummary(...args);}
   function startStorySummary(...args){return summaryUI.startStorySummary(...args);}
-  function threadAction(iconName, label, action, options = {}) {
-    const b = button(iconName, label, "thread-action");
-    if (options.id) b.dataset.bookmarkId = options.id;
-    if (options.summaryId) b.dataset.summaryActionId = options.summaryId;
-    if (options.summarySource) b.dataset.summarySource = options.summarySource;
-    if (options.active) b.classList.add("active");
-    if (options.disabled) b.disabled = true;
-    b.addEventListener("click", (event) => {
-      if (!event.isTrusted) return; // SEC-30: programmatic clicks never trigger thread actions
-      action(event);
-    });
-    return b;
-  }
 
-  function createThreadPlaceholder() {
-    const placeholder = el("div", "thread-placeholder");
-    placeholder.append(
-      el("div", "placeholder-logo", "Y"),
-      el("h2", "", "Choose a story"),
-      el("p", "", "Comments and story details appear here. Article links open in a new tab.")
-    );
-    return placeholder;
-  }
-
-  async function selectStory(storyOrId, push = true, scrollTop = true, gesture = null) {
-    const id = typeof storyOrId === "number" ? storyOrId : storyOrId.id;
-    state.aiSelectionIntent = gesture?.isTrusted ? id : null;
-    state.selectedId = id;
-    state.selectedStory = typeof storyOrId === "object" ? storyOrId : state.stories.find((s) => s.id === id) || null;
-    if (app) app.classList.add("show-thread");
-    markRead(id);
-    document.querySelectorAll(".story-card.selected").forEach((node) => node.classList.remove("selected"));
-    document.querySelector('[data-story-id="' + id + '"]')?.classList.add("selected");
-    if (push) history.pushState({ harmonovaItem: id }, "", "/item?id=" + id);
-    document.body.classList.add("thread-active");
-    if (scrollTop) threadPane.scrollTop = 0;
-    await loadThread(id);
-  }
-
-  async function loadThread(id) {
-    threadScope.dispose();threadScope=HarmoNovaLifecycle.create();
-    const scope=threadScope;
-    stopActiveSummary();
-    cancelItemState();
-    closeComposer({ keepDraft: true });
-    // Direct thread switches (e.g. "already submitted" → open the existing
-    // story) must retarget the selection, or the fetched payloads are dropped
-    // when the stale selectedId fails the guard below.
-    state.selectedId = id;
-    state.threadOpOnly = false;
-    state.itemState = null;
-    state.pollOptions = null;
-    state.pollOptionsRenderedKey = "";
-    threadPane.replaceChildren(createLoading("Loading discussion…"));
-    scheduleItemState(id);
-    loadPollOptions(id);
-    try {
-      const item = await fetchJson(ALGOLIA_API + "/items/" + id,scope.signal);
-      if (!scope.alive || state.selectedId !== id) return;
-      mergeConfirmedComments(item);
-      state.thread = item;
-      renderThread(item);
-    } catch (error) {
-      if(!scope.alive || state.selectedId!==id)return;
-      const fail = el("div", "harmonova-error");
-      fail.append(el("strong", "", "Couldn’t load discussion"), el("span", "", error.message));
-      threadPane.replaceChildren(fail);
-    }
-  }
-
-  async function renderThread(item) {
-    const scope=threadScope;
-    if(!scope.alive || state.selectedId!==item.id)return;
-    threadPane.replaceChildren();
-    document.title = (item.title || "Discussion") + " — HarmoNova";
-    const header = el("header", "thread-header");
-    const hero = el("a", "thread-hero");
-    hero.href = articleHref(item);
-    hero.target = "_blank";
-    hero.rel = "noopener";
-    const heroImg = el("img", "thread-hero-image");
-    heroImg.alt = "";
-    heroImg.addEventListener("error", () => {
-      header.classList.remove("has-hero");
-      hero.remove();
-    });
-    hero.appendChild(heroImg);
-
-    const headerBody = el("div", "thread-header-body");
-    const title = el("a", "thread-title", item.title || "(untitled)");
-    setStoryLink(title, item);
-    title.target = "_blank";
-    title.rel = "noopener";
-    const domain = el("a", "thread-domain");
-    setStoryLink(domain, item);
-    domain.target = "_blank";
-    domain.rel = "noopener";
-    domain.append(svg("link"), el("span", "", "(" + domainOf(item.url) + ")"));
-
-    const totalComments = (item.children || []).reduce((sum, child) => sum + 1 + commentsUI.descendantCount(child), 0);
-    const stat = (iconName, value) => {
-      const node = el("span", "thread-stat");
-      node.append(svg(iconName), el("span", "", value));
-      return node;
-    };
-    const meta = el("div", "thread-meta");
-    const authorLink = el("a", "thread-author");
-    authorLink.href = "https://news.ycombinator.com/user?id=" + encodeURIComponent(item.author || "");
-    authorLink.target = "_blank";
-    authorLink.rel = "noopener";
-    authorLink.append(svg("user"), el("span", "", item.author || "unknown"));
-    const pointsStat = stat("thumb", compact(item.points || 0));
-    pointsStat.dataset.threadPoints = "1";
-    const pointsValue = pointsStat.querySelector("span:last-child");
-    pointsValue.dataset.threadPointsValue = String(item.points || 0); // optimistic vote updates target this
-    meta.append(
-      pointsStat,
-      stat("comment", compact(totalComments)),
-      stat("clock", relativeTime(item.created_at_i || 0)),
-      authorLink
-    );
-
-    const session = window.HarmoNovaHN?.session?.() || null;
-    const replyAction = threadAction("replyPlus", "Add reply", () => session
-      ? openComposer({ parentId: item.id, storyId: item.id })
-      : showToast("Sign in to reply"));
-    const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
-    const preVoted = Boolean(storyState?.voted) || Boolean(state.feedVotes.get(item.id));
-    const upvoteButton = threadAction("thumb", preVoted ? "Unvote" : "Upvote", handleStoryVote);
-    upvoteButton.setAttribute("data-thread-vote", "1");
-    upvoteButton.classList.toggle("active", preVoted);
-    if (!session) {
-      upvoteButton.title = "Sign in to vote";
-      upvoteButton.setAttribute("aria-label", "Sign in to vote");
-    }
-    // Phase 4: favorite + hide controls. Availability gating happens in
-    // updateThreadVoteUi once the fetched item document lands.
-    const favoriteButton = threadAction("star", storyState?.favorited ? "Unfavorite" : "Favorite", handleStoryFavorite);
-    favoriteButton.setAttribute("data-thread-favorite", "1");
-    favoriteButton.classList.toggle("active", Boolean(storyState?.favorited));
-    if (!session) {
-      favoriteButton.title = "Sign in to favorite";
-      favoriteButton.setAttribute("aria-label", "Sign in to favorite");
-    }
-    const hideButton = threadAction("eyeOff", storyState?.hidden ? "Unhide" : "Hide", handleStoryHide);
-    hideButton.setAttribute("data-thread-hide", "1");
-    hideButton.classList.toggle("active", Boolean(storyState?.hidden));
-    if (!session) {
-      hideButton.title = "Sign in to hide";
-      hideButton.setAttribute("aria-label", "Sign in to hide");
-    }
-
-    const actions = el("div", "thread-actions");
-    const profileAction = threadAction("user", session ? "My profile" : "Log in", () => session
-      ? openUserPanel(session.username)
-      : openAccountMenu(profileAction));
-    profileAction.classList.add("thread-profile-action");
-    const summaryActions = el("div", "summary-action-group");
-    summaryActions.setAttribute("role", "group");
-    summaryActions.setAttribute("aria-label", "AI summaries");
-    const articleSummary = threadAction("sparkle", "Summarize article", () => startStorySummary(item, { source: "article", trusted: true }),
-      { summaryId: item.id, summarySource: "article", disabled: !item.url });
-    const discussionSummary = threadAction("comment", "Summarize discussion", () => startStorySummary(item, { source: "discussion", trusted: true }),
-      { summaryId: item.id, summarySource: "discussion" });
-    for (const [action, label] of [[articleSummary, "Article"], [discussionSummary, "Discussion"]]) {
-      action.classList.add("summary-action");
-      action.appendChild(el("span", "summary-action-label", label));
-      summaryActions.appendChild(action);
-    }
-    const shareAction = threadAction("share", "Share story", async () => {
-      const url = "https://news.ycombinator.com/item?id=" + item.id;
-      if (navigator.share) {
-        try {
-          await navigator.share({ title: item.title || "Hacker News", url });
-          return;
-        } catch (error) {
-          if (error?.name === "AbortError") return;
-        }
-      }
-      try {
-        await navigator.clipboard.writeText(url);
-        showToast("Story link copied");
-      } catch {
-        window.open(url, "_blank", "noopener");
-      }
-    });
-    actions.append(profileAction, replyAction, upvoteButton, favoriteButton, summaryActions, shareAction);
-    const more = threadAction("more", "More", (event) => {
-      const storyState = state.itemState && state.itemState.itemId === item.id ? state.itemState.story : null;
-      openPopup(event.currentTarget, [
-        { label: "Reply to story", icon: "comment", action: () => session
-          ? openComposer({ parentId: item.id, storyId: item.id })
-          : showToast("Sign in to reply") },
-        ...(session && storyState?.favoriteAvailable
-          ? [{ label: storyState.favorited ? "Unfavorite" : "Favorite", icon: "heart", action: handleStoryFavorite }]
-          : []),
-        ...(session && storyState?.hideAvailable
-          ? [{ label: storyState.hidden ? "Unhide" : "Hide", icon: "eyeOff", action: handleStoryHide }]
-          : []),
-        { label: "Search in comments", icon: "search", action: () => {
-          const heading = threadPane.querySelector(".comments-heading");
-          const input = heading?.querySelector(".comment-search");
-          heading?.classList.add("searching");
-          input?.focus();
-        } },
-        { label: "Sort comments · " + state.settings.commentSort, action: () => openSortMenu(more) },
-        { label: state.threadOpOnly ? "Show all comments" : "Show only OP comments", icon: "user", action: () => {
-          state.threadOpOnly = !state.threadOpOnly;
-          const input = threadPane.querySelector(".comment-search");
-          const count = threadPane.querySelector(".comment-search-count");
-          filterThreadComments(input?.value, count, totalComments);
-        } },
-        { label: "Open on original Hacker News", icon: "external", action: () => openOriginalHackerNews("/item?id=" + item.id) },
-        ...(archiveHref(item) ? [{ label: "View on archive", icon: "clock", action: () => openArchive(item) }] : []),
-        // Phase 4: flag only when Hacker News offers the link, behind a
-        // confirmation dialog (SEC-36).
-        ...(session && storyState?.flagAvailable
-          ? [{
-              label: storyState.flagged ? "Unflag story" : "Flag story",
-              icon: "flag",
-              action: (popupEvent) => {
-                if (storyState.flagged) {
-                  window.HarmoNovaHN.setFlagged(item.id, false).then((outcome) =>
-                    showToast(outcome.status === "success" ? "Flag removed" : outcome.message || "The flag could not be removed")
-                  );
-                } else {
-                  confirmFlagItem(popupEvent, item.id, "story");
-                }
-              },
-            }]
-          : []),
-        { label: "Settings", icon: "settings", action: openSettings },
-        { label: "Disable HarmoNova", icon: "power", action: disableHarmoNova },
-      ]);
-    });
-    actions.appendChild(more);
-    const article = threadAction("link", "Open article", () => window.open(title.href, "_blank", "noopener"), { active: false });
-    article.classList.add("article-link-action");
-
-    headerBody.append(title, domain, meta, article);
-    if (item.text) {
-      const storyText = el("div", "thread-story-text");
-      appendSanitizedHtml(storyText, item.text);
-      headerBody.appendChild(storyText);
-    }
-    hideButton.classList.add("thread-secondary-action");
-    headerBody.append(createSummarySurface(item.id), actions, hideButton);
-    updateSummarySurface(item.id);
-    header.append(hero, headerBody);
-    threadPane.appendChild(header);
-    updateSummarySurface(item.id);
-    const existingSummary = summaryStateFor(item.id);
-    if (item.url && state.aiSelectionIntent === item.id && existingSummary.status === "idle") {
-      startStorySummary(item, { automatic: true });
-    }
-
-    const total = (item.children || []).reduce((sum, child) => sum + 1 + commentsUI.descendantCount(child), 0);
-    const heading = el("div", "comments-heading");
-    heading.append(el("h2", "", total + " comments"));
-
-    // Phase 7 part 2: in-thread comment filter with a live match count.
-    state.threadAuthor = item.author || "";
-    const searchBox = el("input", "comment-search");
-    searchBox.type = "search";
-    searchBox.placeholder = "Filter comments";
-    searchBox.autocomplete = "off";
-    const matchLabel = el("span", "comment-search-count", "");
-    searchBox.addEventListener("input", () => filterThreadComments(searchBox.value, matchLabel, total));
-    const nav = el("div", "comments-nav");
-    const upButton = el("button", "comments-nav-button", "↑ Top");
-    upButton.type = "button";
-    upButton.title = "Back to the story";
-    upButton.addEventListener("click", (event) => {
-      if (!event.isTrusted) return;
-      threadPane.querySelector(".thread-header")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    let topLevelIndex = -1;
-    const topLevelRows = () => [...threadPane.querySelectorAll(".comments > .comment-row")].filter((row) => !row.hidden);
-    const jumpTopLevel = (delta) => {
-      const rows = topLevelRows();
-      if (!rows.length) return;
-      topLevelIndex = Math.min(rows.length - 1, Math.max(0, topLevelIndex + delta));
-      const target = rows[topLevelIndex];
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      target.classList.remove("nav-flash");
-      // restart the flash animation
-      void target.offsetWidth;
-      target.classList.add("nav-flash");
-    };
-    const prevButton = el("button", "comments-nav-button", "‹ Prev");
-    prevButton.type = "button";
-    prevButton.title = "Previous top-level comment";
-    prevButton.addEventListener("click", (event) => {
-      if (!event.isTrusted) return;
-      jumpTopLevel(-1);
-    });
-    const nextButton = el("button", "comments-nav-button", "Next ›");
-    nextButton.type = "button";
-    nextButton.title = "Next top-level comment";
-    nextButton.addEventListener("click", (event) => {
-      if (!event.isTrusted) return;
-      jumpTopLevel(1);
-    });
-    nav.append(upButton, prevButton, nextButton);
-    heading.append(nav, searchBox, matchLabel);
-    threadPane.appendChild(heading);
-
-    const comments = el("section", "comments");
-    for (const comment of commentsUI.sortedComments(item.children || [])) comments.appendChild(renderComment(comment, 0));
-    if (!comments.childElementCount) comments.appendChild(el("div", "empty-comments", "No comments yet."));
-    threadPane.appendChild(comments);
-    if (state.threadOpOnly) filterThreadComments(searchBox.value, matchLabel, total);
-    // Once the discussion has been read, its comments are never "new" again.
-    if (state.settings.markNewComments && Number.isInteger(item.id)) {
-      setTimeout(() => {
-        if (!scope.alive || state.selectedId !== item.id) return;
-        state.seenTimes.set(item.id, Math.floor(Date.now() / 1000));
-        persistSeenTimes(item.id);
-      }, 4000);
-    }
-    // Re-apply any item state that arrived (or was cached) for this story.
-    if (state.itemState && state.itemState.itemId === item.id) {
-      updateThreadVoteUi();
-      renderPollOptions();
-    }
-
-    if (item.url) {
-      const fakeStory = { id: item.id, url: item.url };
-      const preview = await previewsUI.getPreview(fakeStory,scope.signal);
-      if (!scope.alive || state.selectedId !== item.id) return;
-      const imageSrc = safeImageSrc(preview.image || "");
-      if (imageSrc) {
-        heroImg.src = imageSrc;
-        header.classList.add("has-hero");
-      } else {
-        hero.remove();
-      }
-      if (preview.tint) header.style.setProperty("--header-tint", preview.tint);
-      // Phase 7 part 3: rich link previews — text-only facts from public
-      // provider APIs (GitHub, Wikipedia, arXiv), re-validated here and
-      // rendered with textContent only.
-      const rich = state.settings.richPreviews === false ? null : preview.rich;
-      if (rich && typeof rich === "object" && !Array.isArray(rich) && typeof rich.provider === "string") {
-        const providerLabels = { github: "GitHub", wikipedia: "Wikipedia", arxiv: "arXiv" };
-        const box = el("div", "rich-preview rich-preview-" + rich.provider.replace(/[^a-z0-9-]/g, ""));
-        const head = el("div", "rich-preview-head");
-        head.append(el("span", "rich-preview-provider", providerLabels[rich.provider] || "Facts"));
-        const richTitle = typeof rich.title === "string" ? rich.title.slice(0, 200) : "";
-        if (richTitle) head.append(el("strong", "rich-preview-title", richTitle));
-        box.append(head);
-        let shown = 0;
-        for (const line of Array.isArray(rich.lines) ? rich.lines : []) {
-          if (typeof line !== "string" || !line.trim()) continue;
-          if (shown >= 4) break;
-          box.append(el("p", "rich-preview-line", line.slice(0, 700)));
-          shown += 1;
-        }
-        if (shown) {
-          const summarySurface = headerBody.querySelector(".story-summary");
-          if (summarySurface) headerBody.insertBefore(box, summarySurface);
-          else headerBody.appendChild(box);
-        }
-      }
-    } else {
-      hero.remove();
-    }
-  }
-
-  // Phase 7 part 2: in-thread comment filter. A top-level branch stays visible
-  // when any comment inside it matches; non-matching branches hide entirely.
-  function filterThreadComments(query, matchLabel, total) {
-    const q = String(query || "").trim().toLowerCase();
-    const rows = [...threadPane.querySelectorAll(".comment-row")];
-    if (!q && !state.threadOpOnly) {
-      rows.forEach((row) => { row.hidden = false; });
-      if (matchLabel) matchLabel.textContent = "";
-      return;
-    }
-    const ownMatch = new Map();
-    for (const row of rows) {
-      const card = row.querySelector(":scope > .comment-card");
-      const text = ((card?.textContent || "") + " " + (row.dataset.author || "")).toLowerCase();
-      ownMatch.set(row, text.includes(q) && (!state.threadOpOnly || row.dataset.author === state.threadAuthor));
-    }
-    // Children appear after their parent in DOM order, so reverse iteration
-    // settles every subtree before its ancestor is decided.
-    let kept = 0;
-    for (const row of [...rows].reverse()) {
-      const childKept = [...row.querySelectorAll(":scope > .comment-children .comment-row")].some((child) => !child.hidden);
-      const keep = ownMatch.get(row) || childKept;
-      row.hidden = !keep;
-      if (keep) kept++;
-    }
-    if (matchLabel) matchLabel.textContent = kept + " of " + total + (state.threadOpOnly ? " in OP threads" : " match");
-  }
-
-  function openSortMenu(anchor) {
-    const modes = ["Default", "Newest first", "Oldest first", "Reply count"];
-    openPopup(anchor, modes.map((mode) => ({
-      label: (state.settings.commentSort === mode ? "✓  " : "   ") + mode,
-      action: async () => {
-        const previousScroll = threadPane.scrollTop;
-        state.settings.commentSort = mode;
-        await saveSettings("commentSort");
-        if (state.thread) {
-          await renderThread(state.thread);
-          threadPane.scrollTop = previousScroll;
-        }
-      },
-    })));
-  }
-
-
+  const readerUI=HarmoNovaContentReader.create({
+    get ALGOLIA_API(){return ALGOLIA_API;},
+    get app(){return app;},
+    get appendSanitizedHtml(){return appendSanitizedHtml;},
+    get archiveHref(){return archiveHref;},
+    get articleHref(){return articleHref;},
+    get button(){return button;},
+    get cancelItemState(){return cancelItemState;},
+    get closeComposer(){return closeComposer;},
+    get commentsUI(){return commentsUI;},
+    get compact(){return compact;},
+    get confirmFlagItem(){return confirmFlagItem;},
+    get createLoading(){return createLoading;},
+    get createSummarySurface(){return createSummarySurface;},
+    get disableHarmoNova(){return disableHarmoNova;},
+    get domainOf(){return domainOf;},
+    get el(){return el;},
+    get encodeURIComponent(){return encodeURIComponent;},
+    get fetchJson(){return fetchJson;},
+    get handleStoryFavorite(){return handleStoryFavorite;},
+    get handleStoryHide(){return handleStoryHide;},
+    get handleStoryVote(){return handleStoryVote;},
+    get loadPollOptions(){return loadPollOptions;},
+    get markRead(){return markRead;},
+    get mergeConfirmedComments(){return mergeConfirmedComments;},
+    get openAccountMenu(){return openAccountMenu;},
+    get openArchive(){return openArchive;},
+    get openComposer(){return openComposer;},
+    get openOriginalHackerNews(){return openOriginalHackerNews;},
+    get openPopup(){return openPopup;},
+    get openSettings(){return openSettings;},
+    get openUserPanel(){return openUserPanel;},
+    get persistSeenTimes(){return persistSeenTimes;},
+    get previewsUI(){return previewsUI;},
+    get relativeTime(){return relativeTime;},
+    get renderComment(){return renderComment;},
+    get renderPollOptions(){return renderPollOptions;},
+    get safeImageSrc(){return safeImageSrc;},
+    get saveSettings(){return saveSettings;},
+    get scheduleItemState(){return scheduleItemState;},
+    get setStoryLink(){return setStoryLink;},
+    get showToast(){return showToast;},
+    get startStorySummary(){return startStorySummary;},
+    get stopActiveSummary(){return stopActiveSummary;},
+    get summaryStateFor(){return summaryStateFor;},
+    get svg(){return svg;},
+    get threadPane(){return threadPane;},
+    get threadScope(){return threadScope;},set threadScope(value){threadScope=value;},
+    get updateSummarySurface(){return updateSummarySurface;},
+    get updateThreadVoteUi(){return updateThreadVoteUi;}
+  },stateFacet(["aiSelectionIntent","feedVotes","itemState","pollOptions","pollOptionsRenderedKey","seenTimes","selectedId","selectedStory","settings","stories","thread","threadAuthor","threadOpOnly"]));
+  function createThreadPlaceholder(...args){return readerUI.createThreadPlaceholder(...args);}
+  function selectStory(...args){return readerUI.selectStory(...args);}
+  function loadThread(...args){return readerUI.loadThread(...args);}
+  function renderThread(...args){return readerUI.renderThread(...args);}
   const settingsUI=HarmoNovaContentSettings.create({
     get INCOGNITO(){return INCOGNITO;},
     get SETTINGS_HASH(){return SETTINGS_HASH;},
