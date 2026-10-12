@@ -48,7 +48,10 @@ await withExtension(async({context,worker})=>{
   await frame.locator('#previews-status').getByText('Previews enabled.').waitFor();
   await frame.locator('#policy-enabled').check();
   assert.equal(await frame.locator('#ai-privacy-notice').isVisible(),true,'enabling AI discloses provider text transfer and charges');
-  await frame.locator('#policy-save').click();
+  // Keyboard activation avoids Chromium's flaky cross-origin mouse coordinates
+  // when the tall extension iframe is inside a scrolled settings sidebar.
+  await frame.locator('#policy-save').focus();
+  await frame.locator('#policy-save').press('Enter');
   await frame.locator('#policy-message').getByText(/saved/i).waitFor();
   const policy=await worker.evaluate(async()=> (await chrome.storage.local.get('harmonovaAiPolicyV1')).harmonovaAiPolicyV1);
   assert.equal(policy.enabled,true);
