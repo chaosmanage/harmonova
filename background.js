@@ -1,4 +1,4 @@
-importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js");
+importScripts("url-policy.js", "message-boundary.js", "ai-policy.js", "reader-store.js", "resource-policy.js", "image-policy.js");
 
 const AI_KEY_LOCAL_STORAGE_KEY = "harmonovaAiApiKey";
 const AI_KEY_SESSION_STORAGE_KEY = "harmonovaAiApiKeySession";
@@ -395,50 +395,21 @@ function safeImageSrc(value, base) {
   return url.href;
 }
 
-async function imageTint(url,signal) {
-  if (!url) return null;
-  if (paletteCache.get(url) !== undefined) return paletteCache.get(url);
-  if (!HarmoNovaUrlPolicy.isAllowedRemoteUrl(url)) {
-    paletteCache.set(url, null);
-    return null;
-  }
+async function sanitizedImage(url,signal) {
+  if(!url)return null;
+  const canonical=HarmoNovaUrlPolicy.canonicalRemoteUrl(url);
+  if(!canonical || !canonical.startsWith("https:"))return null;
+  const cached=paletteCache.get(canonical);if(cached!==undefined)return cached;
   try {
-    const response = await fetchPolicy(url, { signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000), resourceKind:"image" });
-    if (!response.ok) throw new Error("image");
-    const bitmap = await createImageBitmap(new Blob([await HarmoNovaResourcePolicy.readBytes(response, 2*1024*1024)], {type: response.headers.get("content-type")}));
-    const canvas = new OffscreenCanvas(32, 32);
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(bitmap, 0, 0, 32, 32);
-    bitmap.close();
-    const pixels = ctx.getImageData(0, 0, 32, 32).data;
-    let hx = 0, hy = 0, sat = 0, weightSum = 0;
-    for (let i = 0; i < pixels.length; i += 16) {
-      const a = pixels[i + 3] / 255;
-      if (a < 0.4) continue;
-      const [h, s, l] = rgbToHsl(pixels[i], pixels[i + 1], pixels[i + 2]);
-      if (l < 0.05 || l > 0.95) continue;
-      const w = (0.25 + s) * a;
-      const rad = h * Math.PI / 180;
-      hx += Math.cos(rad) * w;
-      hy += Math.sin(rad) * w;
-      sat += s * w;
-      weightSum += w;
-    }
-    if (!weightSum) throw new Error("palette");
-    let hue = Math.atan2(hy, hx) * 180 / Math.PI;
-    if (hue < 0) hue += 360;
-    const sourceSat = sat / weightSum;
-    const targetSat = sourceSat >= 0.05 ? Math.max(0.25, Math.min(1, sourceSat)) : sourceSat;
-    const tint = hslToRgb(hue, targetSat, 0.42);
-    const blended = tint.map((v) => Math.round(v * 0.34));
-    const value = hex(blended);
-    paletteCache.set(url, value);
-    return value;
-  } catch {
-    paletteCache.set(url, null);
-    return null;
-  }
+    const response=await fetchPolicy(canonical,{signal,resourceKind:"image",expectedTypes:["image/png","image/jpeg","image/webp"]});
+    if(!response.ok){await response.body?.cancel();throw new Error("IMAGE_UNAVAILABLE");}
+    const mime=response.headers.get("content-type").split(";")[0].trim().toLowerCase();
+    const bytes=await HarmoNovaResourcePolicy.readBytes(response,2*1024*1024);
+    const value=await HarmoNovaImagePolicy.sanitize(bytes,mime,signal);
+    paletteCache.set(canonical,value);return value;
+  } catch {paletteCache.set(canonical,null,true);return null;}
 }
+async function imageTint(url,signal) {return (await sanitizedImage(url,signal))?.tint || null;}
 
 async function getMetadataWork(url, wantRich = false, signal) {
   const cached = metadataCache.get("meta:"+url);
@@ -469,7 +440,12 @@ async function getMetadataWork(url, wantRich = false, signal) {
     const image = safeImageSrc(absolutize(metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]), base));
     const favicon = safeImageSrc(absolutize(linkHref(html, ["icon", "shortcut", "apple-touch-icon"]), base));
     // HarmoNova tints from the preview image first, then the favicon when a story has no preview.
-    value = { image, favicon, pageUrl: base, tint: await imageTint(image || favicon,signal), refused: false, rich: richPromise ? await richPromise : null, richState: wantRich ? "available" : "notRequested" };
+    const raster=await sanitizedImage(image,signal);
+    const icon=await sanitizedImage(favicon,signal);
+    value = { image:raster?.src || null, favicon:icon?.src || null,
+      imageDimensions:raster ? {width:raster.width,height:raster.height} : null,
+      pageUrl: base, tint:raster?.tint || icon?.tint || null, refused: false,
+      rich:richPromise ? await richPromise : null, richState:wantRich ? "available" : "notRequested" };
   } catch {} finally {
     clearTimeout(timer);
   }

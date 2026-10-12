@@ -237,7 +237,7 @@ test("SEC-42: metadata images must be https and off the HN origin", async () => 
   });
   const meta = await context.getMetadata("https://example.com/page");
   assert.equal(meta.image, null, "insecure image must be dropped");
-  assert.equal(meta.favicon, "https://ok.example.com/favicon.ico");
+  assert.equal(meta.favicon, null, "unsupported favicon bytes never become a remote DOM source");
 });
 
 test("SEC-52: state handlers only accept the extension's top-frame HN sender", async () => {

@@ -253,15 +253,10 @@
     } catch { return null; }
   };
 
-  // SEC-42: images must be https and must never point at the HN origin.
-  const safeImageSrc = (href) => {
-    try {
-      const url = new URL(href, "https://news.ycombinator.com");
-      if (url.protocol !== "https:") return null;
-      if (url.hostname === "news.ycombinator.com" || url.hostname.endsWith(".ycombinator.com")) return null;
-      return url.href;
-    } catch { return null; }
-  };
+  // Only worker-reencoded, bounded PNG bytes are rendered. There is no
+  // original URL or credentialed network fallback in an error handler.
+  const safeImageSrc = href => typeof href==="string" && href.length<=350000 &&
+    /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(href) ? href : null;
 
   // SEC-41: every external link resolves through safeHref, falling back to the HN item.
   const articleHref = (story) => safeHref(story?.url) || "https://news.ycombinator.com/item?id=" + story.id;
@@ -590,7 +585,7 @@
       previewRunning++;
       getPreview(task.story,task.controller.signal).then((result) => {
         if (task.card.isConnected) task.show(result);
-      }).finally(() => { previewRunning--; pumpPreviews(); });
+      }).finally(() => { previewCardScopes.delete(task.card); previewRunning--; pumpPreviews(); });
     }
   };
   const requestCardPreview = (card, story, show) => {
@@ -598,7 +593,7 @@
       if(previewJobs.length>=100) return;
       const controller=new AbortController(); previewCardScopes.set(card,controller);
       previewJobs.push({ card, story, show, controller });
-      pumpPreviews();
+      Promise.resolve().then(pumpPreviews);
     };
     if (state.search.active && typeof IntersectionObserver !== "undefined") {
       if (!previewObserver) previewObserver = new IntersectionObserver((entries) => {
@@ -614,19 +609,7 @@
     } else add();
   };
 
-  const faviconUrl = (story) => {
-    if (!story?.url) return null;
-    try {
-      const host = new URL(story.url).hostname;
-      const provider = state.settings.faviconProvider || "google";
-      const url = provider === "duckduckgo"
-        ? "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico"
-        : provider === "direct"
-          ? "https://" + host + "/favicon.ico"
-          : "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(host) + "&sz=128";
-      return safeImageSrc(url);
-    } catch { return null; }
-  };
+  const faviconUrl = () => null; // Unsupported remote favicons use a local placeholder.
 
   let app, feedPane, threadPane, storyList, feedTitle, updatedLabel, searchWrap, searchInput;
   let frontDateInput;
