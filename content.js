@@ -1748,408 +1748,44 @@ function openFeedMenu(anchor) {
     ]);
   }
 
-  function toggleSearch() {
-    const opening = !searchWrap.classList.contains("open");
-    searchWrap.classList.toggle("open");
-    if (opening) {
-      searchInput.focus();
-      renderRecentSearches();
-    } else {
-      closeSearch();
-    }
-    syncSearchPanelSpace();
-  }
 
-  // The search panel overlays the list (the toolbar is an overlay by design);
-  // reserve scroll space so results never hide behind it or lose clicks.
-  function syncSearchPanelSpace() {
-    if (!storyList) return;
-    const open = Boolean(searchWrap?.classList.contains("open") && searchPanel);
-    const height = open ? searchPanel.offsetHeight : 0;
-    // Header, search and results are in layout flow; no calculated gap.
-  }
-
-  function closeSearch() {
-    abortSearch();
-    searchInput.value = "";
-    if (state.search.active) {
-      state.search.active = false;
-      restoreFeedList();
-    }
-    filterStories();
-    searchWrap.classList.remove("open");
-    searchSubmit.hidden = true;
-    searchRecent.hidden = true;
-    syncSearchPanelSpace();
-  }
-
-  function abortSearch() {
-    clearTimeout(state.search.debounceTimer);
-    state.search.debounceTimer = 0;
-    state.search.controller?.abort();
-    state.search.controller = null;
-  }
-
-  function onSearchInput() {
-    if (state.search.active) {
-      abortSearch();
-      state.search.active = false;
-      restoreFeedList();
-    }
-    renderRecentSearches();
-  }
-
-  function onSearchKeydown(event) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeSearch();
-      return;
-    }
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && state.search.active) {
-      const cards = [...storyList.querySelectorAll(".hn-search-results > .story-card, .hn-search-results > .comment-hit")];
-      if (cards.length) {
-        event.preventDefault();
-        state.search.keyboardIndex = event.key === "ArrowDown"
-          ? (state.search.keyboardIndex + 1) % cards.length
-          : (state.search.keyboardIndex + cards.length) % cards.length;
-        cards.forEach((node, index) => node.classList.toggle("search-keyboard-selected", index === state.search.keyboardIndex));
-        cards[state.search.keyboardIndex].scrollIntoView({ block: "nearest" });
-      }
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const current = state.search.active && state.search.keyboardIndex >= 0
-        ? state.search.hits[state.search.keyboardIndex] : null;
-      if (current) {
-        if (current.kind === "comment") openThreadAtComment(current.storyId ?? current.story_id, current.id);
-        else selectStory(current.id);
-        closeSearch();
-      } else {
-        runGlobalSearch(0);
-      }
-    }
-  }
-
-  function parseListSetting(value) {
-    return String(value || "")
-      .split(",")
-      .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
-  }
-
-  function filterStories() {
-    if (state.search.active) return;
-    const domains = parseListSetting(state.settings.hiddenDomains);
-    const keywords = parseListSetting(state.settings.hiddenKeywords);
-    const hideJobs = state.settings.hideJobs;
-    const hideRead = state.settings.hideRead;
-    document.querySelectorAll(".story-card").forEach((card) => {
-      const hay = (card.dataset.search || "").toLowerCase();
-      let hidden = false;
-      if (!hidden && domains.length) hidden = domains.some((entry) => (card.dataset.domain || "").endsWith(entry));
-      if (!hidden && keywords.length) hidden = keywords.some((entry) => hay.includes(entry));
-      if (!hidden && hideJobs && card.dataset.type === "job") hidden = true;
-      if (!hidden && hideRead && card.classList.contains("is-read")) hidden = true;
-      card.hidden = hidden;
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Site-wide search (Algolia via hn-search.js)
-  // ---------------------------------------------------------------------------
-
-  const RANGE_SECONDS = { day: 86400, week: 604800, month: 2592000, year: 31536000 };
-  const AUTHOR_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-
-  function buildSearchOptions(page) {
-    const author = state.search.author.trim();
-    const authorValid = !author || AUTHOR_PATTERN.test(author);
-    const tags = [state.search.tag];
-    if (authorValid && author) tags.push("author_" + author);
-    const options = {
-      query: state.search.query || searchInput.value,
-      tags,
-      sort: state.search.sort,
-      page,
-      hitsPerPage: 30,
-    };
-    const range = RANGE_SECONDS[state.search.range];
-    if (range) options.since = Math.floor(Date.now() / 1000) - range;
-    const minPoints = state.search.minPoints.trim();
-    if (/^\d+$/.test(minPoints)) options.minPoints = Number(minPoints);
-    return { options, authorValid };
-  }
-
-  function queueGlobalSearch(page) {
-    clearTimeout(state.search.debounceTimer);
-    if (state.search.query) state.search.debounceTimer = setTimeout(() => runGlobalSearch(page, true), 300);
-  }
-
-  async function runGlobalSearch(page, reuseQuery = false) {
-    clearTimeout(state.search.debounceTimer);
-    state.search.debounceTimer = 0;
-    const query = reuseQuery ? state.search.query : searchInput.value.trim();
-    if (query.length < 2) {
-      if (state.search.active) {
-        state.search.active = false;
-        restoreFeedList();
-      }
-      return;
-    }
-    abortSearch();
-    const controller = new AbortController();
-    state.search.controller = controller;
-    const seq = ++state.search.seq;
-    if (!state.search.active) state.search.feedScrollTop = storyList.scrollTop;
-    state.search.query = query;
-    const { options, authorValid } = buildSearchOptions(page);
-    state.search.active = true;
-    searchSubmit.hidden = true;
-    pushRecentSearch(query);
-
-    if (page === 0) {
-      state.search.keyboardIndex = -1;
-      storyList.classList.add("search-results");
-      const existing = storyList.querySelector(".hn-search-results");
-      if (existing) existing.classList.add("search-refining");
-      else storyList.replaceChildren(createLoading("Searching Hacker News…"));
-    }
-
-    const result = window.HarmoNovaSearch
-      ? await window.HarmoNovaSearch.runSearch(options, { signal: controller.signal })
-      : { hits: [], page: 0, nbPages: 1, error: "The search client is unavailable" };
-    if (result.aborted || controller.signal.aborted || seq !== state.search.seq) return;
-    state.search.controller = null;
-
-    if (result.error) {
-      renderSearchError(result.error);
-      return;
-    }
-    if (page === 0) {
-      state.search.hits = result.hits;
-      state.search.page = result.page;
-      state.search.nbPages = result.nbPages;
-      renderSearchResults({ authorValid });
-    } else {
-      state.search.hits.push(...result.hits);
-      state.search.page = result.page;
-      state.search.nbPages = result.nbPages;
-      renderSearchResults({ authorValid });
-    }
-  }
-
-  function renderHighlight(target, value) {
-    // SEC-40: highlights arrive pre-tokenized as plain-text segments; hostile
-    // markup can only ever render as text.
-    for (const segment of window.HarmoNovaSearch.buildHighlightSegments(value)) {
-      target.appendChild(el("span", segment.highlighted ? "search-hit-em" : "", segment.text));
-    }
-  }
-
-  function renderSearchError(message) {
-    storyList.classList.add("search-results");
-    const fail = el("div", "harmonova-error");
-    fail.append(el("strong", "", "Search failed"), el("span", "", message));
-    const retry = el("button", "hn-search-retry", "Retry");
-    retry.type = "button";
-    retry.addEventListener("click", () => runGlobalSearch(0));
-    fail.appendChild(retry);
-    storyList.replaceChildren(fail);
-  }
-
-  function renderSearchResults({ authorValid }) {
-    storyList.classList.add("search-results");
-    const container = el("div", "hn-search-results");
-    const header = el("div", "hn-search-header");
-    const title = el("strong", "", "Results for “" + state.search.query + "”");
-    const storyCount = state.search.hits.filter((hit) => hit.kind === "story").length;
-    const commentCount = state.search.hits.length - storyCount;
-    const meta = el("span", "hn-search-meta",
-      storyCount + " stories · " + commentCount + " comments · page " + (state.search.page + 1) + " of " + state.search.nbPages);
-    header.append(title, meta);
-    if (!authorValid) {
-      header.appendChild(el("span", "hn-search-hint", "Author names may only contain letters, numbers, dashes, and underscores — the author filter was skipped."));
-    }
-    container.appendChild(header);
-    let storyIndex = 0;
-    for (const hit of state.search.hits) {
-      if (hit.kind === "story") {
-        container.appendChild(createStoryCard({
-          id: hit.id,
-          title: hit.title || "(untitled)",
-          url: hit.url,
-          score: hit.points ?? 0,
-          time: hit.created_at_i ?? 0,
-          descendants: hit.numComments ?? 0,
-          by: hit.author,
-        }, storyIndex++));
-      } else {
-        container.appendChild(createCommentHitCard(hit));
-      }
-    }
-    if (!state.search.hits.length) {
-      container.appendChild(el("div", "hn-search-empty", "No results for “" + state.search.query + "”. Try fewer words or remove a filter."));
-    }
-    if (state.search.page + 1 < state.search.nbPages) {
-      const more = el("button", "hn-search-more", "Load more results");
-      more.type = "button";
-      more.addEventListener("click", () => runGlobalSearch(state.search.page + 1));
-      container.appendChild(more);
-    }
-    storyList.replaceChildren(container);
-    // Keep pagination explicit; opening global search must not automatically
-    // consume later pages before the user chooses to load more results.
-  }
-
-  function createCommentHitCard(hit) {
-    const card = el("article", "comment-hit");
-    const storyTitle = el("button", "comment-hit-story");
-    storyTitle.type = "button";
-    const storyLine = el("span", "comment-hit-story-text");
-    renderHighlight(storyLine, hit.titleHighlight || hit.story_title || hit.title || "(untitled story)");
-    storyTitle.append(svg("comment", "comment-hit-icon"), storyLine);
-    const meta = el("div", "comment-hit-meta");
-    meta.append(
-      el("span", "comment-hit-author", hit.author || "[deleted]"),
-      el("span", "meta-dot", "•"),
-      el("span", "meta-age", relativeTime(hit.created_at_i || 0))
-    );
-    const excerpt = el("div", "comment-hit-excerpt");
-    renderHighlight(excerpt, hit.highlight || hit.commentText || "");
-    const open = el("button", "comment-hit-open", "Open comment");
-    open.type = "button";
-    card.append(storyTitle, meta, excerpt, open);
-    const openComment = () => openThreadAtComment(hit.storyId ?? hit.story_id, hit.id);
-    storyTitle.addEventListener("click", openComment);
-    open.addEventListener("click", openComment);
-    return card;
-  }
-
-  function openThreadAtComment(storyId, commentId) {
-    if (!Number.isInteger(storyId) || storyId <= 0) return;
-    selectStory(storyId);
-    const target = String(commentId);
-    const deadline = Date.now() + 8000;
-    const step = () => {
-      const row = threadPane.querySelector('[data-comment-id="' + target + '"]');
-      if (row) {
-        let ancestor = row.parentElement?.closest(".comment-row");
-        while (ancestor) {
-          ancestor.classList.remove("collapsed");
-          ancestor = ancestor.parentElement?.closest(".comment-row");
-        }
-        row.classList.add("comment-flash");
-        row.scrollIntoView({ block: "center" });
-        setTimeout(() => row.classList.remove("comment-flash"), 2400);
-        return;
-      }
-      if (Date.now() < deadline && state.selectedId === storyId) requestAnimationFrame(step);
-      else if (state.selectedId === storyId) showToast("That comment is no longer in the thread");
-    };
-    requestAnimationFrame(step);
-  }
-
-  function restoreFeedList() {
-    storyList.classList.remove("search-results");
-    storyList.replaceChildren();
-    state.stories.forEach((story, index) => storyList.appendChild(createStoryCard(story, index)));
-    filterStories();
-    if (Number.isFinite(state.search.feedScrollTop)) storyList.scrollTop = state.search.feedScrollTop;
-  }
-
-  function pushRecentSearch(query) {
-    const recent = state.search.recent.filter((term) => term !== query);
-    recent.unshift(query);
-    state.search.recent = recent.slice(0, 8);
-  }
-
-  function renderRecentSearches() {
-    if (!searchRecent) return;
-    const query = searchInput.value.trim();
-    searchSubmit.hidden = !searchWrap.classList.contains("open") || query.length < 2 || state.search.active;
-    searchSubmit.textContent = 'Search Hacker News for “' + query.slice(0, 200) + '” ↵';
-    const searchOpen = searchWrap.classList.contains("open");
-    const showRecents = searchOpen && !searchInput.value.trim() && state.search.recent.length > 0;
-    searchRecent.hidden = !showRecents;
-    searchRecent.replaceChildren();
-    if (showRecents) {
-      searchRecent.appendChild(el("div", "hn-search-recent-label", "Recent searches"));
-      for (const term of state.search.recent) {
-        const row = el("button", "hn-search-recent-item", term);
-        row.type = "button";
-        row.addEventListener("click", () => {
-          searchInput.value = term;
-          runGlobalSearch(0);
-        });
-        searchRecent.appendChild(row);
-      }
-      const clear = el("button", "hn-search-recent-clear", "Clear recent searches");
-      clear.type = "button";
-      clear.addEventListener("click", () => {
-        state.search.recent = [];
-        renderRecentSearches();
-      });
-      searchRecent.appendChild(clear);
-    }
-    syncSearchPanelSpace();
-  }
-
-  async function switchFeed(key) {
-    if (!FEEDS[key]) return;
-    state.feed = key;
-    feedTitle.textContent = FEEDS[key].label;
-    history.pushState({ harmonovaFeed: key }, "", FEEDS[key].path);
-    await refreshFeed();
-  }
-
-  function storyMeta(story) {
-    const meta = el("div", "story-meta");
-    const fav = el("img", "story-favicon");
-    const favUrl = INCOGNITO ? null : previewsUI.faviconUrl(story);
-    if (favUrl) fav.src = favUrl;
-    fav.alt = "";
-    const points = el("span", "meta-points", compact(story.score) + (state.settings.compactPoints ? "" : " points"));
-    if (state.settings.hotnessColors) points.classList.add("hotness-" + hotnessClass(story));
-    const domain = el("span", "meta-domain", domainOf(story.url));
-    const age = el("span", "meta-age", relativeTime(story.time));
-    meta.append(fav, points, el("span", "meta-dot", "•"));
-    if (state.settings.showDomain !== false) meta.append(domain, el("span", "meta-dot", "•"));
-    meta.append(age);
-    return meta;
-  }
-
-  // Phase 7: score-per-hour "hotness" — hot / warm / cool classes for CSS.
-  function hotnessClass(story) {
-    const score = Number(story.score) || 0;
-    const hours = Math.max(1, (Date.now() / 1000 - (Number(story.time) || 0)) / 3600);
-    const perHour = score / hours;
-    if (perHour >= 15) return "hot";
-    if (perHour >= 3) return "warm";
-    return "cool";
-  }
-
-  async function hideDomain(story) {
-    const domain = domainOf(story.url);
-    if (!domain) return;
-    const current = parseListSetting(state.settings.hiddenDomains);
-    if (!current.includes(domain.toLowerCase())) {
-      state.settings.hiddenDomains = [...current, domain.toLowerCase()].join(", ");
-      await saveSettings("hiddenDomains");
-    }
-    filterStories();
-    showToast("Hiding " + domain);
-  }
-
-  function isJobStory(story) {
-    if (story.type === "job") return true;
-    // Some HN lists expose hiring submissions as regular stories.
-    // Match explicit hiring announcements, not general articles about employment.
-    return /\b(?:is hiring|we(?:'|’)?re hiring|we are hiring|hiring for)\b/i.test(story.title || "")
-      && (/\bYC\s*[A-Z]\d{2}\b/i.test(story.title || "")
-        || /\b(?:jobs?\.|jobs?\/|careers?\.|careers?\/|ashbyhq\.|greenhouse\.|lever\.)/i.test(story.url || ""));
-  }
-
+  const searchUI=HarmoNovaContentSearch.create({
+    get FEEDS(){return FEEDS;},
+    get INCOGNITO(){return INCOGNITO;},
+    get compact(){return compact;},
+    get createLoading(){return createLoading;},
+    get createStoryCard(){return createStoryCard;},
+    get domainOf(){return domainOf;},
+    get el(){return el;},
+    get feedTitle(){return feedTitle;},
+    get previewsUI(){return previewsUI;},
+    get refreshFeed(){return refreshFeed;},
+    get relativeTime(){return relativeTime;},
+    get saveSettings(){return saveSettings;},
+    get searchInput(){return searchInput;},
+    get searchPanel(){return searchPanel;},
+    get searchRecent(){return searchRecent;},
+    get searchSubmit(){return searchSubmit;},
+    get searchWrap(){return searchWrap;},
+    get selectStory(){return selectStory;},
+    get showToast(){return showToast;},
+    get storyList(){return storyList;},
+    get svg(){return svg;},
+    get threadPane(){return threadPane;}
+  },stateFacet(["feed","search","selectedId","settings","stories"]));
+  function toggleSearch(...args){return searchUI.toggleSearch(...args);}
+  function closeSearch(...args){return searchUI.closeSearch(...args);}
+  function abortSearch(...args){return searchUI.abortSearch(...args);}
+  function onSearchInput(...args){return searchUI.onSearchInput(...args);}
+  function onSearchKeydown(...args){return searchUI.onSearchKeydown(...args);}
+  function filterStories(...args){return searchUI.filterStories(...args);}
+  function queueGlobalSearch(...args){return searchUI.queueGlobalSearch(...args);}
+  function runGlobalSearch(...args){return searchUI.runGlobalSearch(...args);}
+  function renderRecentSearches(...args){return searchUI.renderRecentSearches(...args);}
+  function switchFeed(...args){return searchUI.switchFeed(...args);}
+  function storyMeta(...args){return searchUI.storyMeta(...args);}
+  function hideDomain(...args){return searchUI.hideDomain(...args);}
+  function isJobStory(...args){return searchUI.isJobStory(...args);}
   function createStoryCard(story, index) {
     const card = el("article", "story-card");
     card.dataset.storyId = String(story.id);

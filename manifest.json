@@ -60,6 +60,7 @@
         "content/settings.js",
         "content/summary-ui.js",
         "content/previews.js",
+        "content/search-ui.js",
         "content.js"
       ],
       "css": [
