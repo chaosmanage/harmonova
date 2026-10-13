@@ -117,7 +117,7 @@ You can always open **original Hacker News** from the menu or turn off HarmoNova
 
 ## More information
 
-[Full feature guide](docs/FEATURES.md) · [Installation help](docs/TROUBLESHOOTING.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing and development](docs/DEVELOPMENT.md) · [Changelog](CHANGELOG.md)
+[Full feature guide](docs/FEATURES.md) · [Installation help](docs/TROUBLESHOOTING.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing and development](docs/DEVELOPMENT.md) · [Release process](docs/RELEASING.md) · [Changelog](CHANGELOG.md)
 
 ## Credits and license
 

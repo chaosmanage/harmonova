@@ -1,0 +1,116 @@
+name: Release candidate gate
+
+# Only a new version tag submits a release candidate. Ordinary pushes, merges,
+# pull requests, manual workflow dispatches and published releases do not run it.
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require a commit on main
+        shell: bash
+        run: |
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+            echo 'Release candidates must refer to a commit already on main.' >&2
+            exit 1
+          }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - name: Validate candidate version and release notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'Use a version tag such as v0.14.2.' >&2
+            exit 1
+          }
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const version = process.env.RELEASE_TAG.slice(1);
+          for (const file of ['manifest.json', 'package.json', 'package-lock.json']) {
+            assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).version, version,
+              `${file} must match release tag v${version}`);
+          }
+          const heading = fs.readFileSync('docs/RELEASE_NOTES.md', 'utf8').split(/\r?\n/, 1)[0];
+          assert.equal(heading, `# HarmoNova ${version}`,
+            'Update docs/RELEASE_NOTES.md for this version before tagging');
+          NODE
+      - run: npm ci
+      - name: Provision locked Chromium revision 1243 (153.0.8010.12)
+        run: |
+          npx playwright-core install --with-deps chromium
+          node -e 'console.log("CHROMIUM_PATH="+require("playwright-core").chromium.executablePath())' >> "$GITHUB_ENV"
+      - run: npm test
+      - run: npm run package
+      - run: npm run check:package
+      - run: npm audit
+      - run: git diff --check
+      - name: Store the exact verified release ZIP
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verified-release-zip
+          path: dist/harmonova-*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish verified release
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download verified release ZIP
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verified-release-zip
+          path: release-artifacts
+      - name: Stage draft with verified ZIP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          zip="release-artifacts/harmonova-${version}.zip"
+          test -f "$zip" || { echo "Verified ZIP missing: $zip" >&2; exit 1; }
+          gh release create "$RELEASE_TAG" "$zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --title "HarmoNova for Hacker News $RELEASE_TAG" \
+            --notes-file docs/RELEASE_NOTES.md
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | grep -Fxq "$(basename "$zip")"
+      - name: Publish complete GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
