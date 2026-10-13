@@ -6,7 +6,6 @@
 - Move external website preview controls into **Settings → Web and links**, isolated in a trusted extension-owned panel separate from AI consent and credentials.
 - Add confirmed **Data** actions to clear reading history, saved items/drafts, settings, or all local HarmoNova data (including API keys). No Hacker News account data is removed.
 - Reorganize code under `src/`, simplify the routine offline gate without dropping security tests, and run automated CI only for published releases or manual dispatch.
-- **Hide Seen Stories is not included**; its separate PR was closed because it could leave an empty feed after refresh.
 
 ## v0.14.0 — Security, reader controls, and reliability
 
