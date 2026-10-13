@@ -29,7 +29,9 @@
     "test:browser": "node scripts/test-all.mjs browser",
     "test:package": "npm run package && npm run check:package && EXTENSION_PATH=\"$PWD/dist/harmonova\" TEST_OUTPUT_DIR=\"$PWD/test-results-packaged\" npm run test:browser",
     "check:package": "node scripts/check-package.mjs",
-    "test:live:e2e": "HARMONOVA_ALLOW_LIVE=1 node tests/e2e.mjs"
+    "test:live:e2e": "HARMONOVA_ALLOW_LIVE=1 node tests/e2e.mjs",
+    "test:extended": "node scripts/test-all.mjs extended",
+    "test:full": "npm run check && node scripts/test-all.mjs full"
   },
   "devDependencies": {
     "eslint": "9.39.5",

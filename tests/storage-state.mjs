@@ -3,7 +3,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync(new URL("../reader-store.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../src/reader-store.js", import.meta.url), "utf8");
 function storeFixture() {
   const memory = { local: {}, session: {} };
   let failNext = false;
@@ -73,6 +73,19 @@ test("P05 idempotent cross-tab state mutations preserve concurrent changes", asy
   assert.deepEqual(plain((await repo.stateSnapshot()).bookmarks), [1, 2, 3]);
 });
 
+test("Read and unread operations persist, are idempotent, and leave other stories alone", async () => {
+  const f = storeFixture(), repo = f.makeReader();
+  await Promise.all([repo.markRead(91), repo.markRead(92)]);
+  const before = (await repo.stateSnapshot()).revision;
+  assert.equal((await repo.markUnread(91)).changed, true);
+  assert.deepEqual(plain((await repo.stateSnapshot()).readIds), [92]);
+  assert.equal((await repo.markUnread(91)).changed, false);
+  assert.equal((await repo.stateSnapshot()).revision, before + 1);
+  const afterReload = f.makeReader();
+  assert.deepEqual(plain((await afterReload.stateSnapshot()).readIds), [92]);
+  await assert.rejects(afterReload.markUnread(-1), /INVALID_ID/);
+});
+
 test("P05 failed write reports failure and does not poison subsequent mutation", async () => {
   const f = storeFixture(), repo = f.makeReader();
   await repo.stateSnapshot();
@@ -104,7 +117,7 @@ test("P05 simultaneous original-tab creations and removal do not overwrite IDs",
 
 function preferenceFixture({sync={},local={}}={}) {
   const ctx=vm.createContext({TextEncoder,Promise});
-  for(const file of ['settings-schema.js','preferences-store.js'])vm.runInContext(fs.readFileSync(new URL('../'+file,import.meta.url),'utf8'),ctx);
+  for(const file of ['settings-schema.js','preferences-store.js'])vm.runInContext(fs.readFileSync(new URL('../src/'+file,import.meta.url),'utf8'),ctx);
   let failLocal=false,failSync=false;
   const make=()=>ctx.HarmoNovaPreferencesStore.create({get:async()=>structuredClone(local),set:async v=>{if(failLocal)throw new Error('LOCAL_FAILED');Object.assign(local,structuredClone(v));},syncGet:async()=>structuredClone(sync),syncSet:async v=>{if(failSync)throw new Error('SYNC_QUOTA');Object.assign(sync,structuredClone(v));}});
   return {ctx,make,local,sync,failLocal:()=>failLocal=true,failSync:()=>failSync=true};

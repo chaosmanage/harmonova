@@ -47,7 +47,7 @@ function makeVm() {
   };
   context.globalThis = context;
   vm.createContext(context);
-  for(const file of ["resource-policy.js","lifecycle.js","hn-search.js"])vm.runInContext(fs.readFileSync(path.join(repoRoot,file),"utf8"),context);
+  for(const file of ["resource-policy.js","lifecycle.js","hn-search.js"])vm.runInContext(fs.readFileSync(path.join(repoRoot,"src",file),"utf8"),context);
   return context;
 }
 

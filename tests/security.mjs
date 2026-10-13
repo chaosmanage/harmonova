@@ -17,7 +17,7 @@ const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), 
 
 const loadPolicy = () => {
   const context = vm.createContext({ URL, console });
-  vm.runInContext(fs.readFileSync(path.join(repoRoot, "url-policy.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(repoRoot, "src/url-policy.js"), "utf8"), context);
   return context.HarmoNovaUrlPolicy;
 };
 

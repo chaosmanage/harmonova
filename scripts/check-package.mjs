@@ -10,11 +10,18 @@ const shell=read('scripts/package.sh').toString();
 const expected=new Set();
 for(const match of shell.matchAll(/^cp (.+?) "\$tmp\/([^"$]*)"$/gm)) {
   const [sources,destination]=[match[1].split(' '),match[2]];
+  if(sources[0]==='-R')continue; // src/ tree is verified recursively below
   for(const source of sources) {
     const directory=path.dirname(source), pattern=path.basename(source);
     const names=pattern.includes('*')?fs.readdirSync(directory).filter(n=>new RegExp('^'+pattern.replaceAll('.','\\.').replaceAll('*','.*')+'$').test(n)):[pattern];
     for(const name of names) {const from=path.join(directory,name),to=destination+name;expected.add(to);assert.ok(read(from).equals(read(path.join(dist,to))),`Source/package mismatch: ${to}`);}
   }
+}
+// The entire src/ tree is explicitly shipped; generated files remain excluded.
+for (const source of walk('src')) {
+  const target=path.join('src',path.relative('src',source));
+  expected.add(target);
+  assert.ok(read(source).equals(read(path.join(dist,target))), 'Source/package mismatch: '+target);
 }
 const actual=walk(dist).map(p=>path.relative(dist,p));
 assert.deepEqual(actual.sort(),[...expected].sort(),'Release file allowlist mismatch');

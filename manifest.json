@@ -29,7 +29,7 @@
     }
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "src/background.js"
   },
   "content_scripts": [
     {
@@ -37,34 +37,34 @@
         "https://news.ycombinator.com/*"
       ],
       "js": [
-        "settings-schema.js",
-        "resource-policy.js",
-        "lifecycle.js",
-        "hn-queue.js",
-        "url-policy.js",
-        "hn-session.js",
-        "hn-search.js",
-        "incognito-state.js",
-        "content/runtime.js",
-        "content/state.js",
-        "content/composer.js",
-        "content/settings.js",
-        "content/summary-ui.js",
-        "content/previews.js",
-        "content/search-ui.js",
-        "content/comments.js",
-        "content/feed.js",
-        "content/reader.js",
-        "content/actions.js",
-        "content/dom.js",
-        "content/links.js",
-        "content/sanitize.js",
-        "content/toolbar.js",
-        "content/release-notice.js",
-        "content.js"
+        "src/settings-schema.js",
+        "src/resource-policy.js",
+        "src/lifecycle.js",
+        "src/hn-queue.js",
+        "src/url-policy.js",
+        "src/hn-session.js",
+        "src/hn-search.js",
+        "src/incognito-state.js",
+        "src/content/runtime.js",
+        "src/content/state.js",
+        "src/content/composer.js",
+        "src/content/settings.js",
+        "src/content/summary-ui.js",
+        "src/content/previews.js",
+        "src/content/search-ui.js",
+        "src/content/comments.js",
+        "src/content/feed.js",
+        "src/content/reader.js",
+        "src/content/actions.js",
+        "src/content/dom.js",
+        "src/content/links.js",
+        "src/content/sanitize.js",
+        "src/content/toolbar.js",
+        "src/content/release-notice.js",
+        "src/content.js"
       ],
       "css": [
-        "styles.css"
+        "src/styles.css"
       ],
       "run_at": "document_start"
     }
@@ -83,9 +83,11 @@
     {
       "resources": [
         "ai-settings.html",
-        "ai-settings.css",
-        "ai-settings.js",
-        "ai-policy.js",
+        "preview-settings.html",
+        "src/preview-settings.js",
+        "src/ai-settings.css",
+        "src/ai-settings.js",
+        "src/ai-policy.js",
         "icons/icon48.png"
       ],
       "matches": [

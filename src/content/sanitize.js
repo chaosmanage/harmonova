@@ -61,7 +61,7 @@
         if (child.tagName === "A") {
           const href = dependencies.linksUI.safeHref(child.getAttribute("href") || "");
           if (!href) { copy(child, parent, depth + 1); continue; }
-          out.href = dependencies.linksUI.nitterize(href);
+          out.href = href;
           out.target = "_blank";
           out.rel = "noopener noreferrer";
         }

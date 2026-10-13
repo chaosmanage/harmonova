@@ -40,18 +40,14 @@ function updateAccountChip() {
   }
 }
 
-function openAccountMenu(anchor) {
+function accountActions() {
   const session = window.HarmoNovaHN?.session?.() || null;
-  if (!session) {
-    dependencies.openPopup(anchor, [
-      { label: "Log in", icon: "user", action: goToLogin },
-      { label: "Create account", icon: "external", action: goToLogin },
-    ]);
-    return;
-  }
-  const karma = session.karma === null || session.karma === undefined ? "" : " · " + dependencies.compact(session.karma) + " karma";
-  dependencies.openPopup(anchor, [
-    { heading: session.username + karma },
+  if (!session) return [
+    { label: "Log in", icon: "user", action: goToLogin },
+    { label: "Create account", icon: "external", action: goToLogin },
+  ];
+  return [
+    { label: "New post", icon: "plus", action: startNewPost },
     { label: "Profile", icon: "user", action: () => openUserPanel(session.username) },
     { label: "Threads", icon: "comment", action: () => openListView("threads") },
     { label: "Upvoted", icon: "up", action: () => openListView("upvoted") },
@@ -59,6 +55,15 @@ function openAccountMenu(anchor) {
     { label: "Submissions", icon: "link", action: () => openListView("submissions") },
     { label: "Hidden", icon: "eyeOff", action: () => openListView("hidden") },
     { label: "Log out", icon: "power", action: performLogout },
+  ];
+}
+
+function openAccountMenu(anchor) {
+  const session = window.HarmoNovaHN?.session?.() || null;
+  const karma = session?.karma == null ? "" : " · " + dependencies.compact(session.karma) + " karma";
+  dependencies.openPopup(anchor, [
+    ...(session ? [{ heading: session.username + karma }] : []),
+    ...accountActions(),
   ]);
 }
 
@@ -1058,6 +1063,7 @@ function updateFeedVoteBadges() {
 
     return Object.freeze({updateAccountChip,
 openAccountMenu,
+accountActions,
 seedFeedVotes,
 requireTrustedEvent,
 cancelItemState,

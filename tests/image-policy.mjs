@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const realm=vm.createContext({Uint8Array,DataView,Blob,Promise,btoa:v=>Buffer.from(v,'binary').toString('base64')});
-vm.runInContext(fs.readFileSync(new URL('../image-policy.js',import.meta.url),'utf8'),realm);
+vm.runInContext(fs.readFileSync(new URL('../src/image-policy.js',import.meta.url),'utf8'),realm);
 const policy=realm.HarmoNovaImagePolicy;
 const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFf8AAAAASUVORK5CYII=','base64'));
 test('P08 small PNG headers accepted; mismatched types and active formats refused',()=> {

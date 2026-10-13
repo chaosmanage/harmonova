@@ -153,6 +153,19 @@
     }
   }
 
+  async function markUnread(id) {
+    if (!Number.isSafeInteger(id) || id <= 0 || !model.readIds.has(id)) return;
+    model.readIds.delete(id);
+    document.querySelectorAll('[data-story-id="' + id + '"]').forEach(card => card.classList.remove("is-read"));
+    if (dependencies.INCOGNITO) return void dependencies.privateReader.markUnread(id);
+    const result = await runtimeMessage({ type: "HARMONOVA_MARK_UNREAD", id });
+    if (!result?.ok) {
+      model.readIds.add(id);
+      document.querySelectorAll('[data-story-id="' + id + '"]').forEach(card => card.classList.add("is-read"));
+      dependencies.showToast("Could not save unread status");
+    }
+  }
+
   async function toggleBookmark(id) {
     if (!Number.isSafeInteger(id) || id <= 0) return;
     const desired = !model.bookmarks.has(id);
@@ -184,6 +197,7 @@ persistUserTags,
 persistBlockedUsers,
 persistSeenTimes,
 markRead,
+markUnread,
 toggleBookmark});
   }
   globalThis.HarmoNovaContentState=Object.freeze({create});

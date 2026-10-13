@@ -24,7 +24,7 @@ const worker = vm.createContext({
   },
   importScripts: (...files) => {
     for (const file of files) {
-      vm.runInContext(fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8'), worker);
+      vm.runInContext(fs.readFileSync(new URL('../src/' + file, import.meta.url), 'utf8'), worker);
     }
   },
   URL, AbortController, AbortSignal, TextDecoder, TextEncoder, structuredClone, setTimeout, clearTimeout,
@@ -33,7 +33,7 @@ const worker = vm.createContext({
   fetch: async () => { throw new Error('Unexpected network request'); },
   Response, ReadableStream, OffscreenCanvas: class {}, createImageBitmap: async () => { throw new Error('no image'); },
 });
-vm.runInContext(fs.readFileSync(new URL('../background.js', import.meta.url), 'utf8'), worker);
+vm.runInContext(fs.readFileSync(new URL('../src/background.js', import.meta.url), 'utf8'), worker);
 const stream = (chunks) => new Response(new ReadableStream({ start(controller) {
   for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
   controller.close();

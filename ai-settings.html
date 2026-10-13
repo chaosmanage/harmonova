@@ -3,24 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HarmoNova · AI & previews</title>
-  <link rel="stylesheet" href="ai-settings.css">
+  <title>HarmoNova · AI settings</title>
+  <link rel="stylesheet" href="src/ai-settings.css">
 </head>
 <body>
   <main class="shell">
     <header class="page-header">
       <img src="icons/icon48.png" width="38" height="38" alt="">
-      <div><h1>AI & previews</h1><p>Extension-owned preferences</p></div>
+      <div><h1>AI settings</h1><p>Extension-owned preferences</p></div>
     </header>
-    <section class="group" aria-labelledby="preview-title">
-      <div class="group-heading"><h2 id="preview-title">Website previews</h2><span class="eyebrow">On by default</span></div>
-      <label class="switch-row">
-        <span class="row-copy"><strong>External previews</strong><small>Show preview images and metadata from linked websites.</small></span>
-        <input id="previews-enabled" type="checkbox" class="switch" checked>
-      </label>
-      <p class="muted">When on, HarmoNova fetches public page metadata and eligible images without sending your browser cookies. Sites may receive requests and some may block previews.</p>
-      <p id="previews-status" class="feedback" role="status"></p>
-    </section>
     <section class="group" aria-labelledby="ai-policy-title">
       <div class="group-heading"><h2 id="ai-policy-title">AI summaries</h2></div>
       <label class="switch-row">
@@ -64,7 +55,7 @@
       <p class="muted footer-note">Your key is never stored in Hacker News settings or Chrome Sync. Adding a key alone does not enable AI; you must save AI permissions above.</p>
     </section>
   </main>
-  <script src="ai-policy.js"></script>
-  <script src="ai-settings.js"></script>
+  <script src="src/ai-policy.js"></script>
+  <script src="src/ai-settings.js"></script>
 </body>
 </html>

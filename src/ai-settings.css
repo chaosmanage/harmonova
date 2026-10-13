@@ -1,4 +1,4 @@
-@font-face{font-family:HarmoNova;src:url(fonts/GoogleSansFlexRounded-wght.ttf) format("truetype");font-style:normal;font-weight:100 900;font-display:swap}
+@font-face{font-family:HarmoNova;src:url(../fonts/GoogleSansFlexRounded-wght.ttf) format("truetype");font-style:normal;font-weight:100 900;font-display:swap}
 :root{color-scheme:dark;font-family:HarmoNova,system-ui,sans-serif;background:#0b0b0d;color:#e9e6ec}
 *{box-sizing:border-box}
 body{margin:0;background:#0b0b0d;font-size:14px}

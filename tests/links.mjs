@@ -1,8 +1,7 @@
 // HarmoNova Phase 7 part 3 (0.12.2) UI suite: links & appearance — rich link
 // previews from public provider APIs (GitHub, Wikipedia, arXiv) with strict
 // validation and text-only rendering, the "View on archive" action (Wayback
-// Machine) from the thread and card menus, the optional Nitter redirect for
-// X/Twitter links (on, off, and invalid-instance fallback), and the new
+// Machine) from the thread and card menus, the new
 // surface-theme and font settings. Drives the real Chromium extension against
 // mocked HN + Firebase + Algolia documents plus mocked provider endpoints.
 //
@@ -138,7 +137,7 @@ const providerSpec = (host, path, body, contentType = "application/json") => {
 
 const ARTICLE_HOSTS = [
   "github.com", "arxiv.org", "en.wikipedia.org", "plain-example.com",
-  "twitter.com", "x.com", "web.archive.org", "nitter.net", "nitter.example", "mocked-cdn.example",
+  "twitter.com", "x.com", "web.archive.org", "mocked-cdn.example",
 ];
 
 // Factories (not shared objects): each test gets fresh specs with fresh hit
@@ -207,8 +206,6 @@ const ARXIV_XML = () => [
     "application/atom+xml"
   ),
 ];
-
-const TWEET_URL = "https://twitter.com/seabass/status/987654";
 
 const harness = await launchExtension();
 const browser = harness.context;
@@ -393,30 +390,30 @@ await test("View on archive opens the Wayback URL from the card menu", { storyUr
   await popup.close();
 });
 
-await test("Nitter redirect rewrites story and comment links when enabled", { storyUrl: TWEET_URL, commentText: 'Read <a href="https://twitter.com/other_user">this thread</a> for context.', settings: { nitterRedirect: true, nitterInstance: "nitter.example" } }, async ({ page }) => {
+await test("X links remain direct and settings have no redirect control", { storyUrl: "https://x.com/user/status/123" }, async ({ page }) => {
   await gotoFeed(page);
-  const cardTitle = page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-card-title');
-  assert.equal(await cardTitle.getAttribute("href"), "https://nitter.example/seabass/status/987654", "card title goes to the Nitter instance");
-  await openThread(page);
-  const threadTitle = page.locator(".thread-header .thread-title");
-  assert.equal(await threadTitle.getAttribute("href"), "https://nitter.example/seabass/status/987654", "thread title rewritten");
-  assert.equal(await threadTitle.getAttribute("data-raw-href"), TWEET_URL, "raw href preserved for refreshes");
-  const commentLink = page.locator('.comment-row[data-comment-id="50034061"] .comment-body a').first();
-  assert.equal(await commentLink.getAttribute("href"), "https://nitter.example/other_user", "comment links rewritten");
+  assert.equal(await page.locator('.story-card-title').first().getAttribute('href'), 'https://x.com/user/status/123');
+  await page.goto('https://news.ycombinator.com/news#harmonova-settings');
+  await page.locator('.settings-category', {hasText:'Web and links'}).click();
+  assert.equal(await page.locator('.settings-section:not([hidden]) .setting-row').count(), 1);
+  assert.equal(await page.locator('.settings-section:not([hidden]) .setting-row strong').first().innerText(), 'Rich link previews');
 });
 
-await test("Nitter redirect stays off by default", { storyUrl: TWEET_URL }, async ({ page }) => {
+await test("Right click can mark a read story unread and persist it", { storyUrl: "https://plain-example.com/x" }, async ({ page }) => {
   await gotoFeed(page);
-  const cardTitle = page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-card-title');
-  assert.equal(await cardTitle.getAttribute("href"), TWEET_URL, "default keeps twitter.com");
   await openThread(page);
-  assert.equal(await page.locator(".thread-header .thread-title").getAttribute("href"), TWEET_URL, "thread title untouched by default");
-});
-
-await test("a broken Nitter instance host falls back to nitter.net", { storyUrl: TWEET_URL, settings: { nitterRedirect: true, nitterInstance: "not a host!" } }, async ({ page }) => {
-  await gotoFeed(page);
-  const cardTitle = page.locator('.story-card[data-story-id="' + STORY_ID + '"] .story-card-title');
-  assert.equal(await cardTitle.getAttribute("href"), "https://nitter.net/seabass/status/987654", "invalid instance falls back to nitter.net");
+  await page.goBack();
+  const card = page.locator('.story-card[data-story-id="' + STORY_ID + '"]');
+  await card.waitFor({state:'visible'});
+  assert.equal(await card.evaluate(node=>node.classList.contains('is-read')),true);
+  await card.click({button:'right'});
+  await page.locator('.harmonova-popup .popup-item', {hasText:'Mark as unread'}).click();
+  assert.equal(await card.evaluate(node=>node.classList.contains('is-read')),false);
+  const worker = browser.serviceWorkers().find(w => w.url().startsWith('chrome-extension://'));
+  await page.waitForFunction(() => !document.querySelector('.story-card.is-read'));
+  assert.equal(await worker.evaluate(async id => { const state=(await chrome.storage.local.get('harmonovaReaderStateV1')).harmonovaReaderStateV1;return state?.readIds.includes(id); }, STORY_ID), false);
+  await card.click({button:'right'});
+  assert.equal(await page.locator('.harmonova-popup .popup-item', {hasText:'Mark as unread'}).count(), 0);
 });
 
 await test("theme and font settings apply and persist through a reload", { storyUrl: "https://plain-example.com/x", settings: { uiTheme: "navy", uiFont: "serif" } }, async ({ page }) => {

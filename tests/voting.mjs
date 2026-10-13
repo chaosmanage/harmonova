@@ -349,9 +349,33 @@ await test("signed-in account menu lists profile destinations and logout", async
   const heading = await page.locator(".harmonova-popup .popup-heading").textContent();
   assert.ok(heading.includes(USER) && heading.includes("512"), "heading shows user + karma: " + heading);
   const labels = await page.locator(".harmonova-popup .popup-item span").allTextContents();
-  for (const expected of ["Profile", "Threads", "Upvoted", "Favorites", "Submissions", "Log out"]) {
+  for (const expected of ["New post", "Profile", "Threads", "Upvoted", "Favorites", "Submissions", "Log out"]) {
     assert.ok(labels.includes(expected), "menu item present: " + expected);
   }
+});
+
+await test("Settings Account keeps the same actions as the toolbar", async ({ page }) => {
+  await gotoFeed(page);
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: 'Settings' }).click();
+  await page.locator('.settings-category', { hasText: 'Account' }).click();
+  assert.match(await page.locator('.settings-section:not([hidden]) .settings-note').first().innerText(), /harmonic_test|512 karma/);
+  const buttons = await page.locator('.settings-account-actions button').allTextContents();
+  assert.deepEqual(buttons, ['New post','Profile','Threads','Upvoted','Favorites','Submissions','Hidden','Log out']);
+  await page.locator('.settings-account-actions button', { hasText: 'Upvoted' }).click();
+  await page.locator('.settings-overlay').waitFor({ state: 'detached' });
+  await page.locator('.list-view-header h2').getByText('Your upvoted').waitFor();
+});
+
+await test("Settings Account New post opens the existing submission dialog", async ({ page }) => {
+  await gotoFeed(page);
+  await page.locator('.feed-toolbar-actions .icon-button[aria-label="More"]').click();
+  await page.locator('.harmonova-popup .popup-item', { hasText: 'Settings' }).click();
+  await page.locator('.settings-category', { hasText: 'Account' }).click();
+  await page.locator('.settings-account-actions button', { hasText: 'New post' }).click();
+  await page.locator('.settings-overlay').waitFor({ state: 'detached' });
+  await page.locator('.harmonova-submit-overlay').waitFor({ state: 'visible' });
+  await page.locator('.submit-cancel').click();
 });
 
 await test("logout through the chip fetches, never navigates to /logout, and reloads signed out", async ({ page, hn }) => {

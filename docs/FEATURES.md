@@ -16,6 +16,8 @@ Choose a feed from the title menu: Top, New, Best, Ask HN, Show HN, Jobs, and ad
 
 Each story card can show its title, points, domain, age, reply count, local domain marker, and an optional preview image. Card tints help stories stand apart without turning the entire page into a grid of boxes. Story settings let you change density, preview sizing, points display, dimming for read stories, keyword/domain filters, and whether a card click opens the article or its comments.
 
+Right-click or long-press a read story card and choose **Mark as unread** to undo the dimming and remove that story from saved read history.
+
 Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; HarmoNova doesn't trap external links in its own reader.
 
 ### The discussion on the right
@@ -41,7 +43,7 @@ Search results open inside the same reader. For comment results, HarmoNova can t
 
 Reading needs no login. To interact as a user, sign in through **Hacker News's own login page** using the account entry in HarmoNova. HarmoNova doesn't ask for, read, or store your HN password.
 
-When HN supplies the appropriate signed-in controls, you can upvote stories and comments, downvote eligible comments, reply to stories and comments, submit new stories, favorite, hide, and flag eligible items. A flag or destructive action asks for confirmation. Hide also offers an immediate undo. Account views include your threads, submissions, favorites, hidden, and upvoted lists, as well as public user profiles and their public activity.
+When HN supplies the appropriate signed-in controls, you can upvote stories and comments, downvote eligible comments, reply to stories and comments, submit new stories, favorite, hide, and flag eligible items. A flag or destructive action asks for confirmation. Hide also offers an immediate undo. Account views include your threads, submissions, favorites, hidden, and upvoted lists, as well as public user profiles and their public activity. **Settings → Account** provides the same profile, lists, login/logout options as the account chip in the toolbar; neither entry point requires navigating to the other.
 
 ### Replies, drafts, and limits
 
@@ -55,7 +57,7 @@ Open **Settings** from HarmoNova's menu or the extension toolbar popup.
 
 ![HarmoNova's settings panel organized by category](assets/settings.png)
 
-Settings are organized by **Appearance, Stories, Comments, Web and links, Account, Data, and AI**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; use Google Sans Flex Rounded by default or switch to System UI or Serif; adjust zoom and story display; change comment treatment; control preview images; and configure link behavior. In the Data section you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file.
+Settings are organized by **Appearance, Updates, Stories, Comments, Web and links, Account, Data, and AI Summarization**. You can choose an AMOLED-black, charcoal, or deep-navy color scheme; use Google Sans Flex Rounded by default or switch to System UI or Serif; adjust zoom and story display; change comment treatment; control preview images; and configure link behavior. In **Data** you can export or import bookmarks, read-story IDs, user tags, and blocked-user rules as a JSON file. The **Delete data** controls separately clear reading history, saved tags/bookmarks/blocks and session drafts, or reset settings (including AI permissions and preview controls, but not your API key). **Delete all HarmoNova data** additionally removes the saved API key and update-check records. Each action asks for confirmation and does not delete anything from your Hacker News account.
 
 | Appearance | Story settings |
 | --- | --- |
@@ -65,11 +67,10 @@ Tags and blocking are **private local reading preferences**, not HN account feat
 
 ### Link extras
 
-- **Rich link previews**, enabled by default and controlled under the sidebar’s AI settings, show public metadata for general websites and enriched facts for GitHub, Wikipedia and arXiv.
+- **Rich link previews**, enabled by default and controlled under Settings → Web and links, show public metadata for general websites and enriched facts for GitHub, Wikipedia and arXiv.
 - **View on archive** opens the Wayback Machine when you want to look for an older copy of an article.
-- **Nitter redirect** is opt-in. If enabled, Twitter/X links point to your configured Nitter instance instead.
 
-You can turn these extras off in Settings. External previews are on by default but can be turned off at any time in Settings → AI.
+You can turn these extras off in Settings. External previews are on by default but can be turned off at any time in **Settings → Web and links**. The **Updates** category offers manual checks, including when automatic notifications are disabled.
 
 ## Optional AI summaries
 

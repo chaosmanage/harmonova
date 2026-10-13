@@ -25,7 +25,7 @@ export function loadBackground({ fetchImpl, failAccessLevel = false, failStorage
     },
     importScripts: (...files) => {
       for (const file of files) {
-        vm.runInContext(fs.readFileSync(path.join(repoRoot, file), "utf8"), context);
+        vm.runInContext(fs.readFileSync(path.join(repoRoot, "src", file), "utf8"), context);
       }
     },
     URL, URLSearchParams, AbortController, AbortSignal, TextDecoder, TextEncoder, structuredClone,
@@ -35,6 +35,6 @@ export function loadBackground({ fetchImpl, failAccessLevel = false, failStorage
     fetch: fetchImpl,
     Response, ReadableStream, OffscreenCanvas: class {}, createImageBitmap: async () => { throw new Error("no canvas in tests"); },
   });
-  vm.runInContext(fs.readFileSync(path.join(repoRoot, "background.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(repoRoot, "src/background.js"), "utf8"), context);
   return { context, stores, listeners };
 }

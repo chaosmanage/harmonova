@@ -120,7 +120,7 @@ export const runBrowserTests = async () => {
     await settingsPage.locator('input[name="storage"][value="session"]').check();
     await settingsPage.click("#save");
     await settingsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"), null, { timeout: 5000 });
-    assert.equal(await settingsPage.locator("#previews-enabled").isChecked(), true);
+    assert.equal(await settingsPage.locator("#previews-enabled").count(), 0, "preview setting not in AI options");
     await settingsPage.locator("#policy-enabled").check();
     await settingsPage.locator("#policy-save").click();
     await settingsPage.waitForFunction(() => document.querySelector("#policy-message")?.textContent?.includes("saved"));
@@ -169,8 +169,8 @@ export const runBrowserTests = async () => {
     const cdp=await context.newCDPSession(page);let versions=[];
     cdp.on('ServiceWorker.workerVersionUpdated',event=>{versions=event.versions;});
     await cdp.send('ServiceWorker.enable');
-    for(let i=0;i<100&&!versions.some(v=>v.scriptURL===`chrome-extension://${extensionId}/background.js`&&v.runningStatus==='running');i++)await page.waitForTimeout(50);
-    const active=versions.find(v=>v.scriptURL===`chrome-extension://${extensionId}/background.js`&&v.runningStatus==='running');assert.ok(active);
+    for(let i=0;i<100&&!versions.some(v=>v.scriptURL===`chrome-extension://${extensionId}/src/background.js`&&v.runningStatus==='running');i++)await page.waitForTimeout(50);
+    const active=versions.find(v=>v.scriptURL===`chrome-extension://${extensionId}/src/background.js`&&v.runningStatus==='running');assert.ok(active);
     await cdp.send('ServiceWorker.stopWorker',{versionId:active.versionId});
     await policyPage.reload();await policyPage.waitForFunction(()=>!document.querySelector('#key-status').textContent.includes('Checking'));
     await page.reload();await page.locator('.story-card').first().waitFor();

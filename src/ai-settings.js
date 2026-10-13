@@ -142,17 +142,5 @@ chrome.storage.sync.get(["harmonovaSettings", "harmonicSettings"], record => {
   }, { once: true });
 });
 
-const previewEnabled=document.querySelector("#previews-enabled"),previewStatus=document.querySelector("#previews-status");
 const consentNotice=document.querySelector("#ai-privacy-notice");
 policyInputs.enabled.addEventListener("change",()=>{consentNotice.hidden=!policyInputs.enabled.checked;});
-send({type:"HARMONOVA_NETWORK_POLICY_GET"}).then(result=>{if(result?.ok)previewEnabled.checked=result.policy.externalPreviewsEnabled===true;}).catch(() => { console.warn("HarmoNova: asynchronous UI operation failed"); });
-previewEnabled.addEventListener("change",async event=>{
-  if(!event.isTrusted)return;
-  previewEnabled.disabled=true;
-  const result=await send({type:"HARMONOVA_NETWORK_POLICY_SAVE",policy:{version:1,externalPreviewsEnabled:previewEnabled.checked}});
-  if(!result?.ok) {
-    previewEnabled.checked=!previewEnabled.checked;
-    previewStatus.textContent="Could not update previews. Try again.";
-  }else previewStatus.textContent=previewEnabled.checked?"Previews enabled.":"Previews disabled.";
-  previewEnabled.disabled=false;
-});

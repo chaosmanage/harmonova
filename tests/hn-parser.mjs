@@ -44,7 +44,7 @@ async function withPage(fn) {
 
 async function loadFixture(page, html) {
   await page.setContent(html, { waitUntil: "domcontentloaded" });
-  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,file)});
+  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,"src",file)});
   return page;
 }
 
@@ -151,7 +151,7 @@ await test("comment form parses hidden fields", async (page) => {
 await test("list parser reads rows and pagination", async (page) => {
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" }).catch(() => {});
   await page.setContent(readFixture("news.html"), { waitUntil: "domcontentloaded" });
-  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,file)});
+  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,"src",file)});
   const list = await page.evaluate(() => window.HarmoNovaHN._internal.parseList(document));
   assert.equal(list.ids.length, 30, "front page holds 30 stories");
   assert.ok(list.morePath, "front page has a morelink");
@@ -160,7 +160,7 @@ await test("list parser reads rows and pagination", async (page) => {
   // resolves "?…" hrefs against the requested list path instead.
   assert.equal(list.morePath, "?p=2", "morelink href returned verbatim: " + list.morePath);
   await page.setContent(readFixture("item-thread.html"), { waitUntil: "domcontentloaded" });
-  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,file)});
+  for(const file of ["resource-policy.js","hn-queue.js","hn-session.js"])await page.addScriptTag({path:path.join(runtimeRoot,"src",file)});
   const threadList = await page.evaluate(() => window.HarmoNovaHN._internal.parseList(document));
   assert.ok(threadList.ids.length > 1000, "large thread parses every comment row: " + threadList.ids.length);
   // Modern HN renders whole threads on one page; morePath stays null there but

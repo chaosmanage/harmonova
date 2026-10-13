@@ -19,6 +19,7 @@
     if (!sender || sender.id !== runtime.id || typeof sender.url !== "string") return null;
     if (sender.url === runtime.getURL("popup.html")) return "popup";
     if (sender.url === runtime.getURL("ai-settings.html")) return "options";
+    if (sender.url === runtime.getURL("preview-settings.html")) return "preview";
     if (sender.frameId !== 0 || !id(sender.tab?.id)) return null;
     try {
       const parsed = new URL(sender.url);
@@ -29,7 +30,11 @@
   }
   const RULES = Object.freeze({
     HARMONOVA_LOCAL_STATE_GET: { from: ["hn"], fields: [], reader: true },
+    HARMONOVA_DATA_RESET: { from: ["hn"], fields: ["scope"], reader: true,
+      valid: m => ["history","saved","settings","all"].includes(m.scope) },
     HARMONOVA_MARK_READ: { from: ["hn"], fields: ["id"], reader: true,
+      valid: m => id(m.id) },
+    HARMONOVA_MARK_UNREAD: { from: ["hn"], fields: ["id"], reader: true,
       valid: m => id(m.id) },
     HARMONOVA_SET_BOOKMARK: { from: ["hn"], fields: ["id", "desired"], reader: true,
       valid: m => id(m.id) && typeof m.desired === "boolean" },
@@ -55,12 +60,13 @@
     HARMONOVA_DRAFT_CLEAR_ALL: { from: ["hn"], fields: ["username"], reader: true,
       valid: m => username(m.username) },
     HARMONOVA_RELEASE_STATUS: {from:["hn"],fields:[]},
+    HARMONOVA_RELEASE_CHECK_NOW: {from:["hn"],fields:[]},
     HARMONOVA_RELEASE_IGNORE: {from:["hn"],fields:["tag"],valid:m=>typeof m.tag==="string" && /^v?\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(m.tag)},
     HARMONOVA_PREFERENCES_GET: {from:["hn","popup","options"],fields:[]},
     HARMONOVA_PREFERENCES_PATCH: {from:["hn","popup"],fields:["fields","enabled"],valid:m=>HarmoNovaSettingsSchema.patch(m.fields)!==null && (m.enabled===undefined||typeof m.enabled==="boolean")},
     HARMONOVA_MIGRATE_PREFERENCES: {from:["hn"],fields:["appearance"],reader:true,valid:m=>m.appearance && typeof m.appearance==="object" && !Array.isArray(m.appearance)},
-    HARMONOVA_NETWORK_POLICY_GET: {from:["hn","options"],fields:[]},
-    HARMONOVA_NETWORK_POLICY_SAVE: {from:["options"],fields:["policy"],valid:m=>m.policy && typeof m.policy==="object" && !Array.isArray(m.policy)},
+    HARMONOVA_NETWORK_POLICY_GET: {from:["hn","options","preview"],fields:[]},
+    HARMONOVA_NETWORK_POLICY_SAVE: {from:["options","preview"],fields:["policy"],valid:m=>m.policy && typeof m.policy==="object" && !Array.isArray(m.policy)},
     HARMONOVA_AI_STATUS: { from: ["hn", "options"], fields: [] },
     HARMONOVA_AI_POLICY_GET: { from: ["options"], fields: [] },
     HARMONOVA_AI_POLICY_SAVE: { from: ["options"], fields: ["policy"],

@@ -24,6 +24,14 @@
       Promise.resolve().then(() => broadcast(record)).catch(()=>{});
       return {ok:true,value:record,syncSaved};
     }
+    const reset=()=>serial(async()=>{
+      const current=await read();
+      current.settings={...HarmoNovaSettingsSchema.defaults};
+      current.configuredFields=[];
+      current.pageMigrated=true; // Never restore a discarded page-origin backup.
+      current.enabled=true;
+      return commit(current);
+    });
     const snapshot=()=>serial(read);
     const patch=(fields,enabled)=>serial(async()=> {
       const patch=HarmoNovaSettingsSchema.patch(fields);
@@ -40,7 +48,7 @@
       record.pageMigrated=true;
       return commit(record);
     });
-    return Object.freeze({snapshot,patch,migrate});
+    return Object.freeze({snapshot,patch,migrate,reset});
   }
   globalThis.HarmoNovaPreferencesStore=Object.freeze({create});
 })();

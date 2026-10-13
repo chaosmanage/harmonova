@@ -67,7 +67,7 @@ Browsers that support loading unpacked Chromium extensions may work, but Chrome/
 
 ## Preview or article summary is unavailable
 
-External previews start enabled for public websites. You can toggle them in Settings → AI. Websites with missing metadata, unsuitable image types, blocked requests or redirects show placeholders instead. Full article summaries depend on the article being publicly readable and may fail if the website rejects background requests. Supported provider API previews (GitHub, Wikipedia and arXiv) remain available as enhancements. Private tabs do not use AI or external previews.
+External previews start enabled for public websites. You can toggle them in Settings → Web and links. Websites with missing metadata, unsuitable image types, blocked requests or redirects show placeholders instead. Full article summaries depend on the article being publicly readable and may fail if the website rejects background requests. Supported provider API previews (GitHub, Wikipedia and arXiv) remain available as enhancements. Private tabs do not use AI or external previews.
 
 ## Draft or sign-out outcome is uncertain
 

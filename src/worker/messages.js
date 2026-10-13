@@ -26,6 +26,7 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
   };
   if(message.type === "HARMONOVA_RELEASE_STATUS")return reply(dependencies.preferencesStore.snapshot().then(record=>
     dependencies.releaseUpdates.status(record.settings.notifyUpdates!==false)));
+  if(message.type === "HARMONOVA_RELEASE_CHECK_NOW")return reply(dependencies.releaseUpdates.checkNow());
   if(message.type === "HARMONOVA_RELEASE_IGNORE")return reply(dependencies.releaseUpdates.ignore(message.tag));
   if(message.type === "HARMONOVA_PREFERENCES_GET")return reply(((sender.tab?.incognito || HarmoNovaMessageBoundary.senderKind(sender,chrome.runtime)==="popup") ? dependencies.privatePreferencesSnapshot():dependencies.preferencesStore.snapshot()).then(value=>({ok:true,value})));
   if(message.type === "HARMONOVA_PREFERENCES_PATCH")return reply(dependencies.preferencesStore.patch(message.fields,message.enabled));
@@ -33,12 +34,14 @@ function dispatchWorkerMessage(message, sender, sendResponse) {
   if(message.type === "HARMONOVA_NETWORK_POLICY_GET") return reply(dependencies.currentNetworkPolicy().then(policy=>({ok:true,policy})));
   if(message.type === "HARMONOVA_NETWORK_POLICY_SAVE") return reply(dependencies.saveNetworkPolicy(message.policy));
   if(message.type === "HARMONOVA_PREVIEW_CANCEL") {dependencies.workerNetwork.previewConsumers.get(previewKey(sender,message.requestId))?.abort();sendResponse({ok:true});return true;}
+  if (message.type === "HARMONOVA_DATA_RESET")return reply(dependencies.resetUserData(message.scope));
   if (message.type === "HARMONOVA_LOCAL_STATE_GET")
     return reply(dependencies.readerStore.stateSnapshot().then(record => ({ ok: true,
       revision: record.revision, pageOriginMigrated: record.pageOriginMigrated === true,
       readStoryIds: record.readIds, harmonovaBookmarks: record.bookmarks,
       userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
   if (message.type === "HARMONOVA_MARK_READ") return reply(dependencies.readerStore.markRead(message.id));
+  if (message.type === "HARMONOVA_MARK_UNREAD") return reply(dependencies.readerStore.markUnread(message.id));
   if (message.type === "HARMONOVA_SET_BOOKMARK") return reply(dependencies.readerStore.setBookmark(message.id, message.desired));
   if (message.type === "HARMONOVA_IMPORT_READER_DATA") return reply(dependencies.readerStore.importData(message.data));
   if (message.type === "HARMONOVA_MIGRATE_PAGE_DATA") return reply(dependencies.readerStore.migratePageData(message.data));

@@ -13,6 +13,7 @@
     const snapshot = () => ({ revision, readStoryIds: [...reads], harmonovaBookmarks: [...bookmarks],
       userTags: Object.fromEntries(tags), blockedUsers: [...blocks], seenTimes: Object.fromEntries(seen) });
     const markRead = id => { reads.add(id); trim(reads,1500); revision++; return { ok: true }; };
+    const markUnread = id => { reads.delete(id); revision++; return { ok: true }; };
     const bookmark = (id, desired) => { if (desired) bookmarks.add(id); else bookmarks.delete(id); trim(bookmarks,2000); revision++; return { ok: true }; };
     const tag = (account, value) => { if (value === null) tags.delete(account); else tags.set(account, value); trim(tags,500); revision++; return { ok: true }; };
     const blocked = (account, value) => { if (value) blocks.add(account); else blocks.delete(account); trim(blocks,500); revision++; return { ok: true }; };
@@ -59,7 +60,7 @@
       return { ok: true };
     };
     const retire = token => { tokens.delete(token); return {ok:true}; };
-    return Object.freeze({snapshot,markRead,bookmark,tag,blocked,markSeen,importData,
+    return Object.freeze({snapshot,markRead,markUnread,bookmark,tag,blocked,markSeen,importData,
       beginDraft,saveDraft,clearDraft,clearAccountDrafts,retire});
   }
   globalThis.HarmoNovaPrivateStore = Object.freeze({ create });

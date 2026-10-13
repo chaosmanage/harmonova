@@ -163,6 +163,7 @@
   function persistBlockedUsers(...args){return stateUI.persistBlockedUsers(...args);}
   function persistSeenTimes(...args){return stateUI.persistSeenTimes(...args);}
   function markRead(...args){return stateUI.markRead(...args);}
+  function markUnread(...args){return stateUI.markUnread(...args);}
   function toggleBookmark(...args){return stateUI.toggleBookmark(...args);}
 
   const previewsUI=HarmoNovaContentPreviews.create({
@@ -385,7 +386,7 @@ function openFeedMenu(anchor) {
     get hideFromFeed(){return hideFromFeed;},
     get isJobStory(){return isJobStory;},
     get markRead(){return markRead;},
-    get nitterize(){return linksUI.nitterize;},
+    get markUnread(){return markUnread;},
     get openArchive(){return linksUI.openArchive;},
     get openPopup(){return openPopup;},
     get previewsUI(){return previewsUI;},
@@ -514,9 +515,8 @@ function openFeedMenu(anchor) {
     get el(){return domUI.el;},
     get filterStories(){return filterStories;},
     get flushSettings(){return flushSettings;},
-    get nitterInstanceHost(){return linksUI.nitterInstanceHost;},
+    get accountActions(){return actionsUI.accountActions;},
     get privateReader(){return privateReader;},
-    get refreshStoryLinks(){return linksUI.refreshStoryLinks;},
     get renderThread(){return renderThread;},
     get saveSettings(){return saveSettings;},
     get showToast(){return showToast;},

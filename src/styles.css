@@ -978,6 +978,12 @@ html.harmonova-hn *{box-sizing:border-box}
   font-weight:650;
 }
 .setting-button:hover{background:#2c2b31}
+.settings-delete-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.settings-delete-actions .setting-button{margin:0}
+.settings-delete-all{border-color:#8e545a;color:#ffc3c6}
+.settings-delete-all:hover{background:#47262b}
+.settings-deletion-status:empty,.settings-update-status:empty{display:none}
+.preview-settings-frame{height:290px}
 .settings-section-highlight{
   animation:harmonova-settings-highlight 1.1s ease-out;
 }
@@ -1997,3 +2003,7 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
   font-weight: 600;
   cursor: pointer;
 }
+
+.settings-account-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+.settings-account-action{width:100%;text-align:left}
+@media(max-width:430px){.settings-account-actions{grid-template-columns:1fr}}
