@@ -1,18 +1,19 @@
-# HarmoNova 0.14.0
+# HarmoNova 0.14.1
 
 ## What's new
 
-- Stronger security for HN actions, AI consent, drafts, redirects, and external requests. Private windows keep reader data and drafts in memory and disable AI and previews.
-- Faster feeds show the first 20 stories promptly. Story and comment zoom now scale their full layouts independently; defaults are 70% and 85%.
-- Public website previews and bounded article summaries return, with AI and preview controls in the in-page Settings sidebar. GitHub, Wikipedia, and arXiv retain enriched previews. AI requires explicit consent and your own OpenRouter key.
-- Quiet notices for new releases, better handling of extension reloads, and broader offline browser and package checks.
+- **Settings → Account:** the same account actions as the toolbar, including New post, Profile, Threads, favorites, submissions, Hidden, and login/logout.
+- **Settings → Updates:** a dedicated section with a manual Check for updates button and optional automatic release notifications.
+- **Settings → Web and links:** manage external website preview permission in a separate secure extension panel, not inside AI Summarization.
+- **Settings → Data:** confirmed actions to delete reading history, saved items/drafts, settings, or all local HarmoNova data including the OpenRouter key. These controls never delete Hacker News account data.
+- Removed Nitter rewriting. Reorganized code and streamlined the offline security/UI test gate and release workflow.
 
-Public website previews and article extraction require broad HTTP(S) host permissions. See [Privacy](PRIVACY.md) for the request safeguards and DNS limitation.
+**Not included:** the experimental Hide Seen Stories feature. That PR was closed due to an empty-feed-on-refresh issue.
 
 ## Install or update
 
-1. Download `harmonova-0.14.0.zip` from this release's **Assets** and extract it.
+1. Download `harmonova-0.14.1.zip` from this release's **Assets** and extract it.
 2. Open `chrome://extensions`, enable **Developer mode**, and select **Load unpacked**.
-3. Choose the inner `harmonova` folder containing `manifest.json`, then open or refresh Hacker News.
+3. Choose the extracted `harmonova` folder. If an earlier version is already loaded, remove or replace its unpacked directory first, then reload Hacker News.
 
-For an existing unpacked installation, replace the contents of the same folder, click **Reload** on `chrome://extensions`, and refresh your HN tabs. Keeping the folder path preserves the extension's storage identity. See [Troubleshooting](TROUBLESHOOTING.md) if Chrome does not load the folder.
+External preview requests may contact public websites and their services without browser cookies. Read the [privacy and security details](https://github.com/chaosmanage/harmonova/blob/v0.14.1/docs/PRIVACY.md).
