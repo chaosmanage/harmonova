@@ -3,10 +3,20 @@
 <p align="center">
   <a href="https://news.ycombinator.com/item?id=50046402">
     <img
-      src="https://img.shields.io/badge/-Discuss%20this%20project%20on%20Hacker%20News-555555?style=for-the-badge&logo=ycombinator&logoColor=FFD700&labelColor=FF6600"
-      alt="Discuss this project on Hacker News"
+      src="https://img.shields.io/badge/-Discuss%20on%20Hacker%20News-555555?style=for-the-badge&logo=ycombinator&logoColor=FFD700&labelColor=FF6600"
+      alt="Discuss on Hacker News"
     />
   </a>
+
+
+
+  <a href="https://github.com/chaosmanage/harmonova/releases/latest">
+    <img
+      src="https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github&logoColor=white"
+      alt="Download Latest Release"
+    />
+  </a>
+
 </p>
 
 # HarmoNova for Hacker News — Chrome Browser Extension
