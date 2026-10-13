@@ -111,7 +111,7 @@
       settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
       settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
-      dependencies.el("p", "settings-note", "Preview images are enabled by default; turn them off under AI Summarization. Websites without usable images show a local placeholder."),
+      dependencies.el("p", "settings-note", "Preview images are enabled by default; control external website fetching under Web and links. Websites without usable images show a local placeholder."),
       settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
       settingSlider("Content zoom", "contentScale", 65, 150, 5, "%")
     );
@@ -144,12 +144,57 @@
     importFileInput.accept = "application/json,.json";
     importFileInput.hidden = true;
     importFileInput.addEventListener("change", () => importUserData(importFileInput));
+    const deletionStatus = dependencies.el("p", "settings-note settings-deletion-status");
+    deletionStatus.setAttribute("role", "status");
+    const deletionActions = dependencies.el("div", "settings-delete-actions");
+    const resets = [
+      ["history", "Delete history", "Delete read-story history and comment visit markers? Saved tags, drafts, and settings will be kept."],
+      ["saved", "Delete saved data", "Delete saved bookmarks, user tags, blocked users, and unsent drafts? Read history and settings will be kept."],
+      ["settings", "Reset settings", "Restore all preferences, appearance, filters, AI permissions, and preview controls to defaults? Your reading history, saved data, and API key will be kept."],
+      ["all", "Delete all HarmoNova data", "Permanently delete all HarmoNova reading history, saved data, drafts, settings, API keys, and stored update records? This cannot be undone. Hacker News account data is not affected."],
+    ];
+    for (const [scope,label,warning] of resets) {
+      const button = dependencies.el("button", "setting-button settings-delete-"+scope, label);
+      button.type = "button";
+      button.disabled=dependencies.INCOGNITO;
+      if(scope==="all")button.classList.add("settings-delete-all");
+      button.addEventListener("click",async event=>{
+        if(!event.isTrusted||button.disabled||dependencies.INCOGNITO)return;
+        if(!window.confirm(warning))return;
+        button.disabled=true;
+        deletionStatus.textContent="Deleting…";
+        try {
+          const result=await dependencies.stateUI.runtimeMessage({type:"HARMONOVA_DATA_RESET",scope});
+          if(!result?.ok) {
+            deletionStatus.textContent="Could not delete all requested data. Please retry.";
+            return;
+          }
+          // Refresh this tab to discard cached preferences, reading markers,
+          // and unsent in-memory form state after the trusted worker reset.
+          for(const key of ["harmonova:settings:v1","harmonic:settings:v1",
+              "harmonovaUserTags","harmonicUserTags","harmonovaBlockedUsers","harmonicBlockedUsers",
+              "harmonovaSeenComments","harmonicSeenComments"]) {
+            if(scope==="all"||scope==="settings"&&key.includes("settings:"))
+              try{localStorage.removeItem(key);}catch{}
+          }
+          window.location.reload();
+        } catch {
+          deletionStatus.textContent="Could not delete all requested data. Please retry.";
+        } finally {button.disabled=false;}
+      });
+      deletionActions.appendChild(button);
+    }
+    if(dependencies.INCOGNITO)deletionStatus.textContent="Private-tab data is memory-only and is cleared when you close this tab.";
     userDataSection.append(
       dependencies.el("h3", "", "Your local data"),
       exportButton,
       importButton,
       importFileInput,
-      dependencies.el("p", "settings-note", "Read history, user tags and blocked users can be exported or imported. Older bookmarks remain in backups for compatibility, but new bookmarks are no longer offered. Nothing here is sent to Hacker News or an external server.")
+      dependencies.el("p", "settings-note", "Read history, user tags and blocked users can be exported or imported. Older bookmarks remain in backups for compatibility, but new bookmarks are no longer offered. Nothing here is sent to Hacker News or an external server."),
+      dependencies.el("h3", "settings-delete-heading", "Delete data"),
+      dependencies.el("p", "settings-note", "All deletion actions require confirmation. Changes to HarmoNova storage cannot be undone; they do not affect your Hacker News account."),
+      deletionActions,
+      deletionStatus
     );
 
     const headerDisplaySection = dependencies.el("div", "settings-section");
@@ -159,35 +204,82 @@
       settingToggle("Preview image", "headerImage", "Show the story preview above the discussion title")
     );
 
+    // Manually querying the existing release checker is independent from
+    // notifications, and never supplies a URL to the privileged worker.
+    const checkUpdates = dependencies.el("button", "setting-button settings-check-updates", "Check for updates");
+    checkUpdates.type = "button";
+    const updateStatus = dependencies.el("p", "settings-note settings-update-status");
+    updateStatus.setAttribute("role", "status");
+    if (dependencies.INCOGNITO) {
+      checkUpdates.disabled = true;
+      updateStatus.textContent = "Check for updates from a regular tab.";
+    }
+    checkUpdates.addEventListener("click", async event => {
+      if (!event.isTrusted || checkUpdates.disabled) return;
+      checkUpdates.disabled = true;
+      updateStatus.textContent = "Checking for updates…";
+      try {
+        const result = await dependencies.stateUI.runtimeMessage({type:"HARMONOVA_RELEASE_CHECK_NOW"});
+        if (!result?.ok) updateStatus.textContent = "Could not check for updates. Try again.";
+        else if (result.available && /^v?\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(result.tag)) {
+          updateStatus.textContent = "Update available: " + result.tag + ". ";
+          const link = dependencies.el("a", "", "View release");
+          link.href = "https://github.com/chaosmanage/harmonova/releases/latest";
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          updateStatus.appendChild(link);
+        } else updateStatus.textContent = "You're up to date.";
+      } catch {
+        updateStatus.textContent = "Could not check for updates. Try again.";
+      } finally { checkUpdates.disabled = dependencies.INCOGNITO; }
+    });
+
     // Phase 7 part 3: appearance (theme + font) and link behavior.
     const appearanceSection = dependencies.el("div", "settings-section");
     appearanceSection.append(
       dependencies.el("h3", "", "Appearance"),
       settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
       settingSelect("Font", "uiFont", [["rounded", "Google Sans Flex Rounded"], ["system", "System UI"], ["serif", "Serif"]]),
-      settingToggle("Notify about new releases", "notifyUpdates", "Show a quiet, dismissible notice when a newer GitHub release is available. No Chrome notifications."),
       dependencies.el("p", "settings-note", "Themes restyle HarmoNova's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
     );
 
+    const updatesSection = dependencies.el("div", "settings-section");
+    updatesSection.append(
+      dependencies.el("h3", "", "Updates"),
+      settingToggle("Notify about new releases", "notifyUpdates", "Show a quiet, dismissible notice when a newer GitHub release is available. No Chrome notifications."),
+      checkUpdates,
+      updateStatus,
+      dependencies.el("p", "settings-note", "Manual checks look for the latest published HarmoNova release on GitHub, even when notifications are off.")
+    );
+
     const linksSection = dependencies.el("div", "settings-section");
+    const previewFrame = dependencies.el("iframe", "ai-settings-frame preview-settings-frame");
+    previewFrame.title = "Secure website preview preferences";
+    const previewFrameUrl = HarmoNovaContentRuntime.getURL("preview-settings.html");
+    if(previewFrameUrl)previewFrame.src=previewFrameUrl;
+    previewFrame.setAttribute("referrerpolicy", "no-referrer");
+    previewFrame.setAttribute("loading", "lazy");
     linksSection.append(
-      dependencies.el("h3", "", "Links"),
+      dependencies.el("h3", "", "Web and links"),
       settingToggle("Rich link previews", "richPreviews", "Show website metadata and provider facts in link previews"),
-      dependencies.el("p", "settings-note", "Website previews are enabled by default and can be controlled under AI Summarization. Sites that block metadata or images use placeholders.")
+      ...(dependencies.INCOGNITO
+        ? [dependencies.el("p", "settings-note", "External previews are unavailable in private tabs. Configure them from a normal HarmoNova tab.")]
+        : previewFrameUrl ? [previewFrame] : []),
+      dependencies.el("p", "settings-note", "Websites with no usable images or metadata use local placeholders.")
     );
 
     const aiSection = dependencies.el("div", "settings-section ai-settings-section");
     const aiFrame = dependencies.el("iframe", "ai-settings-frame");
-    aiFrame.title = "Secure AI and preview preferences";
+    aiFrame.title = "Secure AI preferences";
     const aiFrameUrl = HarmoNovaContentRuntime.getURL("ai-settings.html");
     if (aiFrameUrl) aiFrame.src = aiFrameUrl;
     aiFrame.setAttribute("referrerpolicy", "no-referrer");
     aiFrame.setAttribute("loading", "lazy");
     aiSection.append(
       dependencies.el("h3", "", "AI summarization"),
-      dependencies.el("p", "settings-note ai-settings-intro", "Control article and discussion summaries, OpenRouter access, and website previews here. Credentials and consent stay inside HarmoNova’s secure extension panel."),
+      dependencies.el("p", "settings-note ai-settings-intro", "Control article and discussion summaries, OpenRouter access, and AI permissions here. Credentials and consent stay inside HarmoNova’s secure extension panel."),
       ...(dependencies.INCOGNITO
-        ? [dependencies.el("p", "settings-note", "AI and external previews are unavailable in private tabs. Configure these preferences from a normal HarmoNova tab.")]
+        ? [dependencies.el("p", "settings-note", "AI settings are unavailable in private tabs. Configure them from a normal HarmoNova tab.")]
         : aiFrameUrl ? [aiFrame] : [])
     );
 
@@ -228,6 +320,7 @@
     // persisted keys or dropping advanced controls.
     const categories = [
       ["Appearance", [appearanceSection, headerDisplaySection]],
+      ["Updates", [updatesSection]],
       ["Stories", [storySection, behaviorSection]],
       ["Comments", [commentsSection]],
       ["Web and links", [linksSection]],

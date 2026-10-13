@@ -66,6 +66,35 @@
       Promise.resolve().then(() => broadcast(after)).catch(() => {});
       return { ok: true, ...result, value: after };
     });
+    const resetHistory = () => mutateState(state => {
+      state.readIds = [];
+      state.seenTimes = {};
+      state.pageOriginMigrated = true; // Old page backups must not revive history.
+      return { changed: true };
+    });
+    const resetSaved = () => serial(async () => {
+      const state = await readData();
+      state.bookmarks = [];
+      state.tags = {};
+      state.blockedUsers = [];
+      state.pageOriginMigrated = true; // Do not restore old tags or blocks.
+      state.revision++;
+      await localSet({ [DATA_KEY]: state });
+      // Invalidate every outstanding draft token before accepting new writes.
+      active.clear();
+      await sessionSet({ [DRAFT_KEY]: emptyDrafts() });
+      Promise.resolve().then(() => broadcast(state)).catch(() => {});
+      return { ok: true };
+    });
+    const resetAll = () => serial(async () => {
+      const previous = await readData();
+      const state = { ...emptyData(), revision: previous.revision + 1, pageOriginMigrated: true };
+      await localSet({ [DATA_KEY]: state });
+      active.clear();
+      await sessionSet({ [DRAFT_KEY]: emptyDrafts() });
+      Promise.resolve().then(() => broadcast(state)).catch(() => {});
+      return { ok: true };
+    });
     const markRead = id => mutateState(state => {
       if (!validId(id)) throw new Error("INVALID_ID");
       if (state.readIds.includes(id)) return { ok: true, changed: false };
@@ -241,7 +270,7 @@
       await sessionSet({ [TAB_KEY]: retained });
       return { ok: true, tabs: retained };
     });
-    return Object.freeze({ stateSnapshot, markRead, markUnread, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
+    return Object.freeze({ stateSnapshot, resetHistory, resetSaved, resetAll, markRead, markUnread, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
       beginDraft, saveDraft, clearDraft, clearAccountDrafts, retireDraft,
       getOriginalTabs, setOriginalTab, reconcileOriginalTabs });
   }

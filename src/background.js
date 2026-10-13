@@ -144,6 +144,38 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   function clearAiKey(...args){return workerAI.clearAiKey(...args);}
   function abortAllAiRequests(...args){return workerAI.abortAllAiRequests(...args);}
 
+  // Reset only extension-owned data. Keep minimal revision/migration markers to
+  // prevent stale tabs or legacy page backups from resurrecting deleted records.
+  async function resetUserData(scope) {
+    if(scope==="history") return readerStore.resetHistory();
+    if(scope==="saved") return readerStore.resetSaved();
+    if(scope!=="settings"&&scope!=="all")return {ok:false};
+    if(scope==="all")await readerStore.resetAll();
+    const preferences=await preferencesStore.reset();
+    if(!preferences.syncSaved)throw new Error("SYNC_UNAVAILABLE");
+    await saveNetworkPolicy({version:1,externalPreviewsEnabled:true});
+    abortAllAiRequests();
+    // Clear both current and migration-era policy keys so stale consent cannot return.
+    await workerStorage.localRemove([AI_POLICY_LOCAL_STORAGE_KEY,
+      workerStorage.oldStorageKey(AI_POLICY_LOCAL_STORAGE_KEY)]);
+    if(scope==="all"){
+      await clearAiKey();
+      // Remove release notices, old sync keys and obsolete reader backups.
+      // A minimal clean reader/preferences state is retained by design.
+      const protectedKeys={
+        local:new Set(["harmonovaReaderStateV1","harmonovaPreferencesV1","harmonovaNetworkPolicyV1"]),
+        sync:new Set(["harmonovaSettings","harmonovaEnabled"]),
+        session:new Set(["harmonovaDraftsV2","harmonovaOriginalTabIds"]),
+      };
+      for(const [name,area] of [["local",chrome.storage.local],["sync",chrome.storage.sync],["session",chrome.storage.session]]){
+        const all=await storageCall(area,"get",null);
+        const removed=Object.keys(all).filter(key=>/^(harmonova|harmonic)/.test(key)&&!protectedKeys[name].has(key));
+        if(removed.length)await storageCall(area,"remove",removed);
+      }
+    }
+    return {ok:true};
+  }
+
   // Delay release checks until after installation; recheck once per day.
   const releaseUpdates=HarmoNovaReleaseUpdates.create({
     localGet:workerStorage.localGet,localSet:workerStorage.localSet,
@@ -177,6 +209,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     get preferencesStore(){return preferencesStore;},
     get privatePreferencesSnapshot(){return privatePreferencesSnapshot;},
     get readerStore(){return readerStore;},
+    get resetUserData(){return resetUserData;},
     get releaseUpdates(){return releaseUpdates;},
     get saveAiKey(){return saveAiKey;},
     get saveAiPolicy(){return saveAiPolicy;},

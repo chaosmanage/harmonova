@@ -83,6 +83,8 @@
     {
       "resources": [
         "ai-settings.html",
+        "preview-settings.html",
+        "src/preview-settings.js",
         "src/ai-settings.css",
         "src/ai-settings.js",
         "src/ai-policy.js",

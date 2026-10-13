@@ -91,6 +91,38 @@ test("P02 options only see key preview; content receives boolean status", async 
   const detail = await invoke(listeners, { type: "HARMONOVA_AI_STATUS" }, options);
   assert.ok(detail.preview);
 });
+test("separate preview options cannot access AI credentials or reset reader data", async () => {
+  const { listeners } = setup();
+  const preview = { id: ext, url: "chrome-extension://test-extension-id/preview-settings.html" };
+  assert.equal((await invoke(listeners,{type:"HARMONOVA_NETWORK_POLICY_GET"},preview)).ok,true);
+  assert.equal((await invoke(listeners,{type:"HARMONOVA_NETWORK_POLICY_SAVE",policy:{version:1,externalPreviewsEnabled:false}},preview)).ok,true);
+  for(const type of ["HARMONOVA_AI_STATUS","HARMONOVA_AI_POLICY_GET","HARMONOVA_DATA_RESET"])
+    assert.equal((await invoke(listeners,{type,scope:"all"},preview)).ok,false,type);
+});
+test("data reset is restricted to trusted normal HN frames and fixed scopes",async()=>{
+  const {listeners}=setup();
+  for(const scope of ["invalid", "ALL", "", [], null])
+    assert.equal((await invoke(listeners,{type:"HARMONOVA_DATA_RESET",scope})).ok,false);
+  for(const sender of [{...good,url:"https://evil.example/"}, {...good,frameId:1},
+    {...good,tab:{...good.tab,incognito:true}}, {id:ext,url:"chrome-extension://test-extension-id/popup.html"}])
+    assert.equal((await invoke(listeners,{type:"HARMONOVA_DATA_RESET",scope:"all"},sender)).ok,false);
+});
+
+test("manual release checking accepts only trusted normal HN frames without caller URLs", async () => {
+  const { listeners } = setup();
+  const request = { type: "HARMONOVA_RELEASE_CHECK_NOW" };
+  for (const s of [
+    sender({ url: "https://attacker.example/" }),
+    sender({ frameId: 1 }),
+    sender({ tab: { ...good.tab, incognito: true } }),
+    { id: ext, url: "chrome-extension://test-extension-id/popup.html" },
+  ]) assert.equal((await invoke(listeners,request,s)).ok,false);
+  assert.equal((await invoke(listeners,{...request,url:'https://attacker.example/'})).ok,false);
+  // A permitted content script reaches only the fixed trusted GitHub endpoint.
+  const result=await invoke(listeners,request);
+  assert.equal(result.available,false);
+});
+
 test("P02 untrusted AI ports are disconnected without attaching listeners", () => {
   const { listeners } = setup();
   for (const s of [{ ...good, url: "https://evil.test" },

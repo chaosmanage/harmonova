@@ -120,7 +120,7 @@ export const runBrowserTests = async () => {
     await settingsPage.locator('input[name="storage"][value="session"]').check();
     await settingsPage.click("#save");
     await settingsPage.waitForFunction(() => document.querySelector("#message")?.textContent?.includes("saved"), null, { timeout: 5000 });
-    assert.equal(await settingsPage.locator("#previews-enabled").isChecked(), true);
+    assert.equal(await settingsPage.locator("#previews-enabled").count(), 0, "preview setting not in AI options");
     await settingsPage.locator("#policy-enabled").check();
     await settingsPage.locator("#policy-save").click();
     await settingsPage.waitForFunction(() => document.querySelector("#policy-message")?.textContent?.includes("saved"));

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HarmoNova · Website previews</title><link rel="stylesheet" href="src/ai-settings.css"></head>
+<body><main class="shell">
+<header class="page-header"><img src="icons/icon48.png" width="38" height="38" alt=""><div><h1>Website previews</h1><p>Extension-owned preferences</p></div></header>
+    <section class="group" aria-labelledby="preview-title">
+      <div class="group-heading"><h2 id="preview-title">Website previews</h2><span class="eyebrow">On by default</span></div>
+      <label class="switch-row">
+        <span class="row-copy"><strong>External previews</strong><small>Show preview images and metadata from linked websites.</small></span>
+        <input id="previews-enabled" type="checkbox" class="switch" checked>
+      </label>
+      <p class="muted">When on, HarmoNova fetches public page metadata and eligible images without sending your browser cookies. Sites may receive requests and some may block previews.</p>
+      <p id="previews-status" class="feedback" role="status"></p>
+    </section>
+</main><script src="src/preview-settings.js"></script></body></html>

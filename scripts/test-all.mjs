@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
-const unit=['ai-worker','ai-consent','security','remote-policy','message-boundary','storage-state','reader-cross-tab','incognito','resource-limits','image-policy','provider-policy','hn-queue','fixture-guard','release-updates'];
+const unit=['ai-worker','ai-consent','security','remote-policy','message-boundary','storage-state','reader-cross-tab','data-reset','incognito','resource-limits','image-policy','provider-policy','hn-queue','fixture-guard','release-updates'];
 const legacy=['harness','context-invalidation','network-boundary','security-browser','hn-parser','hn-auth','search','voting','comments','actions','profile','parity','comment-parity','links','fix-regressions','reload','provider-browser','settings-sidebar-browser','feed-resilience-browser','image-browser','migration-browser','lifecycle-browser','incognito-browser','resource-browser','feed-zoom-browser','release-browser'];
 // Fast gate exercises the privileged boundary, signed-in actions, settings and links.
 const smoke=['security-browser','voting','links','settings-sidebar-browser'];

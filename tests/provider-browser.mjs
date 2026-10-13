@@ -14,7 +14,7 @@ await withExtension(async({context,worker})=> {
   assert.ok(previews>0,'fresh install enables supported preview requests');
   const origins=await worker.evaluate(async()=> (await chrome.permissions.getAll()).origins);
   assert.ok(origins.includes('https://*/*') && origins.includes('http://*/*'));
-  const settings=await context.newPage();await settings.goto('chrome-extension://'+new URL(worker.url()).host+'/ai-settings.html');
+  const settings=await context.newPage();await settings.goto('chrome-extension://'+new URL(worker.url()).host+'/preview-settings.html');
   const before=previews;
   await settings.locator('#previews-enabled').uncheck();
   await settings.waitForFunction(()=>document.querySelector('#previews-status')?.textContent.includes('disabled'));

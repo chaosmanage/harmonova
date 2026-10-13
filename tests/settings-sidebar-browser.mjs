@@ -20,17 +20,56 @@ await withExtension(async({context,worker})=>{
     const body=['data: {"choices":[{"delta":{"content":"Summary of complete article"}}]}','data: [DONE]'].join("\n\n")+"\n\n";
     return r.fulfill({status:200,contentType:'text/event-stream',body});
   });
+  let releasedTag='v0.15.0', releaseRequests=0, simulateFailure=false;
+  await context.route('https://api.github.com/repos/chaosmanage/harmonova/releases/latest',r=>{
+    releaseRequests++;
+    if(simulateFailure)return r.fulfill({status:503,contentType:'text/plain',body:'unavailable'});
+    return r.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({tag_name:releasedTag,draft:false,prerelease:false})});
+  });
   const page=await context.newPage();
   await page.goto('https://news.ycombinator.com/news');
   await page.locator('.story-card').first().waitFor();
   await page.evaluate(()=>{location.hash='#harmonova-settings';});
   await page.locator('.settings-overlay').waitFor({state:'visible'});
+  assert.equal(await page.locator('.settings-category').filter({hasText:'Updates'}).count(),1);
+  await page.locator('.settings-category').filter({hasText:'Appearance'}).click();
+  assert.equal(await page.locator('.settings-section:not([hidden]) .settings-check-updates').count(),0,'not in Appearance');
+  await page.locator('.settings-back').click();
+  await page.locator('.settings-category').filter({hasText:'Updates'}).click();
+  const notify=page.locator('.settings-section:not([hidden]) .setting-row',{hasText:'Notify about new releases'}).locator('input');
+  assert.equal(await notify.isChecked(),true);
+  await notify.uncheck();
+  assert.equal(await notify.isChecked(),false);
+  const check=page.locator('.settings-section:not([hidden]) .settings-check-updates');
+  await check.click();
+  await page.locator('.settings-update-status').getByText(/Update available: v0\.15\.0/).waitFor();
+  assert.equal(await page.locator('.settings-update-status a').getAttribute('href'),
+    'https://github.com/chaosmanage/harmonova/releases/latest');
+  assert.equal(releaseRequests,1,'manual check fetches with notifications disabled');
+  releasedTag='v0.14.0';
+  await check.click();
+  await page.locator('.settings-update-status').getByText("You're up to date.").waitFor();
+  simulateFailure=true;
+  await check.click();
+  await page.locator('.settings-update-status').getByText('Could not check for updates. Try again.').waitFor();
+  assert.equal(releaseRequests,3);
+  await page.locator('.settings-back').click();
+  await page.locator('.settings-category').filter({hasText:'Web and links'}).click();
+  const previewFrame=page.frameLocator('.preview-settings-frame');
+  await previewFrame.locator('#previews-enabled').waitFor();
+  assert.equal(await previewFrame.locator('#previews-enabled').isChecked(),true,'previews should default on under Web and links');
+  assert.ok((await previewFrame.locator('body').getAttribute('class')).includes('embedded'));
+  await previewFrame.locator('#previews-enabled').uncheck();
+  await previewFrame.locator('#previews-status').getByText('Previews disabled.').waitFor();
+  assert.equal((await worker.evaluate(async()=> (await chrome.storage.local.get('harmonovaNetworkPolicyV1')).harmonovaNetworkPolicyV1.externalPreviewsEnabled)),false);
+  await previewFrame.locator('#previews-enabled').check();
+  await previewFrame.locator('#previews-status').getByText('Previews enabled.').waitFor();
+  await page.locator('.settings-back').click();
   await page.locator('.settings-category').filter({hasText:'AI'}).click();
   assert.equal(await page.locator('.settings-header h2').innerText(),'AI Summarization');
-  const frame=page.frameLocator('.ai-settings-frame');
-  await frame.locator('#previews-enabled').waitFor();
-  assert.equal(await frame.locator('#previews-enabled').isChecked(),true,'previews should default on in sidebar');
-  assert.ok((await frame.locator('body').getAttribute('class')).includes('embedded'));
+  const frame=page.frameLocator('.ai-settings-frame:not(.preview-settings-frame)');
+  assert.equal(await frame.locator('#previews-enabled').count(),0,'preview controls moved out of AI');
   const buttonOffset=await frame.locator('#policy-save').evaluate(button=>
     button.getBoundingClientRect().left-button.closest('.group').getBoundingClientRect().left);
   assert.ok(buttonOffset>=13 && buttonOffset<=20,'save permissions button aligns with group in embedded layout');
@@ -39,13 +78,8 @@ await withExtension(async({context,worker})=>{
   const actualFrame=page.frames().find(f=>f.url().includes('/ai-settings.html'));
   assert.ok(actualFrame,'trusted extension page is embedded in sidebar');
   assert.ok(actualFrame.url().startsWith('chrome-extension://'));
-  assert.equal(await page.evaluate(()=>document.querySelector('.ai-settings-frame').contentDocument),null,'HN document cannot inspect extension-owned key form');
+  assert.equal(await page.evaluate(()=>document.querySelector('.ai-settings-frame:not(.preview-settings-frame)').contentDocument),null,'HN document cannot inspect extension-owned key form');
   const pagesBefore=context.pages().length;
-  await frame.locator('#previews-enabled').uncheck();
-  await frame.locator('#previews-status').getByText('Previews disabled.').waitFor();
-  assert.equal((await worker.evaluate(async()=> (await chrome.storage.local.get('harmonovaNetworkPolicyV1')).harmonovaNetworkPolicyV1.externalPreviewsEnabled)),false);
-  await frame.locator('#previews-enabled').check();
-  await frame.locator('#previews-status').getByText('Previews enabled.').waitFor();
   await frame.locator('#policy-enabled').check();
   assert.equal(await frame.locator('#ai-privacy-notice').isVisible(),true,'enabling AI discloses provider text transfer and charges');
   // Keyboard activation avoids Chromium's flaky cross-origin mouse coordinates
@@ -74,5 +108,52 @@ await withExtension(async({context,worker})=>{
   await page.locator('[data-summary-action-id="910061"][data-summary-source="article"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-summary-story-id="910061"]')?.dataset.status==='success',{},{timeout:15000});
   assert.ok(aiPayload?.messages?.[1]?.content.includes('entire article content'),'OpenRouter receives actual full article, not provider excerpt');
-  console.log('PASS secure inline AI UI, defaults, consent, key storage and generic full-article metadata');
+  // Destructive controls require trusted confirmation and affect distinct stores.
+  const dataPage=async()=>{
+    await page.locator('.story-card').first().waitFor({state:'visible'});
+    await page.evaluate(()=>{location.hash='#harmonova-settings';});
+    await page.locator('.settings-overlay').waitFor();
+    await page.locator('.settings-category').filter({hasText:'Data'}).click();
+  };
+  const reset=async (scope)=>{
+    const selector='.settings-delete-'+scope;
+    page.once('dialog',dialog=>dialog.accept());
+    await page.locator(selector).click();
+    await page.locator('.settings-overlay').waitFor({state:'detached',timeout:12000});
+    await page.locator('.story-card').first().waitFor({state:'visible'});
+  };
+  await worker.evaluate(async()=>{
+    await readerStore.markRead(910061);
+    await readerStore.setTag('testuser','important');
+    await readerStore.markSeen(910061,Date.now());
+    const draft=await readerStore.beginDraft('testuser',910061);
+    await readerStore.saveDraft('testuser',910061,draft.token,0,'unsent note');
+  });
+  await dataPage();
+  // A rejected confirmation must preserve the original history.
+  page.once('dialog',dialog=>dialog.dismiss());
+  await page.locator('.settings-delete-history').click();
+  assert.ok((await worker.evaluate(()=>readerStore.stateSnapshot())).readIds.includes(910061));
+  await reset('history');
+  let reader=await worker.evaluate(()=>readerStore.stateSnapshot());
+  assert.deepEqual(reader.readIds,[]);
+  assert.deepEqual(reader.seenTimes,{});
+  assert.equal(reader.tags.testuser,'important','history deletion preserves saved tags');
+  await dataPage();
+  await reset('saved');
+  reader=await worker.evaluate(()=>readerStore.stateSnapshot());
+  assert.deepEqual(reader.tags,{});
+  assert.equal(await worker.evaluate(async()=> (await readerStore.beginDraft('testuser',910061)).text),'');
+  assert.equal(await worker.evaluate(async()=> (await preferencesStore.snapshot()).settings.notifyUpdates),false,'saved deletion preserves settings');
+  await dataPage();
+  await reset('settings');
+  assert.equal(await worker.evaluate(async()=> (await preferencesStore.snapshot()).settings.notifyUpdates),true,'settings restored');
+  assert.equal((await worker.evaluate(()=>currentNetworkPolicy())).externalPreviewsEnabled,true);
+  assert.equal((await worker.evaluate(()=>currentAiPolicy())).enabled,false);
+  assert.equal((await worker.evaluate(()=>aiKeyStatus())).hasKey,true,'settings reset preserves API key');
+  await dataPage();
+  await reset('all');
+  assert.equal((await worker.evaluate(()=>aiKeyStatus())).hasKey,false,'all data removes API key');
+  assert.deepEqual((await worker.evaluate(()=>readerStore.stateSnapshot())).readIds,[]);
+  console.log('PASS Updates, Web and links preview consent, Data deletion, and secure inline AI');
 });

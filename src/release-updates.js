@@ -31,26 +31,29 @@
       await localSet({[KEY]:{...record,ignoredTag:tag}});
       return {ok:true};
     }
-    async function check(enabled=true) {
-      if(!enabled)return {ok:true,available:false};
+    async function check(enabled=true,manual=false) {
+      // Explicit checks are user-initiated, independent of the automatic
+      // notification preference and any previously dismissed release.
+      if(!enabled&&!manual)return {ok:true,available:false};
+      const failure=()=>manual?{ok:false,available:false}:{ok:true,available:false};
       try {
         const response=await fetchRelease(ENDPOINT,{
           headers:{Accept:'application/vnd.github+json'},credentials:'omit',redirect:'error',
           cache:'no-store',signal:AbortSignal.timeout(7000)
         });
         if(!response.ok||!response.headers.get('content-type')?.includes('json')){
-          await response.body?.cancel();return {ok:true,available:false};
+          await response.body?.cancel();return failure();
         }
         if(Number(response.headers.get('content-length')||0)>MAX_RESPONSE_BYTES){
-          await response.body?.cancel();return {ok:true,available:false};
+          await response.body?.cancel();return failure();
         }
         // Limit an untrusted network response even without Content-Length.
-        const reader=response.body?.getReader();if(!reader)return {ok:true,available:false};
+        const reader=response.body?.getReader();if(!reader)return failure();
         let size=0;const chunks=[];
         try {
           while(true) {
             const {done,value}=await reader.read();if(done)break;
-            size+=value.byteLength;if(size>MAX_RESPONSE_BYTES){await reader.cancel();return {ok:true,available:false};}
+            size+=value.byteLength;if(size>MAX_RESPONSE_BYTES){await reader.cancel();return failure();}
             chunks.push(value);
           }
         }finally{reader.releaseLock();}
@@ -58,16 +61,18 @@
         for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
         const release=JSON.parse(new TextDecoder().decode(bytes));
         const tag=release?.tag_name;
-        if(release?.draft||release?.prerelease||!version(tag))return {ok:true,available:false};
+        if(release?.draft||release?.prerelease||!version(tag))return failure();
         const previous=await read();
         const record={tag,checkedAt:now(),ignoredTag:previous.ignoredTag||''};
         await localSet({[KEY]:record});
-        const result=available(record);
-        if(result.available&&tag!==previous.tag)await onAvailable(result);
+        const result=manual
+          ? newer(tag,installedVersion) ? {ok:true,available:true,tag,url:RELEASE_URL} : {ok:true,available:false}
+          : available(record);
+        if(!manual&&result.available&&tag!==previous.tag)await onAvailable(result);
         return result;
-      }catch{return {ok:true,available:false};}
+      }catch{return failure();}
     }
-    return Object.freeze({status,ignore,check});
+    return Object.freeze({status,ignore,check,checkNow:()=>check(true,true)});
   }
   globalThis.HarmoNovaReleaseUpdates=Object.freeze({create,newer});
 })();
