@@ -21,7 +21,7 @@ Chrome cannot load a compressed ZIP through **Load unpacked**. Extract it first.
 
 ## Chrome says “Manifest file is missing or unreadable”
 
-You're probably selecting the parent of the extension folder. Open the folder in your file manager first and verify that you can see `manifest.json` beside `content.js` and `background.js`. Then select that folder itself.
+You're probably selecting the parent of the extension folder. Open the folder in your file manager first and verify that you can see `manifest.json` alongside `popup.html` and the `src/` directory. Then select that folder itself.
 
 ## It installed, but Hacker News still looks the same
 
@@ -41,7 +41,7 @@ Loading a second unpacked copy from a different directory can create a second ex
 
 ## Stories stay on Loading or show RESOURCE_TIMEOUT
 
-Update to the latest remediation-branch version, reload HarmoNova at `chrome://extensions`, and refresh the Hacker News tab. Story details now arrive in smaller batches to avoid exhausting the network queue; later stories load when you scroll. If the feed still cannot connect, use the refresh button and check whether `hacker-news.firebaseio.com` is reachable on your network. External previews and AI do not need to be disabled for normal reading.
+Update to the latest published version, reload HarmoNova at `chrome://extensions`, and refresh the Hacker News tab. Story details now arrive in smaller batches to avoid exhausting the network queue; later stories load when you scroll. If the feed still cannot connect, use the refresh button and check whether `hacker-news.firebaseio.com` is reachable on your network. External previews and AI do not need to be disabled for normal reading.
 
 ## Posts, replies, votes, or account controls aren't working
 
@@ -49,25 +49,15 @@ You must first sign in on Hacker News. HarmoNova uses the HN session and its own
 
 Editing and deleting comments are a special case: they currently **open HN's original edit/delete pages**, after an explanation and your confirmation. They are not implemented as in-extension actions.
 
-## An AI summary fails
-
-Check Settings → AI in the HarmoNova sidebar to confirm you saved AI consent and an OpenRouter key, and that your chosen model is available. Article summaries read public article HTML/text when the website permits automated access; paywalls, redirects, unsupported document types and inaccessible sites may prevent extraction. Try Discussion for public HN comments instead. Private tabs have no AI summaries.
-
-An API key is optional for normal reading and HN account features. See [Privacy & security](PRIVACY.md) before enabling summaries.
-
 ## What about Brave, Edge, or other Chromium browsers?
 
 Browsers that support loading unpacked Chromium extensions may work, but Chrome/Chromium is the primary target and test environment. The exact Extensions page or Developer mode label may differ. Firefox and Safari are not supported releases.
 
-## Reporting a problem
+## Previews or AI summaries are unavailable
 
-[Open an issue](https://github.com/chaosmanage/harmonova/issues) with your browser version, extension version (shown at `chrome://extensions`), which HN page you were on, what you clicked, and what happened. A screenshot is useful when reporting a visual problem.
+External previews start enabled for public websites; turn them off or back on in **Settings → Web and links**. Websites with missing metadata, unsuitable images, blocked requests, or redirects may show placeholders. GitHub, Wikipedia, and arXiv have additional provider-based previews.
 
-**Do not include API keys, login credentials, browser cookies, authorization tokens, or private drafts** in issue descriptions, screenshots, or logs.
-
-## Preview or article summary is unavailable
-
-External previews start enabled for public websites. You can toggle them in Settings → Web and links. Websites with missing metadata, unsuitable image types, blocked requests or redirects show placeholders instead. Full article summaries depend on the article being publicly readable and may fail if the website rejects background requests. Supported provider API previews (GitHub, Wikipedia and arXiv) remain available as enhancements. Private tabs do not use AI or external previews.
+For AI summaries, check **Settings → AI Summarization** for saved consent, a valid OpenRouter key, and an available model. Article summaries require a publicly readable page; paywalls, redirects, and inaccessible sites can prevent extraction. Try a Discussion summary using public HN comments instead. Private tabs do not use AI or external previews. AI is optional for normal reading and account features; see [Privacy & security](PRIVACY.md).
 
 ## Draft or sign-out outcome is uncertain
 
@@ -76,3 +66,9 @@ A failed/ambiguous post is not retried automatically. Keep the draft and inspect
 ## Preferences could not be saved
 
 Local storage is authoritative and sync is a mirror. A sync warning can leave a local recovery copy. Reload after recovery; legacy page data is retained after a failed migration. Unknown newer store versions are refused safely. Private cosmetic changes are temporary and do not change normal settings.
+
+## Reporting a problem
+
+[Open an issue](https://github.com/chaosmanage/harmonova/issues) with your browser version, extension version (shown at `chrome://extensions`), which HN page you were on, what you clicked, and what happened. A screenshot is useful when reporting a visual problem.
+
+**Do not include API keys, login credentials, browser cookies, authorization tokens, or private drafts** in issue descriptions, screenshots, or logs.

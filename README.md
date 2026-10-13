@@ -63,7 +63,7 @@ Then follow **steps 3–6 above**, selecting the downloaded or cloned **reposito
 
 To update an unpacked installation, keep the same folder location, replace its contents (or run `git pull`), click **Reload** on `chrome://extensions`, and refresh Hacker News. [Having trouble?](docs/TROUBLESHOOTING.md)
 
-HarmoNova quietly checks the official GitHub releases feed approximately once a day. If a newer version is published, a small notice appears inside Hacker News with a link to the release; it does **not** download or install anything automatically. Ignore that version to stop seeing it, or turn off **Settings → Appearance → Notify about new releases** (also available directly from the notice). No Chrome desktop notifications are used.
+HarmoNova quietly checks the official GitHub releases feed approximately once a day. If a newer version is published, a small notice appears inside Hacker News with a link to the release; it does **not** download or install anything automatically. Ignore that version to stop seeing it, or turn off **Settings → Updates → Notify about new releases** (also available directly from the notice). No Chrome desktop notifications are used.
 
 ## Why I made this
 

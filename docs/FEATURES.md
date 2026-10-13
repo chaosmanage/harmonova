@@ -70,20 +70,20 @@ Tags and blocking are **private local reading preferences**, not HN account feat
 - **Rich link previews**, enabled by default and controlled under Settings → Web and links, show public metadata for general websites and enriched facts for GitHub, Wikipedia and arXiv.
 - **View on archive** opens the Wayback Machine when you want to look for an older copy of an article.
 
-You can turn these extras off in Settings. External previews are on by default but can be turned off at any time in **Settings → Web and links**. The **Updates** category offers manual checks, including when automatic notifications are disabled.
+The **Updates** category offers manual release checks, including when automatic notifications are disabled.
 
 ## Optional AI summaries
 
 The **Article** and **Discussion** buttons summarize different sources: bounded public article text and public conversation on HN, respectively.
 
-1. Open Settings → **AI** and configure an [OpenRouter](https://openrouter.ai/) API key through the extension's own settings page.
+1. Open Settings → **AI Summarization** and configure an [OpenRouter](https://openrouter.ai/) API key through the extension's own settings page.
 2. Choose a model (the initial default is `openrouter/free`). Availability and pricing are determined by OpenRouter, not this project.
 3. Open a story and click **Article** or **Discussion**. The request runs on a real click, or after a real story selection if you separately enable automatic summaries.
 4. You can stop a running summary or regenerate it. The summary appears in the current reader, not in a new service.
 
 ![AI settings and OpenRouter configuration in the HarmoNova settings pane](assets/ai-settings.png)
 
-For an Article summary, HarmoNova extracts bounded readable text from the linked public page when the site permits it; provider metadata can supply an excerpt when available. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model and prompt. Saving a key alone does not enable summaries; save fresh consent in Settings → AI. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate.
+For an Article summary, HarmoNova extracts bounded readable text from the linked public page when the site permits it; provider metadata can supply an excerpt when available. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model and prompt. Saving a key alone does not enable summaries; save fresh consent in Settings → AI Summarization. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate.
 
 ![AI summary presentation in HarmoNova using test-only sample output](assets/ai-summary-demo.png)
 

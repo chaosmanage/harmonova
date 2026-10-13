@@ -26,7 +26,7 @@ The normal `npm test` gate runs syntax, lint, recursive fixture scanning, all No
 
 `npm run test:extended` runs six additional suites for optional manual compatibility coverage (authentication, profile, migration, incognito, network boundaries, and other compatibility paths). `npm run test:full` remains an explicitly opt-in legacy 26-browser-suite diagnostic. Neither is necessary on every edit. Each suite has a ten-minute process-group timeout, isolated synthetic profile, sanitized diagnostic log, and no retries; failures are never ignored. `npm run test:security:browser` is also available for focused security checks.
 
-`npm run test:package` builds `dist/harmonova` and its versioned ZIP, runs `check:package`, then runs exactly the same browser entry points with `EXTENSION_PATH` pointing to the release and `TEST_OUTPUT_DIR=test-results-packaged`. The checker verifies the explicit copy allowlist, every runtime reference, all source/release/ZIP bytes and credential patterns. Fixtures, plans, audit reports, tooling and node_modules are excluded. Run `npm run check:package` to inspect an existing package.
+`npm run test:package` builds `dist/harmonova` and its versioned ZIP, runs `check:package`, then runs exactly the same browser entry points with `EXTENSION_PATH` pointing to the release and `TEST_OUTPUT_DIR=test-results-packaged`. The checker verifies the explicit copy allowlist, every runtime reference, all source/release/ZIP bytes and credential patterns. Test fixtures, tooling, and node_modules are excluded. Run `npm run check:package` to inspect an existing package.
 
 All default network access is synthetic: Playwright routes plus a denying proxy, including redirected requests. Real local TLS fixtures supply redirect hit counters, compressed/stalled bodies and credential/referrer checks. Unknown application destinations fail the gate. HN token fixtures contain deterministic placeholders. `node scripts/redact-fixtures.mjs --check` recursively scans every committed fixture format without printing suspected secrets. Raw capture storage is ignored and is not used by CI.
 
@@ -34,7 +34,7 @@ The incognito gate enables the extension in a synthetic profile, waits for Chrom
 
 ## Live tests and account actions
 
-Live suites are excluded from all offline automation. `npm run test:live` and `npm run test:live:e2e` explicitly set the live opt-in; direct execution requires `HARMONOVA_ALLOW_LIVE=1`. Use them only with separately authorized disposable accounts and provider budgets. The security remediation's evidence comes from offline fixtures, not live account mutations or billable calls.
+Live suites are excluded from all offline automation. `npm run test:live` and `npm run test:live:e2e` explicitly set the live opt-in; direct execution requires `HARMONOVA_ALLOW_LIVE=1`. Use them only with separately authorized disposable accounts and provider budgets. Automated verification uses offline fixtures, not live account mutations or billable calls.
 
 Do not commit raw HN captures, keys, cookies, form tokens or private drafts. Use forward migration fixes; keep source data until the target write is acknowledged. Refuse unknown newer schemas rather than deleting or downgrading them. Rollback should disable previews/AI while retaining HN reading; never restore redirect following or direct remote images. Export normal reader data before evaluating an older schema.
 

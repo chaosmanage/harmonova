@@ -1,3 +1,14 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+- Gate release publication on version-tag-triggered GitHub Actions tests and package checks.
+- Remove obsolete planning references and consolidate overlapping documentation guidance.
+
 ## v0.14.1 — Account settings, privacy controls, and release workflow
 
 - Put the toolbar's account actions in **Settings → Account** too, including New post, Profile, Threads, Upvoted, Favorites, Submissions, Hidden and sign-in/out.
@@ -41,26 +52,13 @@
 
 > Earlier changelog entries describe past releases and may refer to the original project branding.
 
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-- Settings → Account exposes the same signed-in destinations and logout as the toolbar, while keeping the toolbar account chip.
-- Story context menus can mark a read story unread; the read state is persisted and synchronized across tabs.
-- Remove the retired external-link rewriting option and all related settings and behavior.
-- Move extension source into `src/` and split testing into a quick browser gate, extended release checks, and an optional full legacy diagnostic.
-
 ## [0.13.7] - 2026-10-11
 
 ### Documentation
 - Replaced the long README with a simpler first-person introduction: why I enjoy HarmoNova Android, why ordinary desktop HN felt less intuitive to me, the Android emulator experiment, and why I chose a Chrome extension.
 - Added clear no-build installation instructions and a screenshot showing Chrome's Developer mode and Load unpacked controls.
 - Added authentic screenshots of feed options, site-wide search, appearance, story settings, and AI settings, plus a clearly labeled mocked AI summary preview.
-- Organized feature, troubleshooting, privacy, architecture, and contributor documentation, kept prominent credit to Simon Halvdansson, and removed obsolete plans.
+- Organized feature, troubleshooting, privacy, architecture, and contributor documentation while preserving credit to Simon Halvdansson.
 - Kept this project under Apache License 2.0, matching the upstream Harmonic Android project. Expanded release packages to include the guides and screenshots.
 
 ### Tests
@@ -139,11 +137,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Verification notes
 - Authenticated tests run in Chromium against local HN and Algolia mocks. A live sign-in smoke test from this VPS hit Hacker News's "Validation required" anti-automation page, so a browser test using a permitted interactive session is still required before claiming live-account verification.
-- The optional structural split of `content.js` (fix plan F6) is deferred to a separate no-behavior-change change.
 
 ## [0.12.2] - 2026-10-10
 
-The links-and-appearance release, part three of Phase 7: HarmoNova now makes offsite links smarter and the reading surface yours. GitHub repositories, Wikipedia articles, and arXiv papers get rich inline previews fetched directly from their public APIs; every story offers a one-click "View on archive" shortcut through the Wayback Machine; and the whole UI follows three new themes (AMOLED black, charcoal, deep navy) plus a choice of font stack.
+The links-and-appearance release makes offsite links smarter and the reading surface yours. GitHub repositories, Wikipedia articles, and arXiv papers get rich inline previews fetched directly from their public APIs; every story offers a one-click "View on archive" shortcut through the Wayback Machine; and the whole UI follows three new themes (AMOLED black, charcoal, deep navy) plus a choice of font stack.
 
 ### Added
 
@@ -220,7 +217,7 @@ The profiles-and-lists release: your Hacker News account data lives inside Harmo
 ### Added
 
 - **User profile panel.** Clicking any author — in a feed card's thread header, a comment row, or the account chip's Profile entry — opens an in-HarmoNova overlay with the user's karma, a "member since" date (derived from the Firebase `created` field), their sanitized `about` text, up to eight recent items (clickable, open the discussion), and an "Open profile on Hacker News" link. A missing profile says "This profile is not available" instead of rendering a broken panel.
-- **Own lists from the account chip (Phase 6).** The chip menu gains Threads (your reply inbox), Upvoted, Favorites, Submissions, and Hidden. A list view replaces the feed pane with a back button; stories render as feed cards, Threads rows carry the comment text plus the story they belong to (via Algolia's `items` API) and clicking a row opens that discussion. "Load more" pages through HN's morelinks with per-view dedupe, hiding itself when HN offers no next page; empty lists show "Nothing here yet."
+- **Own lists from the account chip.** The chip menu gains Threads (your reply inbox), Upvoted, Favorites, Submissions, and Hidden. A list view replaces the feed pane with a back button; stories render as feed cards, Threads rows carry the comment text plus the story they belong to (via Algolia's `items` API) and clicking a row opens that discussion. "Load more" pages through HN's morelinks with per-view dedupe, hiding itself when HN offers no next page; empty lists show "Nothing here yet."
 - **Public lists for other users.** Another user's panel offers Submissions, Comments, and Favorites, opening that user's public list in the same list view (titled "alice's submissions" and so on). Lists that are private on Hacker News (another user's threads/upvoted/hidden) are refused with a plain-language toast.
 - **`fetchListPage` in `hn-session.js`.** List pages are fetched through the rate-limited queue and parsed for `tr.athing` ids plus the morelink; outcomes are `ok` / `loginRequired` (which clears the session) / `rateLimited` / `indeterminate` / `failure`. SEC-05 is enforced structurally: the first path segment must be on a fixed allowlist that does not include `user`, so no code path — not even a bug — can fetch the profile HTML page. Relative morelinks (`?p=2`, `x?fnid=…`) are resolved against the requested list path with query merging, never against the host page's URL.
 - **Scripted-click guards extended (SEC-30).** The account chip and every popup menu item now ignore untrusted clicks, alongside the existing thread-action and list-view guards.
@@ -229,7 +226,7 @@ The profiles-and-lists release: your Hacker News account data lives inside Harmo
 
 - `parseList` returns the morelink href verbatim. DOMParser documents inherit the host page's `baseURI`, so resolving there could point a `/upvoted` continuation at `/news`; the queue layer resolves it against the actually requested path instead.
 - A manual feed refresh closes an open list view; the incremental scroll loader is suspended while a list view is open, so the two never fight over the feed pane.
-- The account list allowlist covers all Phase 7 reading-parity lists (front, pool, active, bestcomments, launches, whoishiring, noobstories, classic, ask, show, jobs) so upcoming feeds reuse the same guard.
+- The account list allowlist covers the supported reading-parity lists (front, pool, active, bestcomments, launches, whoishiring, noobstories, classic, ask, show, jobs) using the same allowlist guard.
 
 ### Security
 
@@ -238,7 +235,7 @@ The profiles-and-lists release: your Hacker News account data lives inside Harmo
 
 ### Tests
 
-- **`tests/profile.mjs` — the Phase 6 UI suite (12 tests),** `npm run test:profile`. Own-profile panel with karma/member-since/safe link; another user's panel with hostile-about sanitization (SEC-05 tripwire, no `onerror`/script/img execution, `javascript:` link neutered); missing profile message; upvoted list pagination through relative morelinks with dedupe and a hidden Load more at the end; submissions via `fetchItems`; Threads via Algolia with row click opening the discussion; hidden list empty state; back-to-feed restore; public lists for another user (submissions/comments/favorites paths asserted); `fetchListPage` allowlist refusals; login-page list outcome clearing the session; and scripted-click refusal across chip, popup, list-view back, and Load more.
+- **`tests/profile.mjs` — the profile UI suite (12 tests),** `npm run test:profile`. Own-profile panel with karma/member-since/safe link; another user's panel with hostile-about sanitization (SEC-05 tripwire, no `onerror`/script/img execution, `javascript:` link neutered); missing profile message; upvoted list pagination through relative morelinks with dedupe and a hidden Load more at the end; submissions via `fetchItems`; Threads via Algolia with row click opening the discussion; hidden list empty state; back-to-feed restore; public lists for another user (submissions/comments/favorites paths asserted); `fetchListPage` allowlist refusals; login-page list outcome clearing the session; and scripted-click refusal across chip, popup, list-view back, and Load more.
 
 ## [0.10.0] - 2026-10-10
 
@@ -250,11 +247,11 @@ The favorites-and-submission release: HarmoNova covers the rest of Hacker News's
 - **Hide with undo.** Hide is available from the thread header and from every feed card's overflow menu. The mutation goes through HN's `hide` token (`un=t` to unhide); the feed card disappears from the list and a 6-second toast offers **Undo**, which unhides (restoring the card) without reloading the feed. The control hides itself when the item document offers no hide link.
 - **Flag, only when HN offers it, only behind confirmation (SEC-36).** The thread's More menu gains "Flag story" and comment rows' More menus gain "Flag comment" — both rendered only when the fetched Hacker News document actually contains a flag link for that item. Flagging opens a dialog that explains what flagging does and who sees it; Cancel sends nothing, Confirm sends exactly one `flag?…` request. When an item is already flagged, the menu offers "Unflag story".
 - **Bookmarks → favorites, in bulk (SEC-37).** The feed More menu gains "Add bookmarks to HN favorites": after a dialog stating exactly how many bookmarks will be touched and roughly how long it takes, it favorites each bookmarked story **serially** through the rate-limited queue (the queue's own spacing enforces the serial pacing), shows live progress ("Adding to favorites… 3 of 12") with a **Cancel** button that stops the run at the next item boundary, reports "N of M added to favorites · K failed", and stops cleanly if the Hacker News session ends mid-run.
-- **Story submission (Phase 5).** The feed toolbar gains a **New post** button (logged in only): a modal with Title (80-character limit with a live counter), URL, and Text fields, a "Posting as <username>" line, and a link to Hacker News's guidelines. HarmoNova validates locally (a title is required, a URL *or* text is required, URLs pass `safeHref` — `javascript:` and friends are refused before any request), then fetches HN's own `/submit` form, reads its `fnid`, and POSTs `/r` with `fnop=submit-page` exactly once (SEC-34).
+- **Story submission.** The feed toolbar gains a **New post** button (logged in only): a modal with Title (80-character limit with a live counter), URL, and Text fields, a "Posting as <username>" line, and a link to Hacker News's guidelines. HarmoNova validates locally (a title is required, a URL *or* text is required, URLs pass `safeHref` — `javascript:` and friends are refused before any request), then fetches HN's own `/submit` form, reads its `fnid`, and POSTs `/r` with `fnop=submit-page` exactly once (SEC-34).
 - **Submit outcomes.** Success closes the modal, toasts, and refreshes the feed. An "already submitted" redirect (302 to an existing item) opens that discussion in HarmoNova with a "Hacker News already has this story" toast. A validation-required response keeps the entered values in the modal and offers a button that opens HN's own stock `/submit` form in an original-mode tab — HarmoNova never auto-fills a form on Hacker News itself. Too-fast, rate-limited, login-ended, and indeterminate outcomes keep the values and show a plain-language message; the modal stays open so the user decides what happens next.
 - **Toast actions.** Toasts can now carry one button (Undo/Cancel) — the toast itself becomes clickable while shown.
 - **Card menu bookmark toggle.** The feed card overflow menu gains Bookmark/Remove bookmark (the same local bookmark store the thread header uses).
-- **`tests/actions.mjs` — the Phase 4+5 UI suite (14 tests).** Favorite toggling with the exact token request and confirmation re-fetch; favorite/hide controls hidden when the item document offers no link; thread hide with the undo toast asserting `un=t` on the undo request; card-menu hide removing the card and undo restoring it; flag story — cancel sends nothing, confirm sends one request; comment flag absent without a document link, present (and cancel-safe) with one; bookmarks bulk favorite — the dialog counts the bookmarks, requests are serially spaced (measured ≥600 ms apart), and mid-run cancellation stops the run early; exact POST `/r` payload from HN's `fnid` form posted once with feed refresh; local validation of empty posts and unsafe URLs with zero HN traffic; already-submitted opening the existing discussion; validationRequired keeping values and opening the stock form in a new original-mode tab; too-fast keeping the modal; and scripted-click refusal across favorite/hide/new-post (SEC-30).
+- **`tests/actions.mjs` — the account-actions UI suite (14 tests).** Favorite toggling with the exact token request and confirmation re-fetch; favorite/hide controls hidden when the item document offers no link; thread hide with the undo toast asserting `un=t` on the undo request; card-menu hide removing the card and undo restoring it; flag story — cancel sends nothing, confirm sends one request; comment flag absent without a document link, present (and cancel-safe) with one; bookmarks bulk favorite — the dialog counts the bookmarks, requests are serially spaced (measured ≥600 ms apart), and mid-run cancellation stops the run early; exact POST `/r` payload from HN's `fnid` form posted once with feed refresh; local validation of empty posts and unsafe URLs with zero HN traffic; already-submitted opening the existing discussion; validationRequired keeping values and opening the stock form in a new original-mode tab; too-fast keeping the modal; and scripted-click refusal across favorite/hide/new-post (SEC-30).
 
 ### Changed
 
@@ -277,7 +274,7 @@ The commenting release: HarmoNova's composer closes the last big write-action ga
 - **HN escape hatch for verification walls.** When Hacker News asks for verification before a reply (`validationRequired`), the composer stays open, keeps the draft, explains the situation, and offers an "Open this reply on Hacker News" button that hands off to HN's own `/reply` form with the allowlisted goto.
 - **Logout clears drafts.** Signing out runs `HARMONIC_DRAFT_CLEAR_ALL` — with no signed-in account there is no draft, and drafts never cross accounts (they are keyed by username).
 - **Draft store hardening in the background worker.** All four message types (`HARMONIC_DRAFT_GET/SET/CLEAR/CLEAR_ALL`) are accepted only from trusted Hacker News content scripts (SEC-50), parent ids must be positive integers, text must be a string, and oversize text is rejected before it reaches storage.
-- **`tests/comments.mjs` — the Phase 3 UI suite (13 tests).** Drives the real extension against mocked HN documents: the exact POST `/comment` payload (fixture-dictated `parent`/`goto`/`hmac` + typed text) posted exactly once with a thread reload; local empty-submit blocking with zero HN traffic; preview toggle round-trip; draft autosave verified directly against `chrome.storage.session` through the background worker, restore on reopen, and discard wiping storage; Esc close-and-keep; logout clearing the store; inline reply under the comment row; validationRequired keeping composer + draft and showing the HN button; tooFast keeping composer + draft with exactly one POST and no retry; edit visible only on own comments with prefill from HN's text and the exact `/xedit` payload; delete Cancel sending nothing vs Confirm sending exactly one `/delete-confirm` + `/xdelete`; scripted-click refusal across reply/edit/delete (SEC-30); and signed-out reply asking for sign-in without any HN form fetch.
+- **`tests/comments.mjs` — the comments UI suite (13 tests).** Drives the real extension against mocked HN documents: the exact POST `/comment` payload (fixture-dictated `parent`/`goto`/`hmac` + typed text) posted exactly once with a thread reload; local empty-submit blocking with zero HN traffic; preview toggle round-trip; draft autosave verified directly against `chrome.storage.session` through the background worker, restore on reopen, and discard wiping storage; Esc close-and-keep; logout clearing the store; inline reply under the comment row; validationRequired keeping composer + draft and showing the HN button; tooFast keeping composer + draft with exactly one POST and no retry; edit visible only on own comments with prefill from HN's text and the exact `/xedit` payload; delete Cancel sending nothing vs Confirm sending exactly one `/delete-confirm` + `/xdelete`; scripted-click refusal across reply/edit/delete (SEC-30); and signed-out reply asking for sign-in without any HN form fetch.
 
 ### Changed
 
@@ -301,12 +298,12 @@ The first account-actions release: HarmoNova can now act on Hacker News on your 
 - **Poll voting.** Poll stories load their options from the Firebase `parts` list and render a Poll section above the comments; each option can be voted through its own item-document token, with active-state sync after success.
 - **SEC-30 trusted-event enforcement in the UI.** Every vote (and popup-driven action) requires `event.isTrusted`; scripted `element.click()` from page code is refused with a toast and never sends a request. `openPopup` now forwards the click event to menu actions so they can enforce this.
 - **Failure UX for votes.** Expired tokens retry exactly once with a fresh token (SEC-33); double expiry, rate limits, and other failures roll back the optimistic UI and toast a human-readable message (rate limits mention the throttle and keep the thread's "Open on Hacker News" escape hatch in the More menu).
-- **`tests/voting.mjs` — the Phase 1+2 UI suite (18 tests).** A stateful mocked HN server (vote actions mutate the served documents; redirect targets are served directly) drives the real extension through Chromium: chip rendering per session, allowlisted goto with a query-reflection probe, the full account menu, logout-via-chip with request-shape and reload assertions, the SEC-01 password-field scan, account-switch chip/toast updates, exact `how=up`/`how=un`/`how=down` request shapes with post-success UI state (active classes, points, badges), downvote availability gated on the document, undown via the same button, SEC-30 scripted-click refusal, double-expiry rollback with toast, rate-limit rollback, card-menu voting with badge flipping, poll-option rendering and voting, and token-leakage checks.
+- **`tests/voting.mjs` — the voting UI suite (18 tests).** A stateful mocked HN server (vote actions mutate the served documents; redirect targets are served directly) drives the real extension through Chromium: chip rendering per session, allowlisted goto with a query-reflection probe, the full account menu, logout-via-chip with request-shape and reload assertions, the SEC-01 password-field scan, account-switch chip/toast updates, exact `how=up`/`how=un`/`how=down` request shapes with post-success UI state (active classes, points, badges), downvote availability gated on the document, undown via the same button, SEC-30 scripted-click refusal, double-expiry rollback with toast, rate-limit rollback, card-menu voting with badge flipping, poll-option rendering and voting, and token-leakage checks.
 - **`HarmonicHN.documentVoteState()`** — a safe view (ids and directions only) of the vote state seen on the harvested feed document, used to seed the UI; the harvest also caches feed-story vote tokens under the acting username (SEC-12/35).
 
 ### Changed
 
-- Thread "Reply to post" now hands off to Hacker News's reply form for signed-in users instead of showing a placeholder toast (in-HarmoNova composers arrive in Phase 3).
+- Thread "Reply to post" now hands off to Hacker News's reply form for signed-in users instead of showing a placeholder toast.
 - Comment rows build their action row at render time from any already-known item state, so re-renders (sorting, collapse toggles) never flash stale vote state; poll buttons re-render idempotently so an in-flight vote is never stomped by a background refresh.
 - The e2e suite targets the thread's More menu explicitly now that comment rows carry their own More buttons; `npm run test:voting` runs the new suite.
 
@@ -326,7 +323,7 @@ The first account-actions release: HarmoNova can now act on Hacker News on your 
 - **Paging and request hygiene.** Results page through "Load more" up to Algolia's `nbPages` limit with `hitsPerPage` capped at 50; queries are trimmed and capped at 200 characters; typing cancels stale in-flight requests with `AbortController` (300 ms debounce, minimum two characters, Enter for immediate search).
 - **Recent searches, memory only.** The last eight searches are offered as one-click suggestions and a clear button. They are never persisted to any storage — including in normal windows — so nothing search-related can leak through sync or disk (SEC-51).
 - **`hn-search.js` — the search client.** Query construction with a strict tag allowlist (`story`, `comment`, `ask_hn`, `show_hn`, `poll`, `front_page`, `author_<name>` with `^[A-Za-z0-9_-]{1,32}$` names), integer-only numeric filters, hit validation that drops malformed hits (bad `objectID`, wrong-typed numbers/strings, comments without a numeric thread id), and `nbPages`-aware paging. Requests are cookie-less GETs to the public API.
-- **`hn-session.js` — the Hacker News session and account-action client.** A new content-script module that runs in the isolated world and implements the plan's Hacker News protocol rules: top-bar session parsing (username, karma, logout), vote-link parsing (`up_`/`down_`/`un_` anchors with direction from the arrow title), favorite/hide/flag link parsing with active-state detection, comment/reply/edit/delete/submit form harvesting, and list parsing with more-link resolution. All actions return structured outcomes (`success`, `failure`, `indeterminate`, `accountChanged`, `rateLimited`, `loginRequired`, `validationRequired`) instead of throwing.
+- **`hn-session.js` — the Hacker News session and account-action client.** A new content-script module that runs in the isolated world and implements Hacker News protocol rules: top-bar session parsing (username, karma, logout), vote-link parsing (`up_`/`down_`/`un_` anchors with direction from the arrow title), favorite/hide/flag link parsing with active-state detection, comment/reply/edit/delete/submit form harvesting, and list parsing with more-link resolution. All actions return structured outcomes (`success`, `failure`, `indeterminate`, `accountChanged`, `rateLimited`, `loginRequired`, `validationRequired`) instead of throwing.
 - **A serial, rate-limit-aware HN fetch queue** (SEC-25). Every `news.ycombinator.com` HTML fetch runs through one queue with at least 750 ms spacing and exponential back-off (2 s/4 s/8 s) when HN rate-limits or returns 503; GETs retry up to four times, while POSTs are never retried (SEC-34).
 - **A username-tagged token cache** (SEC-12). Vote, favorite, hide, flag, and logout tokens are cached only under the username that was signed in when the page was served; the cache and all form handles are dropped whenever the signed-in account changes or the page unloads (SEC-10/11). Tokens never leave the module closure.
 - **Hacker News error-page classification.** Pages are classified as expired-link, bad-login, too-fast, rate-limited, validation-required, login, blank, or OK — using only page-chrome regions, with user-contributed comment and story text stripped first so comment contents cannot spoof an error (the same trick upstream HarmoNova uses).
