@@ -118,6 +118,27 @@
     return row;
   }
 
+  // Native details/summary controls provide accessible keyboard navigation and
+  // keep advanced settings discoverable without opening another navigation level.
+  function settingGroup(title, description, controls, expanded = false) {
+    const group = dependencies.el("details", "settings-group");
+    group.open = expanded;
+    const summary = dependencies.el("summary", "settings-group-summary");
+    const copy = dependencies.el("span", "settings-group-heading");
+    copy.append(dependencies.el("strong", "", title), dependencies.el("small", "", description));
+    summary.append(copy, dependencies.el("span", "settings-group-chevron", "›"));
+    const body = dependencies.el("div", "settings-group-content");
+    body.append(...controls);
+    group.append(summary, body);
+    return group;
+  }
+
+  function sectionIntro(title, description) {
+    const wrap = dependencies.el("div", "settings-page-heading");
+    wrap.append(dependencies.el("h3", "", title), dependencies.el("p", "", description));
+    return wrap;
+  }
+
   function openSettings(options = {}) {
     document.querySelector(".settings-overlay")?.remove();
     const overlay = dependencies.el("div", "settings-overlay");
@@ -129,43 +150,67 @@
     close.addEventListener("click",closeSettings);
     header.appendChild(close);
 
-    const storySection = dependencies.el("div", "settings-section");
+    const storySection = dependencies.el("div", "settings-section settings-organized");
     storySection.append(
-      dependencies.el("h3", "", "Stories"),
-      settingSelect("Preview images", "previewImages", [["medium", "Medium"], ["small", "Small"], ["off", "Off"]]),
-      settingToggle("Tint cards from images", "tintedCards", "Use each story preview to color its card"),
-      settingToggle("Favicons", "showFavicons", "Show the source icon beside metadata"),
-      settingToggle("Points", "showPoints", "Show story score"),
-      settingToggle("Comment count", "showComments", "Show the large comments control"),
-      settingToggle("Story number", "showIndex", "Show story position in the feed"),
-      settingToggle("Dim read stories", "dimRead", "Fade stories after opening them"),
-      settingToggle("Hotness colors", "hotnessColors", "Color scores by how fast a story is moving"),
-      settingToggle("Compact points", "compactPoints", "Show abbreviated scores without the word points"),
-      settingToggle("Show domain", "showDomain", "Show the story's source domain in the metadata"),
-      settingToggle("Hide jobs", "hideJobs", "Filter job stories out of every feed"),
-      settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
-      scrolledStorySetting(),
-      settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
-      settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
-      dependencies.el("p", "settings-note", "Preview images are enabled by default; control external website fetching under Web and links. Websites without usable images show a local placeholder."),
-      settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
-      settingSlider("Content zoom", "contentScale", 65, 150, 5, "%")
+      sectionIntro("Stories", "Decide what appears in your feed, how cards look, and what happens when you open a story."),
+      settingGroup("Seen & skipped stories", "Previously opened and scrolled-past stories", [
+        settingToggle("Dim read stories", "dimRead", "Fade stories after opening them"),
+        settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
+        scrolledStorySetting()
+      ], true),
+      settingGroup("Feed filters", "Jobs, blocked domains, and title keywords", [
+        settingToggle("Hide jobs", "hideJobs", "Filter job stories out of every feed"),
+        settingText("Hidden domains", "hiddenDomains", "Comma-separated domains, e.g. example.com, sub.example.org"),
+        settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords, case-insensitive")
+      ]),
+      settingGroup("Previews & card design", "Images, card colors, and source icons", [
+        settingSelect("Preview images", "previewImages", [["medium", "Medium"], ["small", "Small"], ["off", "Off"]]),
+        settingToggle("Tint cards from images", "tintedCards", "Use each story preview to color its card"),
+        settingToggle("Favicons", "showFavicons", "Show the source icon beside metadata"),
+        dependencies.el("p", "settings-note", "External website fetching is controlled separately in Web and links. Missing images use a local placeholder.")
+      ]),
+      settingGroup("Story details", "Points, comments, numbering, and domains", [
+        settingToggle("Points", "showPoints", "Show story score"),
+        settingToggle("Compact points", "compactPoints", "Show abbreviated scores without the word points"),
+        settingToggle("Hotness colors", "hotnessColors", "Color scores by how fast a story is moving"),
+        settingToggle("Comment count", "showComments", "Show the large comments control"),
+        settingToggle("Story number", "showIndex", "Show story position in the feed"),
+        settingToggle("Show domain", "showDomain", "Show the story's source domain in the metadata")
+      ]),
+      settingGroup("Text & density", "Adjust story text and the number of cards on screen", [
+        settingSlider("Story text size", "storyTextSize", 14.5, 20.5, 0.5, " sp"),
+        settingSlider("Content zoom", "contentScale", 65, 150, 5, "%")
+      ]),
+      settingGroup("Opening stories", "How story cards, articles, and discussions open", [
+        settingToggle("Enable story card click", "cardClickEnabled", "Click a card background to open its article. When off, use the title or comments button instead."),
+        settingToggle("Card click opens comments", "cardClickComments", "Switch story-card clicks from the article to the discussion. The comments button always opens the discussion."),
+        settingToggle("Article links also open comments", "alwaysOpenComments", "When a title or preview opens an article in a new tab, also load its discussion here."),
+        dependencies.el("p", "settings-note", "By default, card clicks open the article and the comments button opens the discussion.")
+      ])
     );
 
-    const commentsSection = dependencies.el("div", "settings-section");
+    const commentsSection = dependencies.el("div", "settings-section settings-organized");
     commentsSection.append(
-      dependencies.el("h3", "", "Comments"),
-      settingSelect("Comment style", "commentStyle", [["outlined", "Outlined"], ["raised", "Raised"], ["standard", "Standard"], ["flat", "Flat"]]),
-      settingSelect("Comment sorting", "commentSort", [["Default", "Default"], ["Newest first", "Newest first"], ["Oldest first", "Oldest first"], ["Reply count", "Reply count"]]),
-      settingSelect("Thread colors", "depthMode", [["theme_default", "Theme default"], ["material_you", "Material You"], ["colors", "Colorful"], ["author", "Author"], ["monochrome", "Monochrome"], ["none", "None"]]),
-      settingToggle("Rounded depth indicators", "roundedRails", "Round the thread indicator ends"),
-      settingToggle("Continuous depth indicators", "continuousRails", "Continue ancestor rails through replies"),
-      settingToggle("Mark new comments", "markNewComments", "Highlight comments posted since your last visit to a story"),
-      settingToggle("Hide [delayed]", "hideDelayed", "Collapse HN's [delayed] placeholder comments"),
-      settingToggle("Comment avatars", "showAvatars", "Show generated local avatars beside comment authors"),
-      settingToggle("Swap comment actions", "swapCommentActions", "Tap opens actions; long-press collapses"),
-      settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp"),
-      settingSlider("Comment zoom", "commentZoom", 65, 150, 5, "%")
+      sectionIntro("Comments", "Tune the discussion layout, navigation, and reading experience."),
+      settingGroup("Reading & visibility", "New comments and collapsed placeholders", [
+        settingToggle("Mark new comments", "markNewComments", "Highlight comments posted since your last visit to a story"),
+        settingToggle("Hide [delayed]", "hideDelayed", "Collapse HN's [delayed] placeholder comments")
+      ], true),
+      settingGroup("Layout & sorting", "Thread appearance, sorting, and depth indicators", [
+        settingSelect("Comment style", "commentStyle", [["outlined", "Outlined"], ["raised", "Raised"], ["standard", "Standard"], ["flat", "Flat"]]),
+        settingSelect("Comment sorting", "commentSort", [["Default", "Default"], ["Newest first", "Newest first"], ["Oldest first", "Oldest first"], ["Reply count", "Reply count"]]),
+        settingSelect("Thread colors", "depthMode", [["theme_default", "Theme default"], ["material_you", "Material You"], ["colors", "Colorful"], ["author", "Author"], ["monochrome", "Monochrome"], ["none", "None"]]),
+        settingToggle("Rounded depth indicators", "roundedRails", "Round the thread indicator ends"),
+        settingToggle("Continuous depth indicators", "continuousRails", "Continue ancestor rails through replies")
+      ]),
+      settingGroup("Interaction & authors", "Avatars and comment tap controls", [
+        settingToggle("Comment avatars", "showAvatars", "Show generated local avatars beside comment authors"),
+        settingToggle("Swap comment actions", "swapCommentActions", "Tap opens actions; long-press collapses")
+      ]),
+      settingGroup("Text & size", "Comment font size and zoom", [
+        settingSlider("Comment text size", "commentTextSize", 12, 18, 0.5, " sp"),
+        settingSlider("Comment zoom", "commentZoom", 65, 150, 5, "%")
+      ])
     );
 
     const userDataSection = dependencies.el("div", "settings-section");
@@ -221,23 +266,28 @@
       deletionActions.appendChild(button);
     }
     if(dependencies.INCOGNITO)deletionStatus.textContent="Private-tab data is memory-only and is cleared when you close this tab.";
+    userDataSection.classList.add("settings-organized");
     userDataSection.append(
-      dependencies.el("h3", "", "Your local data"),
-      exportButton,
-      importButton,
-      importFileInput,
-      dependencies.el("p", "settings-note", "Read history, user tags and blocked users can be exported or imported. Older bookmarks remain in backups for compatibility, but new bookmarks are no longer offered. Nothing here is sent to Hacker News or an external server."),
-      dependencies.el("h3", "settings-delete-heading", "Delete data"),
-      dependencies.el("p", "settings-note", "All deletion actions require confirmation. Changes to HarmoNova storage cannot be undone; they do not affect your Hacker News account."),
-      deletionActions,
-      deletionStatus
+      sectionIntro("Data", "Manage local backups and control what HarmoNova remembers."),
+      settingGroup("Backup & restore", "Export your data or import a previous backup", [
+        exportButton,
+        importButton,
+        importFileInput,
+        dependencies.el("p", "settings-note", "Includes read and skipped story history, user tags, and blocked users. Older bookmarks remain compatible with imports. Nothing is sent to HarmoNova or an external server.")
+      ], true),
+      settingGroup("Delete & reset", "Clear reading history, saved data, or preferences", [
+        dependencies.el("p", "settings-note", "Deletion is permanent and always requires confirmation. It does not delete anything from your Hacker News account."),
+        deletionActions,
+        deletionStatus
+      ])
     );
 
-    const headerDisplaySection = dependencies.el("div", "settings-section");
+    const headerDisplaySection = dependencies.el("div", "settings-section settings-organized");
     headerDisplaySection.append(
-      dependencies.el("h3", "", "Header display"),
-      settingToggle("Background tint", "headerTint", "Tint the discussion header from the story preview"),
-      settingToggle("Preview image", "headerImage", "Show the story preview above the discussion title")
+      settingGroup("Discussion header", "Story images and header tint", [
+        settingToggle("Background tint", "headerTint", "Tint the discussion header from the story preview"),
+        settingToggle("Preview image", "headerImage", "Show the story preview above the discussion title")
+      ])
     );
 
     // Manually querying the existing release checker is independent from
@@ -271,24 +321,30 @@
     });
 
     // Phase 7 part 3: appearance (theme + font) and link behavior.
-    const appearanceSection = dependencies.el("div", "settings-section");
+    const appearanceSection = dependencies.el("div", "settings-section settings-organized");
     appearanceSection.append(
-      dependencies.el("h3", "", "Appearance"),
-      settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
-      settingSelect("Font", "uiFont", [["rounded", "Google Sans Flex Rounded"], ["system", "System UI"], ["serif", "Serif"]]),
-      dependencies.el("p", "settings-note", "Themes restyle HarmoNova's own surfaces only; pages opened through Open original HN keep Hacker News's own look.")
+      sectionIntro("Appearance", "Choose the overall look of HarmoNova."),
+      settingGroup("Theme & typography", "Colors and fonts throughout the reader", [
+        settingSelect("Theme", "uiTheme", [["amoled", "AMOLED black"], ["charcoal", "Charcoal"], ["navy", "Deep navy"]]),
+        settingSelect("Font", "uiFont", [["rounded", "Google Sans Flex Rounded"], ["system", "System UI"], ["serif", "Serif"]]),
+        dependencies.el("p", "settings-note", "Themes apply to HarmoNova only, not to pages opened in original Hacker News.")
+      ], true)
     );
 
-    const updatesSection = dependencies.el("div", "settings-section");
+    const updatesSection = dependencies.el("div", "settings-section settings-organized");
     updatesSection.append(
-      dependencies.el("h3", "", "Updates"),
-      settingToggle("Notify about new releases", "notifyUpdates", "Show a quiet, dismissible notice when a newer GitHub release is available. No Chrome notifications."),
-      checkUpdates,
-      updateStatus,
-      dependencies.el("p", "settings-note", "Manual checks look for the latest published HarmoNova release on GitHub, even when notifications are off.")
+      sectionIntro("Updates", "Control release notices and check for a newer HarmoNova version."),
+      settingGroup("Release notices", "Notify me when a new version is available", [
+        settingToggle("Notify about new releases", "notifyUpdates", "Show a quiet, dismissible notice when a newer GitHub release is available. No Chrome notifications.")
+      ], true),
+      settingGroup("Check for updates", "Look up the latest published release manually", [
+        checkUpdates,
+        updateStatus,
+        dependencies.el("p", "settings-note", "Manual checks work even when automatic notices are off.")
+      ])
     );
 
-    const linksSection = dependencies.el("div", "settings-section");
+    const linksSection = dependencies.el("div", "settings-section settings-organized");
     const previewFrame = dependencies.el("iframe", "ai-settings-frame preview-settings-frame");
     previewFrame.title = "Secure website preview preferences";
     const previewFrameUrl = HarmoNovaContentRuntime.getURL("preview-settings.html");
@@ -296,15 +352,19 @@
     previewFrame.setAttribute("referrerpolicy", "no-referrer");
     previewFrame.setAttribute("loading", "lazy");
     linksSection.append(
-      dependencies.el("h3", "", "Web and links"),
-      settingToggle("Rich link previews", "richPreviews", "Show website metadata and provider facts in link previews"),
-      ...(dependencies.INCOGNITO
-        ? [dependencies.el("p", "settings-note", "External previews are unavailable in private tabs. Configure them from a normal HarmoNova tab.")]
-        : previewFrameUrl ? [previewFrame] : []),
-      dependencies.el("p", "settings-note", "Websites with no usable images or metadata use local placeholders.")
+      sectionIntro("Web and links", "Decide what previews can load from external websites."),
+      settingGroup("Link preview details", "Titles and facts from public websites", [
+        settingToggle("Rich link previews", "richPreviews", "Show website metadata and provider facts in link previews"),
+        dependencies.el("p", "settings-note", "Websites with no usable images or metadata use local placeholders.")
+      ], true),
+      settingGroup("External preview access", "Control whether external websites can be fetched", [
+        ...(dependencies.INCOGNITO
+          ? [dependencies.el("p", "settings-note", "External previews are unavailable in private tabs. Configure them from a normal HarmoNova tab.")]
+          : previewFrameUrl ? [previewFrame] : [])
+      ])
     );
 
-    const aiSection = dependencies.el("div", "settings-section ai-settings-section");
+    const aiSection = dependencies.el("div", "settings-section settings-organized ai-settings-section");
     const aiFrame = dependencies.el("iframe", "ai-settings-frame");
     aiFrame.title = "Secure AI preferences";
     const aiFrameUrl = HarmoNovaContentRuntime.getURL("ai-settings.html");
@@ -312,26 +372,19 @@
     aiFrame.setAttribute("referrerpolicy", "no-referrer");
     aiFrame.setAttribute("loading", "lazy");
     aiSection.append(
-      dependencies.el("h3", "", "AI summarization"),
-      dependencies.el("p", "settings-note ai-settings-intro", "Control article and discussion summaries, OpenRouter access, and AI permissions here. Credentials and consent stay inside HarmoNova’s secure extension panel."),
-      ...(dependencies.INCOGNITO
-        ? [dependencies.el("p", "settings-note", "AI settings are unavailable in private tabs. Configure them from a normal HarmoNova tab.")]
-        : aiFrameUrl ? [aiFrame] : [])
-    );
-
-    const behaviorSection = dependencies.el("div", "settings-section");
-    behaviorSection.append(
-      dependencies.el("h3", "", "Behavior"),
-      settingToggle("Enable story card click", "cardClickEnabled", "Click a card background to open its article. When off, use the title or comments button instead."),
-      settingToggle("Card click opens comments", "cardClickComments", "Switch story-card clicks from the article to the discussion. The comments button always opens the discussion."),
-      settingToggle("Article links also open comments", "alwaysOpenComments", "When a title or preview opens an article in a new tab, also load its discussion here."),
-      dependencies.el("p", "settings-note", "By default, clicking a story card opens the article and its comments button opens the discussion. Turn off card clicks to use only the explicit title and comments controls.")
+      sectionIntro("AI Summarization", "Model, permissions, and summaries are configured in the secure panel."),
+      settingGroup("Model & permissions", "Connect OpenRouter and choose what AI can summarize", [
+        dependencies.el("p", "settings-note ai-settings-intro", "Article and discussion summaries require your permission. Your API key stays in the extension's secure settings."),
+        ...(dependencies.INCOGNITO
+          ? [dependencies.el("p", "settings-note", "AI settings are unavailable in private tabs. Configure them from a normal HarmoNova tab.")]
+          : aiFrameUrl ? [aiFrame] : [])
+      ], true)
     );
 
     // Reuse the account chip's actions; both entry points remain available.
     // Authentication still happens exclusively on Hacker News.
     const session = window.HarmoNovaHN?.session?.() || null;
-    const accountSection = dependencies.el("div", "settings-section");
+    const accountSection = dependencies.el("div", "settings-section settings-organized");
     const accountActions = dependencies.el("div", "settings-account-actions");
     for (const item of dependencies.accountActions()) {
       const action = dependencies.el("button", "setting-button settings-account-action", item.label);
@@ -344,36 +397,51 @@
       accountActions.appendChild(action);
     }
     accountSection.append(
-      dependencies.el("h3", "", "Account"),
-      dependencies.el("p", "settings-note", session?.username
-        ? "Signed in to Hacker News as " + session.username + (session.karma != null ? " (" + dependencies.compact(session.karma) + " karma)" : "") + "."
-        : "Not signed in to Hacker News. Sign-in happens on Hacker News's own page in this tab."),
-      accountActions,
-      dependencies.el("p", "settings-note", "HarmoNova never sees or stores your Hacker News password. Your session lives in Hacker News's own cookie. When you vote, favorite, or reply, HarmoNova sends the action directly to Hacker News through the same signed-in browser session; one-time tokens read from Hacker News pages stay in memory for this tab only and never reach HarmoNova's storage or sync.")
+      sectionIntro("Account", "Your Hacker News account and related actions."),
+      settingGroup("Hacker News session", "Current account and sign-in status", [
+        dependencies.el("p", "settings-note", session?.username
+          ? "Signed in to Hacker News as " + session.username + (session.karma != null ? " (" + dependencies.compact(session.karma) + " karma)" : "") + "."
+          : "Not signed in to Hacker News. Sign-in happens on Hacker News's own page in this tab.")
+      ], true),
+      settingGroup("Account actions", "Account pages, profile, and login controls", [ accountActions ], true),
+      settingGroup("Account privacy", "How HarmoNova uses your Hacker News session", [
+        dependencies.el("p", "settings-note", "HarmoNova never sees or stores your Hacker News password. The session stays in Hacker News's cookie. Votes, favorites and replies go directly to Hacker News; one-time action tokens stay in memory and are not synchronized.")
+      ])
     );
 
     // A category index keeps the settings compact without changing any
     // persisted keys or dropping advanced controls.
     const categories = [
-      ["Appearance", [appearanceSection, headerDisplaySection]],
-      ["Updates", [updatesSection]],
-      ["Stories", [storySection, behaviorSection]],
-      ["Comments", [commentsSection]],
-      ["Web and links", [linksSection]],
-      ["Account", [accountSection]],
-      ["Data", [userDataSection]],
-      ["AI Summarization", [aiSection]],
+      ["Stories", [storySection], "Seen stories, filters, cards and clicks"],
+      ["Comments", [commentsSection], "Layout, sorting and reading"],
+      ["Appearance", [appearanceSection, headerDisplaySection], "Theme, typography and headers"],
+      ["Web and links", [linksSection], "External previews and website access"],
+      ["AI Summarization", [aiSection], "OpenRouter, models and permissions"],
+      ["Account", [accountSection], "Hacker News profile and actions"],
+      ["Data", [userDataSection], "Backups, history and deletion"],
+      ["Updates", [updatesSection], "Release notices and checks"],
     ];
     const index = dependencies.el("nav", "settings-categories");
+    index.setAttribute("aria-label", "Settings categories");
+    const searchWrap = dependencies.el("div", "settings-find");
+    const searchInput = dependencies.el("input", "settings-find-input");
+    searchInput.type = "search";
+    searchInput.placeholder = "Search settings…";
+    searchInput.setAttribute("aria-label", "Search HarmoNova settings");
+    const searchResults = dependencies.el("div", "settings-find-results");
+    searchResults.hidden = true;
+    searchWrap.append(searchInput, searchResults);
     const back = dependencies.button("chevron", "Back to settings categories", "settings-back");
     back.hidden = true;
     back.addEventListener("click", showIndex);
     header.insertBefore(back, header.firstChild);
     const sections = dependencies.el("div", "settings-pages");
-    for (const [name, children] of categories) {
+    for (const [name, children, description] of categories) {
       const link = dependencies.el("button", "settings-category");
       link.type = "button";
-      link.append(dependencies.el("strong", "", name), dependencies.el("span", "", "›"));
+      const copy = dependencies.el("span", "settings-category-copy");
+      copy.append(dependencies.el("strong", "", name), dependencies.el("small", "", description));
+      link.append(copy, dependencies.el("span", "settings-category-chevron", "›"));
       link.addEventListener("click", () => showCategory(name));
       index.append(link);
       for (const section of children) {
@@ -381,22 +449,76 @@
         sections.append(section);
       }
     }
+    // Index actual controls once rather than copying settings or inventing
+    // preference keys. Search only navigates to the original live control.
+    const searchable = [];
+    for (const [name, children] of categories) {
+      for (const section of children) {
+        for (const group of section.querySelectorAll(".settings-group")) {
+          const heading = group.querySelector(".settings-group-heading strong")?.textContent || "";
+          const description = group.querySelector(".settings-group-heading small")?.textContent || "";
+          searchable.push({ name, heading, label: heading, description, section, group, target: group });
+          for (const control of group.querySelectorAll(".setting-row, .setting-scrolled-option, .setting-button")) {
+            const label = control.querySelector(".setting-copy strong, .setting-scrolled-copy strong")?.textContent ||
+              (control.matches(".setting-button") ? control.textContent : "");
+            if (!label) continue;
+            searchable.push({ name, heading, label, description: control.textContent, section, group, target: control });
+          }
+        }
+      }
+    }
+    function renderSearch() {
+      const query = searchInput.value.trim().toLocaleLowerCase();
+      searchResults.replaceChildren();
+      const searching = query.length > 0;
+      index.hidden = searching;
+      searchResults.hidden = !searching;
+      if (!searching) return;
+      const found = searchable.filter(entry =>
+        [entry.name, entry.heading, entry.label, entry.description].join(" ").toLocaleLowerCase().includes(query));
+      if (!found.length) {
+        searchResults.appendChild(dependencies.el("p", "settings-find-empty", "No matching settings. Try another word."));
+        return;
+      }
+      for (const entry of found.slice(0, 16)) {
+        const result = dependencies.el("button", "settings-find-item");
+        result.type = "button";
+        result.append(dependencies.el("strong", "", entry.label),
+          dependencies.el("small", "", entry.name + " › " + entry.heading));
+        result.addEventListener("click", () => {
+          showCategory(entry.name);
+          entry.group.open = true;
+          entry.target.scrollIntoView({ block: "center", behavior: "instant" });
+          const focusTarget = entry.target.matches(".setting-row, .setting-scrolled-option")
+            ? entry.target.querySelector("input,select,textarea") : null;
+          if (focusTarget) focusTarget.focus({ preventScroll: true });
+        });
+        searchResults.appendChild(result);
+      }
+      if (found.length > 16) searchResults.appendChild(
+        dependencies.el("p", "settings-find-empty", "Showing the first 16 matches. Refine your search for more."));
+    }
+    searchInput.addEventListener("input", renderSearch);
     function showIndex() {
-      index.hidden = false;
+      searchWrap.hidden = false;
+      searchInput.value = "";
+      renderSearch();
       back.hidden = true;
       header.querySelector("h2").textContent = "Settings";
       for (const section of sections.children) section.hidden = true;
       panel.scrollTop = 0;
     }
     function showCategory(name) {
+      searchWrap.hidden = true;
       index.hidden = true;
+      searchResults.hidden = true;
       back.hidden = false;
       header.querySelector("h2").textContent = name;
       const group = categories.find(([label]) => label === name)?.[1] || [];
       for (const section of sections.children) section.hidden = !group.includes(section);
       panel.scrollTop = 0;
     }
-    panel.append(header, index, sections);
+    panel.append(header, searchWrap, index, sections);
     overlay.appendChild(panel);
     overlay.addEventListener("click", (event) => { if (event.target === overlay) closeSettings(); });
     document.body.appendChild(overlay);

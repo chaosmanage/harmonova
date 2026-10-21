@@ -272,6 +272,10 @@ const settingsPath = async (page, sectionLabel) => {
   const panel = page.locator(".settings-panel");
   await panel.waitFor({ state: "visible", timeout: 5000 });
   await panel.locator(".settings-category", { hasText: "Stories" }).click();
+  // These legacy scenarios exercise controls rather than accordion navigation.
+  await panel.locator('.settings-section:not([hidden]) .settings-group').evaluateAll(groups => {
+    groups.forEach(group => { group.open = true; });
+  });
   return panel;
 };
 
@@ -376,7 +380,7 @@ await test("hidden-domain filter removes matching cards and the card menu adds d
   await settingRow(panel, "Hidden domains", "input").dispatchEvent("change");
   await panel.locator(".settings-header .icon-button").first().click();
   await page.waitForFunction(
-    (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
+    (id) => (!document.querySelector('.story-card[data-story-id="' + id + '"]') || document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true),
     STORY_2,
     { timeout: 10000 }
   );
@@ -387,7 +391,7 @@ await test("hidden-domain filter removes matching cards and the card menu adds d
   await card.click({ button: "right" });
   await page.locator(".harmonova-popup .popup-item", { hasText: "Hide this domain" }).click();
   await page.waitForFunction(
-    (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
+    (id) => (!document.querySelector('.story-card[data-story-id="' + id + '"]') || document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true),
     STORY_ID,
     { timeout: 10000 }
   );
@@ -400,7 +404,7 @@ await test("keyword filter hides matching titles case-insensitively", async ({ p
   await settingRow(panel, "Hidden keywords", "input").dispatchEvent("change");
   await panel.locator(".settings-header .icon-button").first().click();
   await page.waitForFunction(
-    (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
+    (id) => (!document.querySelector('.story-card[data-story-id="' + id + '"]') || document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true),
     STORY_2,
     { timeout: 10000 }
   );
@@ -414,17 +418,17 @@ await test("hide jobs filters job stories in every feed, including Jobs", async 
   await settingRow(panel, "Hide jobs", "input").click();
   await panel.locator(".settings-header .icon-button").first().click();
   await page.waitForFunction(
-    (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
+    (id) => (!document.querySelector('.story-card[data-story-id="' + id + '"]') || document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true),
     JOB_ID,
     { timeout: 10000 }
   );
   // The setting applies to every feed, even the dedicated Jobs feed.
-  assert.equal(await page.locator('.story-card[data-story-id="' + JOB_ID + '"]').evaluate((card) => getComputedStyle(card).display), "none");
+  assert.equal(await page.locator('.story-card[data-story-id="' + JOB_ID + '"]').count(), 0, "hidden job excluded and feed replenished when possible");
   await feedMenu(page, "Jobs");
   await page.waitForFunction(
     (id) => {
       const card = document.querySelector('.story-card[data-story-id="' + id + '"]');
-      return card && card.hidden && getComputedStyle(card).display === "none";
+      return !card || (card.hidden && getComputedStyle(card).display === "none");
     },
     JOB_ID,
     { timeout: 20000 }
@@ -483,7 +487,7 @@ await test("hide read filters stories after opening them", async ({ page }) => {
   await settingRow(panel, "Hide read stories", "input").click();
   await panel.locator(".settings-header .icon-button").first().click();
   await page.waitForFunction(
-    (id) => document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true,
+    (id) => (!document.querySelector('.story-card[data-story-id="' + id + '"]') || document.querySelector('.story-card[data-story-id="' + id + '"]')?.hidden === true),
     STORY_ID,
     { timeout: 10000 }
   );

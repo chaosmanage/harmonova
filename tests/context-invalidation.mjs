@@ -50,6 +50,7 @@ try {
   await page.locator('.feed-toolbar-actions button[aria-label="More"]').click();
   await page.locator(".harmonova-popup .popup-item", { hasText: "Settings" }).click();
   await page.locator('.settings-category', { hasText: 'Stories' }).click();
+  await page.locator('.settings-group-summary', {hasText:'Previews & card design'}).click();
   await page.locator('.settings-overlay .setting-row', { hasText: 'Tint cards from images' }).click();
   const notice = page.locator("#harmonova-context-reload");
   await notice.waitFor({ state: "visible", timeout: 10000 });

@@ -41,6 +41,7 @@ await withExtension(async({context,worker})=>{
   assert.equal(await notify.isChecked(),true);
   await notify.uncheck();
   assert.equal(await notify.isChecked(),false);
+  await page.locator('.settings-group-summary', {hasText:'Check for updates'}).click();
   const check=page.locator('.settings-section:not([hidden]) .settings-check-updates');
   await check.click();
   await page.locator('.settings-update-status').getByText(/Update available: v0\.15\.0/).waitFor();
@@ -56,6 +57,7 @@ await withExtension(async({context,worker})=>{
   assert.equal(releaseRequests,3);
   await page.locator('.settings-back').click();
   await page.locator('.settings-category').filter({hasText:'Web and links'}).click();
+  await page.locator('.settings-group-summary', {hasText:'External preview access'}).click();
   const previewFrame=page.frameLocator('.preview-settings-frame');
   await previewFrame.locator('#previews-enabled').waitFor();
   assert.equal(await previewFrame.locator('#previews-enabled').isChecked(),true,'previews should default on under Web and links');
@@ -114,6 +116,7 @@ await withExtension(async({context,worker})=>{
     await page.evaluate(()=>{location.hash='#harmonova-settings';});
     await page.locator('.settings-overlay').waitFor();
     await page.locator('.settings-category').filter({hasText:'Data'}).click();
+    await page.locator('.settings-group-summary', {hasText:'Delete & reset'}).click();
   };
   const reset=async (scope)=>{
     const selector='.settings-delete-'+scope;

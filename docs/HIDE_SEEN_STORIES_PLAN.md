@@ -62,3 +62,11 @@ All modes respect the independent legacy Hide read preference. Disabling trackin
 
 - Work only on isolated branch/worktree; preserve unrelated modified files in main.
 - After checks, commit feature and documentation, create the extension zip through the repository packaging script, and provide the exact artifact location and test results.
+
+## Settings information architecture refinement
+
+The Settings sidebar uses the same eight top-level categories, ordered by reading tasks first: Stories, Comments, Appearance, Web and links, AI Summarization, Account, Data, and Updates. Each category card shows a short subtitle. An index-level search finds live controls by their original label, description, category, or subgroup; results navigate to and expand the existing control instead of cloning inputs or changing stored preference names. Returning to the index clears search.
+
+Every category has native keyboard-accessible `<details>` disclosure groups. The first useful group is expanded by default; others are initially collapsed, and multiple may stay open. Stories: Seen & skipped stories, Feed filters, Previews & card design, Story details, Text & density, Opening stories. Comments: Reading & visibility, Layout & sorting, Interaction & authors, Text & size. Appearance: Theme & typography, Discussion header. Web and links: Link preview details, External preview access. AI: Model & permissions. Account: Hacker News session, Account actions, Account privacy. Data: Backup & restore, Delete & reset. Updates: Release notices, Check for updates.
+
+Groupings do not alter the underlying setting keys, defaults, validators, storage, background message routing, or permission surfaces. The five-option scrolled-past selector is kept together and remains opt-in. Destructive Data actions are behind an explicit disclosure, but retain their existing trusted-event and confirmation checks. Existing AI and preview iframes stay extension-owned rather than being moved to untrusted pages. Browser regression tests cover category structure, search navigation and focus, persistence, hiding of destructive controls, all eight category pages, and the existing settings data reset and update flows.
