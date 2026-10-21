@@ -201,14 +201,19 @@ html.harmonova-hn *{box-sizing:border-box}
 .story-card.selected{filter:brightness(1.08);box-shadow:0 0 0 2px rgba(255,255,255,.10) inset,0 2px 8px rgba(0,0,0,.32)}
 .harmonova-app[data-dimread="true"] .story-card.is-read{opacity:.25}
 .harmonova-app[data-dimread="false"] .story-card.is-read{opacity:1}
-.harmonova-app[data-scrolledmode="dim"] .story-card.is-skipped,
 .harmonova-app[data-scrolledmode="future"] .story-card.is-skipped{opacity:.25}
-.setting-scrolled-group{border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:14px 14px 10px;margin:10px 0 16px;min-width:0}
-.setting-scrolled-group legend{font-weight:650;padding:0 6px}
-.setting-scrolled-option{display:flex;gap:12px;align-items:center;padding:10px 3px;cursor:pointer}
-.setting-scrolled-option input{accent-color:#dedede;flex:0 0 auto}
-.setting-scrolled-copy{display:flex;flex-direction:column;gap:3px;min-width:0}
-.setting-scrolled-copy small{color:#aaa;font-size:12px;line-height:1.4}
+/* Visually separate skipped-by-scrolling from opened/read-story toggles.
+   Avoid a fieldset legend: it looks like it belongs to Hide read stories. */
+.setting-scrolled-group{margin:16px 0 0;padding:19px 1px 4px;border:0;border-top:1px solid rgba(255,255,255,.16);min-width:0}
+.setting-scrolled-title{margin:0 0 6px;color:#ede9ef;font-size:14px;font-weight:720}
+.setting-scrolled-description{margin:0 0 11px;font-size:12px;color:#aaa5ae;line-height:1.5}
+.setting-scrolled-choices{border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#19191d;padding:5px 12px}
+.setting-scrolled-option{display:flex;gap:12px;align-items:flex-start;padding:13px 3px;cursor:pointer}
+.setting-scrolled-option+.setting-scrolled-option{border-top:1px solid rgba(255,255,255,.07)}
+.setting-scrolled-option input{accent-color:#dedede;flex:0 0 auto;margin-top:3px}
+.setting-scrolled-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.setting-scrolled-copy strong{font-size:13px}
+.setting-scrolled-copy small{color:#aaa;font-size:12px;line-height:1.45}
 .story-card-main{
   min-width:0;
   align-self:stretch;

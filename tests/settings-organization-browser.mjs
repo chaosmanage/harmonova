@@ -32,7 +32,10 @@ await withExtension(async ({context, worker}) => {
   const storyGroups=await page.locator('.settings-section:not([hidden]) .settings-group-heading strong').allTextContents();
   assert.deepEqual(storyGroups,['Seen & skipped stories','Feed filters','Previews & card design','Story details','Text & density','Opening stories']);
   assert.equal(await page.locator('.settings-section:not([hidden]) .settings-group[open]').count(),1,'one recommended first group open');
-  assert.equal(await page.locator('.setting-scrolled-group input[type=radio]').count(),5,'five modes not lost');
+  assert.deepEqual(await page.locator('.setting-scrolled-group input[type=radio]').evaluateAll(radios => radios.map(radio => radio.value)),['off','future','immediate'],'three exclusive modes');
+  assert.equal(await page.locator('.setting-scrolled-group legend').count(),0,'no fieldset legend attached to Hide read stories');
+  assert.equal(await page.locator('.setting-scrolled-title').innerText(),'Scrolled-past stories');
+  assert.equal(await page.locator('.setting-scrolled-choices').getAttribute('role'),'radiogroup');
   assert.equal(await page.locator('.setting-scrolled-group input[value=off]').isChecked(),true);
   await page.locator('.settings-group-summary',{hasText:'Previews & card design'}).click();
   const tint=page.locator('.settings-section:not([hidden]) .setting-row',{hasText:'Tint cards from images'}).locator('input');

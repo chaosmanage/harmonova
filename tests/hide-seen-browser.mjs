@@ -131,16 +131,18 @@ await withExtension(async ({ context, worker }) => {
   await page.locator('.settings-overlay').waitFor();
   await page.locator('.settings-category').filter({ hasText: 'Stories' }).click();
   const values = await page.locator('.setting-scrolled-group input[type=radio]').evaluateAll(els => els.map(el => el.value));
-  assert.deepEqual(values, ['off', 'track', 'dim', 'future', 'immediate']);
+  assert.deepEqual(values, ['off', 'future', 'immediate']);
   assert.equal(await page.locator('.setting-scrolled-group input[value=off]').isChecked(), true);
-  await page.locator('.setting-scrolled-group input[value=dim]').check();
+  await page.locator('.setting-scrolled-group input[value=future]').check();
   await page.locator('.settings-header .icon-button').click();
   await page.locator('.story-list').evaluate(el => { el.scrollTop = 0; });
   await page.locator('.story-list').hover();
   await page.mouse.wheel(0, 900);
   await page.waitForFunction(() => document.querySelector('.story-card.is-skipped'));
-  assert.equal(await page.locator('.harmonova-app').getAttribute('data-scrolledmode'), 'dim');
-  assert.ok(await page.locator('.story-card.is-skipped').count() > 0, 'grey out retains the crossed cards');
-  assert.equal(await page.locator('.story-card').count(), 20);
-  console.log('PASS off by default, exclusive five-way setting, grey-out behavior');
+  assert.equal(await page.locator('.harmonova-app').getAttribute('data-scrolledmode'), 'future');
+  assert.ok(await page.locator('.story-card.is-skipped').count() > 0, 'recommended mode retains crossed cards');
+  await page.waitForFunction(() => [...document.querySelectorAll('.story-card.is-skipped')].some(card => Number(getComputedStyle(card).opacity) <= .26), null, {timeout:5000}); // allow CSS fade transition
+  assert.ok(await page.locator('.story-card.is-skipped').first().evaluate(card => Number(getComputedStyle(card).opacity)) <= .26, 'recommended mode greys skipped cards out immediately');
+  assert.ok(await page.locator('.story-card').count() >= 20, 'automatic load-more never shrinks the feed');
+  console.log('PASS three exclusive modes, off default, immediately dimmed recommended mode');
 });

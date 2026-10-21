@@ -6,7 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-- Reorganize all eight Settings categories into concise disclosure groups with descriptive category navigation and cross-category search; preserve every existing preference and the opt-in five-mode scrolled-past story control.
+- Reorganize all eight Settings categories into concise disclosure groups with descriptive category navigation and cross-category search, preserving existing preferences.
+- Simplify scrolled-past choices to Off, Hide on next load (recommended), and Hide immediately, with a visually distinct section heading. Retired Track only/Grey out preferences fall back safely to Off.
 
 - Gate release publication on version-tag-triggered GitHub Actions tests and package checks.
 - Remove obsolete planning references and consolidate overlapping documentation guidance.

@@ -23,13 +23,19 @@
   }
 
   function scrolledStorySetting() {
-    const wrap = dependencies.el("fieldset", "setting-scrolled-group");
-    wrap.appendChild(dependencies.el("legend", "", "Scrolled-past stories"));
-    wrap.appendChild(dependencies.el("p", "settings-note", "Choose what happens when a story is scrolled past and leaves the visible area."));
+    // A standard section, not a fieldset legend, keeps this setting clearly
+    // separate from the preceding Hide read stories toggle.
+    const wrap = dependencies.el("section", "setting-scrolled-group");
+    const heading = dependencies.el("h4", "setting-scrolled-title", "Scrolled-past stories");
+    heading.id = "harmonova-scrolled-story-heading";
+    const description = dependencies.el("p", "setting-scrolled-description",
+      "Separate from stories you open. Choose what happens after a story scrolls above the feed.");
+    const choices = dependencies.el("div", "setting-scrolled-choices");
+    choices.setAttribute("role", "radiogroup");
+    choices.setAttribute("aria-labelledby", heading.id);
+    wrap.append(heading, description, choices);
     const options = [
       ["off", "Off (default)", "Do not track scrolled-past stories."],
-      ["track", "Track only", "Remember skipped stories without changing their appearance."],
-      ["dim", "Grey out", "Keep stories visible but dim them after scrolling past."],
       ["future", "Hide on next load (recommended)", "Grey out immediately. Keep stories available for scrolling back up; hide them after refreshing, reopening, or switching feeds."],
       ["immediate", "Hide immediately", "Remove stories once they scroll completely above the viewport. Scrolling back to them is not possible."],
     ];
@@ -51,7 +57,7 @@
       const detail = dependencies.el("span", "setting-scrolled-copy");
       detail.append(dependencies.el("strong", "", title), dependencies.el("small", "", description));
       label.append(radio, detail);
-      wrap.appendChild(label);
+      choices.appendChild(label);
     }
     return wrap;
   }

@@ -143,6 +143,18 @@ test('P10 failed migration preserves source; sync quota failure retains local re
   const recover=preferenceFixture();recover.failSync();const result=await recover.make().patch({uiTheme:'charcoal'});
   assert.equal(result.ok,true);assert.equal(result.syncSaved,false);assert.equal((await recover.make().snapshot()).settings.uiTheme,'charcoal');
 });
+test("Retired scrolled-past modes normalize to Off, never to hide", () => {
+  const ctx = vm.createContext({ TextEncoder });
+  vm.runInContext(fs.readFileSync(new URL('../src/settings-schema.js', import.meta.url),'utf8'), ctx);
+  const schema = ctx.HarmoNovaSettingsSchema;
+  for (const retired of ['track', 'dim']) {
+    assert.equal(schema.normalize({ scrolledStoryBehavior: retired }).scrolledStoryBehavior, 'off');
+    assert.equal(schema.patch({ scrolledStoryBehavior: retired }), null);
+  }
+  assert.deepEqual(plain(['off', 'future', 'immediate'].map(value =>
+    schema.normalize({ scrolledStoryBehavior: value }).scrolledStoryBehavior)), ['off', 'future', 'immediate']);
+});
+
 test('P10 unknown, prototype, invalid range and oversized fields cannot become preferences',async()=> {
   const f=preferenceFixture(),p=f.make();
   for(const fields of [{aiEnabled:true},{externalPreviewsEnabled:true},{storyTextSize:1000},{hiddenDomains:'x'.repeat(2001)},JSON.parse('{"__proto__":{}}')])await assert.rejects(p.patch(fields),/INVALID_PREFERENCES/);

@@ -4,13 +4,11 @@ Branch: `feature/hide-seen-stories` (isolated worktree, branched from `e195e35`)
 
 ## Product contract
 
-Exactly one global Stories preference: `scrolledStoryBehavior` with values `off`, `track`, `dim`, `future`, `immediate`. Default is `off`; keep existing preferences through upgrades.
+Exactly one global Stories preference: `scrolledStoryBehavior` with values `off`, `future`, `immediate`. Default is `off`; keep existing preferences through upgrades.
 
 | Mode | Record crossed story IDs? | Immediate appearance | Newly reconstructed feed |
 | --- | --- | --- | --- |
 | Off (default) | No | Unchanged | Unchanged |
-| Track only | Yes | Unchanged | Do not exclude skipped IDs |
-| Grey out | Yes | Dim crossed cards | Render skipped IDs dimmed |
 | Hide on next load (recommended) | Yes | Dim crossed cards, do not remove them | Exclude skipped IDs, refill batch |
 | Hide immediately | Yes | Remove fully crossed cards and restore scroll anchor | Exclude skipped IDs, refill batch |
 
@@ -41,7 +39,7 @@ All modes respect the independent legacy Hide read preference. Disabling trackin
 
 ## UX details
 
-- Radio-style Stories fieldset follows screenshot wording; label the future mode `(recommended)` without enabling it by default. All five values form one exclusive setting.
+- Radio-style Stories section uses a distinct heading, not a fieldset legend adjacent to Hide read stories; label the future mode `(recommended)` without enabling it by default. All three values form one exclusive setting.
 - The first story is not silently marked read merely because it was preselected by the UI.
 - After true exhaustion, show an honest caught-up empty state. Newly enabled visibility filters reconstruct the feed so eligible cards are replenished.
 - Immediate hiding can make upward scrolling impossible to removed cards; this is intentional and explained in Settings. Recommended deferred hiding avoids that effect.
@@ -69,4 +67,6 @@ The Settings sidebar uses the same eight top-level categories, ordered by readin
 
 Every category has native keyboard-accessible `<details>` disclosure groups. The first useful group is expanded by default; others are initially collapsed, and multiple may stay open. Stories: Seen & skipped stories, Feed filters, Previews & card design, Story details, Text & density, Opening stories. Comments: Reading & visibility, Layout & sorting, Interaction & authors, Text & size. Appearance: Theme & typography, Discussion header. Web and links: Link preview details, External preview access. AI: Model & permissions. Account: Hacker News session, Account actions, Account privacy. Data: Backup & restore, Delete & reset. Updates: Release notices, Check for updates.
 
-Groupings do not alter the underlying setting keys, defaults, validators, storage, background message routing, or permission surfaces. The five-option scrolled-past selector is kept together and remains opt-in. Destructive Data actions are behind an explicit disclosure, but retain their existing trusted-event and confirmation checks. Existing AI and preview iframes stay extension-owned rather than being moved to untrusted pages. Browser regression tests cover category structure, search navigation and focus, persistence, hiding of destructive controls, all eight category pages, and the existing settings data reset and update flows.
+Groupings do not alter the underlying setting keys, defaults, validators, storage, background message routing, or permission surfaces. The three-option scrolled-past selector is kept together and remains opt-in. Destructive Data actions are behind an explicit disclosure, but retain their existing trusted-event and confirmation checks. Existing AI and preview iframes stay extension-owned rather than being moved to untrusted pages. Browser regression tests cover category structure, search navigation and focus, persistence, hiding of destructive controls, all eight category pages, and the existing settings data reset and update flows.
+
+The removed Track only and Grey out modes normalize safely to Off when reading older stored preferences; this does not opt users into hiding. Read and skipped ID history remains intact until explicitly cleared.
