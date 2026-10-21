@@ -201,6 +201,14 @@ html.harmonova-hn *{box-sizing:border-box}
 .story-card.selected{filter:brightness(1.08);box-shadow:0 0 0 2px rgba(255,255,255,.10) inset,0 2px 8px rgba(0,0,0,.32)}
 .harmonova-app[data-dimread="true"] .story-card.is-read{opacity:.25}
 .harmonova-app[data-dimread="false"] .story-card.is-read{opacity:1}
+.harmonova-app[data-scrolledmode="dim"] .story-card.is-skipped,
+.harmonova-app[data-scrolledmode="future"] .story-card.is-skipped{opacity:.25}
+.setting-scrolled-group{border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:14px 14px 10px;margin:10px 0 16px;min-width:0}
+.setting-scrolled-group legend{font-weight:650;padding:0 6px}
+.setting-scrolled-option{display:flex;gap:12px;align-items:center;padding:10px 3px;cursor:pointer}
+.setting-scrolled-option input{accent-color:#dedede;flex:0 0 auto}
+.setting-scrolled-copy{display:flex;flex-direction:column;gap:3px;min-width:0}
+.setting-scrolled-copy small{color:#aaa;font-size:12px;line-height:1.4}
 .story-card-main{
   min-width:0;
   align-self:stretch;
@@ -2007,3 +2015,6 @@ html.harmonova-hn[data-font="serif"]{--harmonova-font-stack:Georgia,"Times New R
 .settings-account-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
 .settings-account-action{width:100%;text-align:left}
 @media(max-width:430px){.settings-account-actions{grid-template-columns:1fr}}
+
+.harmonova-empty{padding:24px;text-align:center;color:#bbb}
+.load-more-stories-button{margin:18px auto;padding:12px 20px;border:1px solid #666;border-radius:9px;background:#20252b;color:#eee;cursor:pointer}

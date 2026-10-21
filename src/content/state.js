@@ -76,6 +76,7 @@
     const backedUpSettings = pageStorageGet(dependencies.SETTINGS_BACKUP_KEY);
     model.readerRevision = Number.isSafeInteger(stored?.revision) ? stored.revision : 0;
     const readIds = Array.isArray(stored?.readStoryIds) ? stored.readStoryIds : [];
+    const skippedIds = Array.isArray(stored?.skippedStoryIds) ? stored.skippedStoryIds : [];
     const bookmarks = Array.isArray(stored?.harmonovaBookmarks) ? stored.harmonovaBookmarks : [];
     if(!dependencies.INCOGNITO && preferenceSnapshot && !preferenceSnapshot.pageMigrated) {
       const result=await runtimeMessage({type:"HARMONOVA_MIGRATE_PREFERENCES",appearance:HarmoNovaSettingsSchema.backup(backedUpSettings || {})});
@@ -83,6 +84,7 @@
     }
     const settings = HarmoNovaSettingsSchema.normalize(synced.harmonovaSettings);
     model.readIds = new Set(readIds);
+    model.skippedIds = new Set(skippedIds);
     model.bookmarks = new Set(bookmarks);
     model.settings = HarmoNovaSettingsSchema.normalize(settings);
     // Existing installations may have selected the removed upstream font.
@@ -166,6 +168,19 @@
     }
   }
 
+  async function markSkippedBatch(ids) {
+    const batch = [...new Set(ids)].filter(id => Number.isSafeInteger(id) && id > 0);
+    if (!batch.length) return { ok: true };
+    if (dependencies.INCOGNITO) return dependencies.privateReader.markSkippedBatch(batch);
+    return runtimeMessage({ type: "HARMONOVA_MARK_SKIPPED_BATCH", ids: batch });
+  }
+
+  async function unskipStory(id) {
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    if (dependencies.INCOGNITO) return dependencies.privateReader.unskipStory(id);
+    return runtimeMessage({ type: "HARMONOVA_UNSKIP_STORY", id });
+  }
+
   async function toggleBookmark(id) {
     if (!Number.isSafeInteger(id) || id <= 0) return;
     const desired = !model.bookmarks.has(id);
@@ -198,6 +213,8 @@ persistBlockedUsers,
 persistSeenTimes,
 markRead,
 markUnread,
+markSkippedBatch,
+unskipStory,
 toggleBookmark});
   }
   globalThis.HarmoNovaContentState=Object.freeze({create});

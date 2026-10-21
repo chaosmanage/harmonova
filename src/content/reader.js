@@ -27,13 +27,13 @@
     return placeholder;
   }
 
-  async function selectStory(storyOrId, push = true, scrollTop = true, gesture = null) {
+  async function selectStory(storyOrId, push = true, scrollTop = true, gesture = null, markOpened = true) {
     const id = typeof storyOrId === "number" ? storyOrId : storyOrId.id;
     model.aiSelectionIntent = gesture?.isTrusted ? id : null;
     model.selectedId = id;
     model.selectedStory = typeof storyOrId === "object" ? storyOrId : model.stories.find((s) => s.id === id) || null;
     if (dependencies.app) dependencies.app.classList.add("show-thread");
-    dependencies.markRead(id);
+    if (markOpened) dependencies.markRead(id);
     document.querySelectorAll(".story-card.selected").forEach((node) => node.classList.remove("selected"));
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("selected");
     if (push) history.pushState({ harmonovaItem: id }, "", "/item?id=" + id);

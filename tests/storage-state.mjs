@@ -179,3 +179,23 @@ test('P13 stalled tab broadcasts never hold the reader transaction lock',async()
  const repo=realm.HarmoNovaReaderStore.create({localGet:async defaults=>({...defaults,...local}),localSet:async data=>Object.assign(local,structuredClone(data)),sessionGet:async defaults=>({...defaults,...session}),sessionSet:async data=>Object.assign(session,structuredClone(data)),broadcast:()=>new Promise(()=>{})});
  await repo.setBookmark(1,true);await repo.setBookmark(2,true);assert.deepEqual(plain((await repo.stateSnapshot()).bookmarks),[1,2]);
 });
+
+
+test("Skipped history is independently persisted, capped, and cleared with history", async () => {
+  const f = storeFixture(), repo = f.makeReader();
+  assert.equal((await repo.markSkippedBatch([401, 402, 401])).ok, true);
+  assert.deepEqual(plain((await repo.stateSnapshot()).skippedIds), [401, 402]);
+  assert.equal((await repo.markSkippedBatch([401, 402])).changed, false);
+  await repo.markRead(401);
+  await repo.unskipStory(401);
+  assert.deepEqual(plain((await repo.stateSnapshot()).readIds), [401]);
+  assert.deepEqual(plain((await repo.stateSnapshot()).skippedIds), [402]);
+  const fresh = f.makeReader();
+  assert.deepEqual(plain((await fresh.stateSnapshot()).skippedIds), [402]);
+  await fresh.importData({ bookmarks: [], readStoryIds: [], skippedStoryIds: [403] });
+  assert.deepEqual(plain((await fresh.stateSnapshot()).skippedIds), [402, 403]);
+  await assert.rejects(fresh.markSkippedBatch([0]), /INVALID_SKIPPED_IDS/);
+  await assert.rejects(fresh.markSkippedBatch(Array.from({ length: 101 }, (_, i) => i + 1)), /INVALID_SKIPPED_IDS/);
+  await fresh.resetHistory();
+  assert.deepEqual(plain((await fresh.stateSnapshot()).skippedIds), []);
+});

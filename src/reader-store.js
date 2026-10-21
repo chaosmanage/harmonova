@@ -10,7 +10,7 @@
   const validUsername = value => typeof value==="string" && /^[A-Za-z0-9_-]{1,32}$/.test(value) && !["__proto__","prototype","constructor"].includes(value);
   const tags = value => Object.fromEntries(Object.entries(value && typeof value==="object" && !Array.isArray(value)?value:{}).slice(-500).filter(([key,v])=>validUsername(key)&&typeof v==="string"&&v.length<=40));
   const times = value => Object.fromEntries(Object.entries(value && typeof value==="object" && !Array.isArray(value)?value:{}).slice(-400).filter(([key,v])=>validId(Number(key))&&Number.isSafeInteger(v)&&v>=0));
-  const emptyData = () => ({ version: 1, revision: 0, pageOriginMigrated: false, readIds: [], bookmarks: [], tags: {}, blockedUsers: [], seenTimes: {} });
+  const emptyData = () => ({ version: 1, revision: 0, pageOriginMigrated: false, readIds: [], skippedIds: [], bookmarks: [], tags: {}, blockedUsers: [], seenTimes: {} });
   const emptyDrafts = () => ({ version: 2, drafts: {}, generations: {}, accountGenerations: {} });
   function create({ localGet, localSet, sessionGet, sessionSet, broadcast = async () => {} }) {
     let lock = Promise.resolve();
@@ -46,7 +46,7 @@
       if(record && (!Number.isSafeInteger(record.revision)||record.revision<0))throw new Error("INVALID_READER_SCHEMA");
       if (record?.version === 1 && Number.isSafeInteger(record.revision) && record.revision>=0) return {
         version:1,revision:record.revision,pageOriginMigrated:record.pageOriginMigrated===true,
-        readIds:cappedIds(record.readIds,1500),bookmarks:cappedIds(record.bookmarks,2000),tags:tags(record.tags),
+        readIds:cappedIds(record.readIds,1500),skippedIds:cappedIds(record.skippedIds,10000),bookmarks:cappedIds(record.bookmarks,2000),tags:tags(record.tags),
         blockedUsers:(Array.isArray(record.blockedUsers)?record.blockedUsers:[]).filter(validUsername).slice(-500),seenTimes:times(record.seenTimes),
       };
       const initial = emptyData();
@@ -68,6 +68,7 @@
     });
     const resetHistory = () => mutateState(state => {
       state.readIds = [];
+      state.skippedIds = [];
       state.seenTimes = {};
       state.pageOriginMigrated = true; // Old page backups must not revive history.
       return { changed: true };
@@ -107,6 +108,21 @@
       state.readIds = state.readIds.filter(item => item !== id);
       return { changed: true };
     });
+    const markSkippedBatch = ids => mutateState(state => {
+      if (!Array.isArray(ids) || ids.length > 100 || !ids.every(validId))
+        throw new Error("INVALID_SKIPPED_IDS");
+      const merged = cappedIds([...state.skippedIds, ...ids], 10000);
+      if (merged.length === state.skippedIds.length && merged.every((id, i) => id === state.skippedIds[i]))
+        return { ok: true, changed: false };
+      state.skippedIds = merged;
+      return { changed: true };
+    });
+    const unskipStory = id => mutateState(state => {
+      if (!validId(id)) throw new Error("INVALID_ID");
+      if (!state.skippedIds.includes(id)) return { ok: true, changed: false };
+      state.skippedIds = state.skippedIds.filter(value => value !== id);
+      return { changed: true };
+    });
     const setBookmark = (id, desired) => mutateState(state => {
       if (!validId(id) || typeof desired !== "boolean") throw new Error("INVALID_BOOKMARK");
       const present = state.bookmarks.includes(id);
@@ -120,9 +136,16 @@
         if (!Array.isArray(data[name]) || data[name].length > 10000 || !data[name].every(validId))
           throw new Error("INVALID_IMPORT");
       }
+      if (data.skippedStoryIds !== undefined && (!Array.isArray(data.skippedStoryIds) ||
+          data.skippedStoryIds.length > 10000 || !data.skippedStoryIds.every(validId)))
+        throw new Error("INVALID_IMPORT");
       let truncated = new Set([...state.bookmarks,...data.bookmarks]).size>2000 || new Set([...state.readIds,...data.readStoryIds]).size>1500;
       state.bookmarks = cappedIds([...state.bookmarks, ...data.bookmarks], 2000);
       state.readIds = cappedIds([...state.readIds, ...data.readStoryIds], 1500);
+      if (data.skippedStoryIds) {
+        truncated ||= new Set([...state.skippedIds, ...data.skippedStoryIds]).size > 10000;
+        state.skippedIds = cappedIds([...state.skippedIds, ...data.skippedStoryIds], 10000);
+      }
       if (data.userTags) {
         if (typeof data.userTags !== "object" || Array.isArray(data.userTags) || Object.keys(data.userTags).length>500) throw new Error("INVALID_IMPORT");
         for (const [name, tag] of Object.entries(data.userTags)) {
@@ -270,7 +293,7 @@
       await sessionSet({ [TAB_KEY]: retained });
       return { ok: true, tabs: retained };
     });
-    return Object.freeze({ stateSnapshot, resetHistory, resetSaved, resetAll, markRead, markUnread, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
+    return Object.freeze({ stateSnapshot, resetHistory, resetSaved, resetAll, markRead, markUnread, markSkippedBatch, unskipStory, setBookmark, importData, migratePageData, setTag, setBlocked, markSeen,
       beginDraft, saveDraft, clearDraft, clearAccountDrafts, retireDraft,
       getOriginalTabs, setOriginalTab, reconcileOriginalTabs });
   }

@@ -92,6 +92,18 @@
       .filter(Boolean);
   }
 
+  function isEligibleStory(story) {
+    if (!story || !Number.isSafeInteger(story.id) || story.id <= 0) return false;
+    if (model.settings.hideRead && model.readIds.has(story.id)) return false;
+    if (["future", "immediate"].includes(model.settings.scrolledStoryBehavior) && model.skippedIds.has(story.id)) return false;
+    const domain = dependencies.domainOf(story.url).toLowerCase();
+    if (parseListSetting(model.settings.hiddenDomains).some(value => domain.endsWith(value))) return false;
+    const haystack = ((story.title || "") + " " + domain).toLowerCase();
+    if (parseListSetting(model.settings.hiddenKeywords).some(value => haystack.includes(value))) return false;
+    if (model.settings.hideJobs && isJobStory(story)) return false;
+    return true;
+  }
+
   function filterStories() {
     if (model.search.active) return;
     const domains = parseListSetting(model.settings.hiddenDomains);
@@ -105,6 +117,8 @@
       if (!hidden && keywords.length) hidden = keywords.some((entry) => hay.includes(entry));
       if (!hidden && hideJobs && card.dataset.type === "job") hidden = true;
       if (!hidden && hideRead && card.classList.contains("is-read")) hidden = true;
+      // Never remove a currently displayed story merely because its skip status
+      // changed. 'future' hides it on the next feed construction instead.
       card.hidden = hidden;
     });
   }
@@ -408,6 +422,7 @@ closeSearch,
 abortSearch,
 onSearchInput,
 onSearchKeydown,
+isEligibleStory,
 filterStories,
 queueGlobalSearch,
 runGlobalSearch,

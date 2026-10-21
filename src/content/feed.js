@@ -11,6 +11,7 @@
     card.dataset.type = dependencies.isJobStory(story) ? "job" : (story.type || "story");
     card.style.setProperty("--fallback-tint", dependencies.hashTint(dependencies.domainOf(story.url)));
     if (model.readIds.has(story.id)) card.classList.add("is-read");
+    if (model.skippedIds.has(story.id)) card.classList.add("is-skipped");
     if (model.selectedId === story.id) card.classList.add("selected");
 
     const main = dependencies.el("div", "story-card-main");
@@ -43,6 +44,13 @@
         ...(story.url ? [{ label: "Open article", icon: "external", action: () => window.open(dependencies.articleHref(story), "_blank", "noopener") }] : []),
         ...(dependencies.archiveHref(story) ? [{ label: "View on archive", icon: "clock", action: () => dependencies.openArchive(story) }] : []),
         ...(model.readIds.has(story.id) ? [{ label: "Mark as unread", icon: "eyeOff", action: () => dependencies.markUnread(story.id) }] : []),
+        ...(model.skippedIds.has(story.id) ? [{ label: "Mark as not skipped", icon: "eyeOff", action: async () => {
+          const result = await dependencies.unskipStory(story.id);
+          if (result?.ok) {
+            model.skippedIds.delete(story.id);
+            card.classList.remove("is-skipped");
+          } else dependencies.showToast("Could not update skipped history");
+        } }] : []),
         { label: model.feedVotes.has(story.id) ? "Unvote" : "Upvote", icon: "up", action: (e) => voteFromFeed(e, story.id) },
         ...(window.HarmoNovaHN?.session?.() ? [{ label: "Hide story", icon: "eyeOff", action: (e) => dependencies.hideFromFeed(e, story.id) }] : []),
         ...(story.url ? [{ label: "Hide this domain", icon: "eyeOff", action: () => dependencies.hideDomain(story) }] : []),
@@ -170,34 +178,97 @@
     return wrap;
   }
 
-  async function loadMoreStories() {
-    if (model.listView || model.search.active || model.loadingMore || !model.hasMoreStories || !model.feedIds.length) return;
-    const generation = model.feedGeneration;
-    const batchIds = model.feedIds.slice(model.feedCursor, model.feedCursor + dependencies.FEED_BATCH_SIZE);
-    if (!batchIds.length) {
-      model.hasMoreStories = false;
-      return;
+  // A page contributes a target number of *eligible* stories, never a fixed
+  // number of source IDs. The cursor advances across hidden/missing IDs too.
+  let needsContinuation = false;
+  async function fillStoryBatch(target, generation, signal) {
+    const accepted = [];
+    const acceptedIds = new Set(model.stories.map(story => story.id));
+    let detailRequests = 0;
+    let listPages = 0;
+    while (accepted.length < target && generation === model.feedGeneration && !signal?.aborted) {
+      if (model.feedCursor >= model.feedIds.length) {
+        if (!model.nextPagePath || listPages++ >= 12) break;
+        const path = model.nextPagePath;
+        if (model.fetchedListPaths.has(path)) { model.nextPagePath = null; break; }
+        const page = await window.HarmoNovaHN.fetchListPage(path, { signal });
+        if (page.status !== "ok") {
+          throw new Error(page.message || "Unable to load the next Hacker News page");
+        }
+        if (generation !== model.feedGeneration) return [];
+        model.fetchedListPaths.add(path);
+        model.nextPagePath = page.morePath || null;
+        const known = new Set(model.feedIds);
+        for (const id of page.ids) {
+          if (!Number.isSafeInteger(id) || id <= 0 || known.has(id)) continue;
+          model.feedIds.push(id);
+          known.add(id);
+        }
+        for (const [id, direction] of Object.entries(page.votes || {}))
+          model.feedVotes.set(Number(id), direction);
+        continue;
+      }
+      if (detailRequests >= 192) break; // bounded metadata-filter scanning
+      const candidateIds = [];
+      while (model.feedCursor < model.feedIds.length && candidateIds.length < Math.min(target - accepted.length, 32)) {
+        const id = model.feedIds[model.feedCursor++];
+        if (acceptedIds.has(id)) continue;
+        if (model.settings.hideRead && model.readIds.has(id)) continue;
+        if (["future", "immediate"].includes(model.settings.scrolledStoryBehavior) && model.skippedIds.has(id)) continue;
+        candidateIds.push(id);
+        acceptedIds.add(id);
+      }
+      if (!candidateIds.length) continue;
+      detailRequests += candidateIds.length;
+      const fetched = await dependencies.fetchItems(candidateIds, signal);
+      if (generation !== model.feedGeneration || signal?.aborted) return [];
+      for (const story of fetched) {
+        if (dependencies.isEligibleStory(story)) accepted.push(story);
+      }
     }
+    needsContinuation = accepted.length < target && availableSource();
+    return accepted;
+  }
 
+  function availableSource() {
+    return model.feedCursor < model.feedIds.length || Boolean(model.nextPagePath);
+  }
+
+  function showContinueButton() {
+    dependencies.storyList.querySelector(".load-more-stories-button")?.remove();
+    if (!model.hasMoreStories || !needsContinuation) return;
+    const button = dependencies.el("button", "load-more-stories-button", "Load more unseen stories");
+    button.type = "button";
+    button.addEventListener("click", loadMoreStories);
+    dependencies.storyList.appendChild(button);
+  }
+
+  async function loadMoreStories() {
+    if (model.listView || model.search.active || model.loadingMore || !model.hasMoreStories ||
+        (!model.feedIds.length && !model.nextPagePath)) return;
+    const generation = model.feedGeneration;
+    const scope = dependencies.feedScope;
     model.loadingMore = true;
-    model.feedCursor += batchIds.length;
+    dependencies.storyList.querySelector(".load-more-stories-button")?.remove();
     const loading = createLoading("Loading more stories…");
     loading.classList.add("load-more-stories");
     dependencies.storyList.appendChild(loading);
     try {
-      const stories = await dependencies.fetchItems(batchIds,dependencies.feedScope.signal);
+      const stories = await fillStoryBatch(dependencies.FEED_BATCH_SIZE, generation, scope.signal);
+      if (generation !== model.feedGeneration || !scope.alive) return;
+      loading.remove();
+      const start = model.stories.length;
+      model.stories.push(...stories);
+      stories.forEach((story, index) => dependencies.storyList.appendChild(createStoryCard(story, start + index)));
+      model.hasMoreStories = availableSource();
+      dependencies.filterStories();
+      showContinueButton();
+    } catch {
       if (generation !== model.feedGeneration) return;
       loading.remove();
-      const startIndex = model.stories.length;
-      model.stories.push(...stories);
-      stories.forEach((story, index) => dependencies.storyList.appendChild(createStoryCard(story, startIndex + index)));
-      model.hasMoreStories = model.feedCursor < model.feedIds.length;
-      dependencies.filterStories();
-    } catch {
-      if(generation!==model.feedGeneration)return;
-      loading.remove();
-      model.feedCursor -= batchIds.length;
+      model.hasMoreStories = availableSource();
       dependencies.showToast("Couldn’t load more stories");
+      showContinueButton();
     } finally {
       if (generation === model.feedGeneration) model.loadingMore = false;
     }
@@ -216,24 +287,19 @@ function validFrontDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
 }
 
-// Parity-list feeds have no Firebase id list; pull ids from public HN list
-// pages through the queue. Two pages are enough for a comfortable feed.
-async function fetchListFeedIds(listPath,signal) {
-  const first = await window.HarmoNovaHN.fetchListPage(listPath,{signal});
+// HTML-backed feeds retain the next-page path for demand-driven continuation.
+async function fetchListFeedIds(listPath, signal) {
+  const first = await window.HarmoNovaHN.fetchListPage(listPath, { signal });
   if (first.status !== "ok") {
     const error = new Error(first.message || "Hacker News did not return the list");
     error.status = first.status;
     throw error;
   }
-  const ids = [...first.ids];
-  if (window.HarmoNovaHN.session() && first.votes) {
-    for (const [id, direction] of Object.entries(first.votes)) model.feedVotes.set(Number(id), direction);
-  }
-  if (first.morePath && first.ids.length < dependencies.FEED_BATCH_SIZE) {
-    const second = await window.HarmoNovaHN.fetchListPage(first.morePath,{signal});
-    if (second.status === "ok") for (const id of second.ids) if (!ids.includes(id)) ids.push(id);
-  }
-  return ids;
+  for (const [id, direction] of Object.entries(first.votes || {}))
+    model.feedVotes.set(Number(id), direction);
+  model.nextPagePath = first.morePath || null;
+  model.fetchedListPaths = new Set([listPath]);
+  return [...new Set(first.ids)];
 }
 
 function visibleFeeds() {
@@ -324,8 +390,13 @@ async function refreshFeed() {
     const scope=dependencies.feedScope;
     const generation = ++model.feedGeneration;
     model.loadingMore = false;
+    needsContinuation = false;
+    model.stories = []; // New feed generation must not dedupe against previous render.
     model.feedIds = [];
     model.feedCursor = 0;
+    dependencies.resetFeedScrollTracking();
+    model.nextPagePath = null;
+    model.fetchedListPaths = new Set();
     model.hasMoreStories = true;
     dependencies.storyList.replaceChildren(createLoading("Loading stories…"));
     const key = model.feed;
@@ -353,14 +424,20 @@ async function refreshFeed() {
       }
       if (generation !== model.feedGeneration) return;
       model.feedIds = ids.filter((id) => Number.isInteger(id) && id > 0);
-      const batchIds = model.feedIds.slice(0, dependencies.INITIAL_FEED_BATCH_SIZE);
-      model.feedCursor = batchIds.length;
-      const stories = await dependencies.fetchItems(batchIds,dependencies.feedScope.signal);
+      const commentFeed = feed.kind === "comments";
+      const batchIds = commentFeed ? model.feedIds.slice(0, dependencies.INITIAL_FEED_BATCH_SIZE) : [];
+      let stories;
+      if (commentFeed) {
+        model.feedCursor = batchIds.length;
+        stories = await dependencies.fetchItems(batchIds, scope.signal);
+      } else {
+        stories = await fillStoryBatch(dependencies.INITIAL_FEED_BATCH_SIZE, generation, scope.signal);
+      }
       if (generation !== model.feedGeneration) return;
-      if (!stories.length && batchIds.length) throw new Error("Story details are temporarily unavailable");
+      if (!stories.length && !availableSource() && !model.feedIds.length)
+        throw new Error("No stories were returned by this feed");
       model.stories = stories;
-      // Parity lists have no reliable "more" cursor; everything fetched is shown.
-      model.hasMoreStories = feed.endpoint ? model.feedCursor < model.feedIds.length : false;
+      model.hasMoreStories = commentFeed ? false : availableSource();
       model.updatedAt = new Date();
       dependencies.updatedLabel.textContent = "Last updated: " + dependencies.formatTime(model.updatedAt);
       dependencies.storyList.replaceChildren();
@@ -372,12 +449,18 @@ async function refreshFeed() {
       } else {
         stories.forEach((story, index) => dependencies.storyList.appendChild(createStoryCard(story, index)));
         dependencies.filterStories();
+        showContinueButton();
+      }
+      if (!stories.length && !model.hasMoreStories && feed.kind !== "comments") {
+        dependencies.storyList.appendChild(dependencies.el("p", "harmonova-empty", "You're caught up on this list. No more eligible stories are available."));
       }
       if (model.selectedId) {
         const match = stories.find((story) => story.id === model.selectedId);
         if (match) model.selectedStory = match;
       } else if (stories[0] && window.innerWidth >= 900 && feed.kind !== "comments") {
-        dependencies.selectStory(stories[0], false, false);
+        // Preserve the desktop preview without treating an automatic selection
+        // as an explicit user read.
+        dependencies.selectStory(stories[0], false, false, null, false);
       }
     } catch (error) {
       if(!scope.alive || generation!==model.feedGeneration)return;

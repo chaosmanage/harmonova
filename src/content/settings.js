@@ -14,11 +14,46 @@
       model.settings[key] = input.checked;
       await dependencies.saveSettings(key);
       dependencies.applySettings();
+      if (["hideRead", "hideJobs"].includes(key)) dependencies.refreshFeed();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
       if (model.thread && ["markNewComments", "hideDelayed", "showAvatars", "richPreviews"].includes(key)) dependencies.renderThread(model.thread);
     });
     row.append(text, input);
     return row;
+  }
+
+  function scrolledStorySetting() {
+    const wrap = dependencies.el("fieldset", "setting-scrolled-group");
+    wrap.appendChild(dependencies.el("legend", "", "Scrolled-past stories"));
+    wrap.appendChild(dependencies.el("p", "settings-note", "Choose what happens when a story is scrolled past and leaves the visible area."));
+    const options = [
+      ["off", "Off (default)", "Do not track scrolled-past stories."],
+      ["track", "Track only", "Remember skipped stories without changing their appearance."],
+      ["dim", "Grey out", "Keep stories visible but dim them after scrolling past."],
+      ["future", "Hide on next load (recommended)", "Grey out immediately. Keep stories available for scrolling back up; hide them after refreshing, reopening, or switching feeds."],
+      ["immediate", "Hide immediately", "Remove stories once they scroll completely above the viewport. Scrolling back to them is not possible."],
+    ];
+    for (const [value, title, description] of options) {
+      const label = dependencies.el("label", "setting-scrolled-option");
+      const radio = dependencies.el("input");
+      radio.type = "radio";
+      radio.name = "harmonova-scrolled-story-behavior";
+      radio.value = value;
+      radio.checked = model.settings.scrolledStoryBehavior === value;
+      radio.addEventListener("change", async () => {
+        if (!radio.checked) return;
+        model.settings.scrolledStoryBehavior = value;
+        await dependencies.saveSettings("scrolledStoryBehavior");
+        dependencies.applySettings();
+        // Switching to either hide mode constructs a new eligible batch.
+        if (["future", "immediate"].includes(value)) dependencies.refreshFeed();
+      });
+      const detail = dependencies.el("span", "setting-scrolled-copy");
+      detail.append(dependencies.el("strong", "", title), dependencies.el("small", "", description));
+      label.append(radio, detail);
+      wrap.appendChild(label);
+    }
+    return wrap;
   }
 
   function settingSlider(label, key, min, max, step, suffix = "") {
@@ -76,7 +111,7 @@
     input.addEventListener("change", async () => {
       model.settings[key] = input.value.trim();
       await dependencies.saveSettings(key);
-      if (key === "hiddenDomains" || key === "hiddenKeywords") dependencies.filterStories();
+      if (key === "hiddenDomains" || key === "hiddenKeywords") dependencies.refreshFeed();
       if (typeof options.onChange === "function") options.onChange();
     });
     row.append(text, input);
@@ -109,6 +144,7 @@
       settingToggle("Show domain", "showDomain", "Show the story's source domain in the metadata"),
       settingToggle("Hide jobs", "hideJobs", "Filter job stories out of every feed"),
       settingToggle("Hide read stories", "hideRead", "Filter stories you have already opened out of the feed"),
+      scrolledStorySetting(),
       settingText("Hidden domains", "hiddenDomains", "Comma-separated domains to filter, e.g. example.com, sub.example.org"),
       settingText("Hidden keywords", "hiddenKeywords", "Comma-separated title keywords to filter, case-insensitive"),
       dependencies.el("p", "settings-note", "Preview images are enabled by default; control external website fetching under Web and links. Websites without usable images show a local placeholder."),
@@ -383,6 +419,7 @@
       exportedAt: new Date().toISOString(),
       bookmarks: [...model.bookmarks].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 2000),
       readStoryIds: [...model.readIds].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 1500),
+      skippedStoryIds: [...model.skippedIds].filter((id) => Number.isSafeInteger(id) && id > 0).slice(-10000),
       userTags: Object.fromEntries([...model.userTags].slice(0, 500)),
       blockedUsers: [...model.blockedUsers].slice(0, 500),
       seenTimes: Object.fromEntries([...model.seenTimes].slice(-400)),
@@ -427,7 +464,8 @@
     }
     const bookmarks = sanitizeIdList(data.bookmarks, 2000);
     const readStoryIds = sanitizeIdList(data.readStoryIds, 1500);
-    let truncated = data.bookmarks?.length > 2000 || data.readStoryIds?.length > 1500;
+    const skippedStoryIds = data.skippedStoryIds === undefined ? [] : sanitizeIdList(data.skippedStoryIds, 10000);
+    let truncated = data.bookmarks?.length > 2000 || data.readStoryIds?.length > 1500 || data.skippedStoryIds?.length > 10000;
     let userTags = null;
     if (data.userTags && typeof data.userTags === "object" && !Array.isArray(data.userTags)) {
       userTags = {};
@@ -454,30 +492,32 @@
       if(!data.seenTimes || typeof data.seenTimes!=="object" || Array.isArray(data.seenTimes) || Object.entries(data.seenTimes).some(([id,time])=>! /^[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id)) || !Number.isSafeInteger(time) || time<0))return void dependencies.showToast("Import refused — bad seen times");
       truncated ||= Object.keys(data.seenTimes).length>400;seenTimes=Object.fromEntries(Object.entries(data.seenTimes).slice(-400));
     }
-    if (!bookmarks || !readStoryIds || (data.userTags !== undefined && !userTags) || (data.blockedUsers !== undefined && !blockedUsers)) {
+    if (!bookmarks || !readStoryIds || !skippedStoryIds || (data.userTags !== undefined && !userTags) || (data.blockedUsers !== undefined && !blockedUsers)) {
       dependencies.showToast("Import refused — schema validation failed");
       return;
     }
     // Private tabs only alter their in-document state; normal imports are
     // committed atomically by the worker before updating this view.
     if (dependencies.INCOGNITO) {
-      const outcome = dependencies.privateReader.importData({ bookmarks, readStoryIds,
+      const outcome = dependencies.privateReader.importData({ bookmarks, readStoryIds, skippedStoryIds,
         ...(userTags ? { userTags } : {}), ...(blockedUsers ? { blockedUsers } : {}), ...(seenTimes ? {seenTimes} : {}) });
       if (!outcome.ok) return void dependencies.showToast("Private import unavailable");
       model.bookmarks = new Set(outcome.value.harmonovaBookmarks);
       model.readIds = new Set(outcome.value.readStoryIds);
+      model.skippedIds = new Set(outcome.value.skippedStoryIds);
       model.userTags = new Map(Object.entries(outcome.value.userTags));
       model.blockedUsers = new Set(outcome.value.blockedUsers);
       model.seenTimes = new Map(Object.entries(outcome.value.seenTimes).map(([id,time])=>[Number(id),time]));
       truncated ||= outcome.truncated === true;
     } else {
       const outcome = await dependencies.stateUI.runtimeMessage({ type: "HARMONOVA_IMPORT_READER_DATA", data: {
-        bookmarks, readStoryIds, ...(userTags ? { userTags } : {}),
+        bookmarks, readStoryIds, skippedStoryIds, ...(userTags ? { userTags } : {}),
         ...(blockedUsers ? { blockedUsers } : {}), ...(seenTimes ? {seenTimes} : {}) } });
       if (!outcome?.ok) return void dependencies.showToast("Import could not be saved. No changes were committed.");
       model.readerRevision = outcome.value.revision;
       model.bookmarks = new Set(outcome.value.bookmarks);
       model.readIds = new Set(outcome.value.readIds);
+      model.skippedIds = new Set(outcome.value.skippedIds);
       model.userTags = new Map(Object.entries(outcome.value.tags));
       model.blockedUsers = new Set(outcome.value.blockedUsers);
       model.seenTimes = new Map(Object.entries(outcome.value.seenTimes).map(([id,time])=>[Number(id),time]));
@@ -489,7 +529,7 @@
     document.querySelectorAll("[data-bookmark-id]").forEach((node) => {
       node.classList.toggle("active", model.bookmarks.has(Number(node.dataset.bookmarkId)));
     });
-    dependencies.showToast("Imported " + bookmarks.length + " bookmarks, " + readStoryIds.length + " read stories" + (userTags ? ", " + Object.keys(userTags).length + " tags" : "") + (blockedUsers ? ", " + blockedUsers.length + " blocked" : "") + (truncated ? ". Some data was truncated to storage limits." : ""));
+    dependencies.showToast("Imported " + bookmarks.length + " bookmarks, " + readStoryIds.length + " read stories, " + skippedStoryIds.length + " skipped stories" + (userTags ? ", " + Object.keys(userTags).length + " tags" : "") + (blockedUsers ? ", " + blockedUsers.length + " blocked" : "") + (truncated ? ". Some data was truncated to storage limits." : ""));
     dependencies.filterStories();
     if (model.thread) dependencies.renderThread(model.thread);
   }

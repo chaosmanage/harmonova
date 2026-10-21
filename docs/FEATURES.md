@@ -16,6 +16,8 @@ Choose a feed from the title menu: Top, New, Best, Ask HN, Show HN, Jobs, and ad
 
 Each story card can show its title, points, domain, age, reply count, local domain marker, and an optional preview image. Card tints help stories stand apart without turning the entire page into a grid of boxes. Story settings let you change density, preview sizing, points display, dimming for read stories, keyword/domain filters, and whether a card click opens the article or its comments.
 
+The optional **Scrolled-past stories** setting offers five modes: **Off (default)**, **Track only**, **Grey out**, **Hide on next load (recommended)**, and **Hide immediately**. A story is recorded only after a user scrolls it above the feed viewport. Grey out preserves cards while dimming them; Hide on next load immediately dims but retains cards for scrolling back until refresh/reopen/switch; Hide immediately removes crossed cards while attempting to preserve visible scroll position. Excluded candidates are replaced by eligible stories to fill the 20-story initial batch or 32-story Load more batch when the source contains enough matches. Scrolled history is local to the extension and shared across feed lists by HN item ID, not title or position.
+
 Right-click or long-press a read story card and choose **Mark as unread** to undo the dimming and remove that story from saved read history.
 
 Click the comment count to open the discussion in the right pane. Article links open in a normal browser tab; HarmoNova doesn't trap external links in its own reader.

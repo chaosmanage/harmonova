@@ -12,6 +12,7 @@
     dependencies.app.dataset.comments = String(model.settings.showComments);
     dependencies.app.dataset.index = String(model.settings.showIndex);
     dependencies.app.dataset.dimread = String(model.settings.dimRead);
+    dependencies.app.dataset.scrolledmode = model.settings.scrolledStoryBehavior;
     dependencies.app.dataset.commentStyle = model.settings.commentStyle;
     dependencies.app.dataset.depth = model.settings.depthMode;
     dependencies.app.dataset.roundedRails = String(model.settings.roundedRails);

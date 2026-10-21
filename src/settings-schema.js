@@ -36,6 +36,7 @@
     hotnessColors: false,
     hideJobs: false,
     hideRead: false,
+    scrolledStoryBehavior: "off",
     hiddenDomains: "",
     hiddenKeywords: "",
     feedOrder: [],
@@ -51,7 +52,7 @@
   const blockedKeys=new Set(['__proto__','prototype','constructor']);
   const username=v=>typeof v==='string' && /^[A-Za-z0-9_-]{1,32}$/.test(v) && !blockedKeys.has(v);
   const ranges={storyTextSize:[14.5,20.5],commentTextSize:[12,18],commentZoom:[65,150],contentScale:[65,150]};
-  const enums={previewImages:['small','medium','off'],commentStyle:['outlined','raised','standard','flat'],depthMode:['theme_default','material_you','colors','author','monochrome','none'],commentSort:['Default','Newest first','Oldest first','Reply count'],faviconProvider:['google','duckduckgo','direct'],uiTheme:['amoled','charcoal','navy'],uiFont:['rounded','system','serif']};
+  const enums={scrolledStoryBehavior:['off','track','dim','future','immediate'],previewImages:['small','medium','off'],commentStyle:['outlined','raised','standard','flat'],depthMode:['theme_default','material_you','colors','author','monochrome','none'],commentSort:['Default','Newest first','Oldest first','Reply count'],faviconProvider:['google','duckduckgo','direct'],uiTheme:['amoled','charcoal','navy'],uiFont:['rounded','system','serif']};
   const feeds=['top','new','best','ask','show','jobs','pool','active','bestcomments','launches','whoishiring','noobstories','classic','front'];
   function valid(key,value) {
     if(!Object.hasOwn(defaults,key)||blockedKeys.has(key))return false;

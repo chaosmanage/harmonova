@@ -21,7 +21,7 @@ const readerStore = HarmoNovaReaderStore.create({ localGet: workerStorage.localG
     const tabs = await chrome.tabs.query({ url: "https://news.ycombinator.com/*" });
     await Promise.allSettled(tabs.filter(tab => !tab.incognito && Number.isSafeInteger(tab.id))
       .map(tab => chrome.tabs.sendMessage(tab.id, { type: "HARMONOVA_READER_SNAPSHOT",
-        revision: record.revision, readStoryIds: record.readIds, bookmarks: record.bookmarks,
+        revision: record.revision, readStoryIds: record.readIds, skippedStoryIds: record.skippedIds, bookmarks: record.bookmarks,
         userTags: record.tags, blockedUsers: record.blockedUsers, seenTimes: record.seenTimes })));
   },
 });

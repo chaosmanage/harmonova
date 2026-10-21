@@ -51,12 +51,15 @@
     confirmedDeletes: new Map(), // story id -> Set of locally confirmed deletions
     previewById: new Map(),
     readIds: new Set(),
+    skippedIds: new Set(),
     bookmarks: new Set(),
     settings: { ...DEFAULT_SETTINGS },
     updatedAt: new Date(),
     feedGeneration: 0,
     feedIds: [],
     feedCursor: 0,
+    nextPagePath: null,
+    fetchedListPaths: new Set(),
     loadingMore: false,
     hasMoreStories: true,
     summaries: new Map(),
@@ -152,7 +155,7 @@
     get localStorage(){return localStorage;},
     get privateReader(){return privateReader;},
     get showToast(){return showToast;},
-  },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","recoveryNotice","seenTimes","settings","userTags"]));
+  },stateFacet(["blockedUsers","bookmarks","readIds","skippedIds","readerRevision","recoveryNotice","seenTimes","settings","userTags"]));
   function pageStorageSet(...args){return stateUI.pageStorageSet(...args);}
   function loadEnabledPreference(...args){return stateUI.loadEnabledPreference(...args);}
   function isOriginalTab(...args){return stateUI.isOriginalTab(...args);}
@@ -164,6 +167,8 @@
   function persistSeenTimes(...args){return stateUI.persistSeenTimes(...args);}
   function markRead(...args){return stateUI.markRead(...args);}
   function markUnread(...args){return stateUI.markUnread(...args);}
+  function markSkippedBatch(...args){return stateUI.markSkippedBatch(...args);}
+  function unskipStory(...args){return stateUI.unskipStory(...args);}
   function toggleBookmark(...args){return stateUI.toggleBookmark(...args);}
 
   const previewsUI=HarmoNovaContentPreviews.create({
@@ -346,7 +351,7 @@ function openFeedMenu(anchor) {
     get storyList(){return storyList;},
     get svg(){return domUI.svg;},
     get threadPane(){return threadPane;}
-  },stateFacet(["feed","search","selectedId","settings","stories"]));
+  },stateFacet(["feed","readIds","skippedIds","search","selectedId","settings","stories"]));
   function toggleSearch(...args){return searchUI.toggleSearch(...args);}
   function closeSearch(...args){return searchUI.closeSearch(...args);}
   function abortSearch(...args){return searchUI.abortSearch(...args);}
@@ -385,8 +390,10 @@ function openFeedMenu(anchor) {
     get hideDomain(){return hideDomain;},
     get hideFromFeed(){return hideFromFeed;},
     get isJobStory(){return isJobStory;},
+    get isEligibleStory(){return searchUI.isEligibleStory;},
     get markRead(){return markRead;},
     get markUnread(){return markUnread;},
+    get unskipStory(){return unskipStory;},
     get openArchive(){return linksUI.openArchive;},
     get openPopup(){return openPopup;},
     get previewsUI(){return previewsUI;},
@@ -403,8 +410,9 @@ function openFeedMenu(anchor) {
     get toggleBookmark(){return toggleBookmark;},
     get updateAccountChip(){return updateAccountChip;},
     get updateFeedVoteBadges(){return updateFeedVoteBadges;},
-    get updatedLabel(){return updatedLabel;}
-  },stateFacet(["bookmarks","feed","feedCursor","feedGeneration","feedIds","feedVotes","hasMoreStories","listView","loadingMore","previewById","readIds","search","selectedId","selectedStory","settings","stories","updatedAt"]));
+    get updatedLabel(){return updatedLabel;},
+    get resetFeedScrollTracking(){return resetFeedScrollTracking;}
+  },stateFacet(["bookmarks","feed","feedCursor","feedGeneration","feedIds","nextPagePath","fetchedListPaths","feedVotes","hasMoreStories","listView","loadingMore","previewById","readIds","skippedIds","search","selectedId","selectedStory","settings","stories","updatedAt"]));
   function createStoryCard(...args){return feedUI.createStoryCard(...args);}
   function applyCardVotedState(...args){return feedUI.applyCardVotedState(...args);}
   function createLoading(...args){return feedUI.createLoading(...args);}
@@ -514,6 +522,7 @@ function openFeedMenu(anchor) {
     get compact(){return linksUI.compact;},
     get el(){return domUI.el;},
     get filterStories(){return filterStories;},
+    get refreshFeed(){return refreshFeed;},
     get flushSettings(){return flushSettings;},
     get accountActions(){return actionsUI.accountActions;},
     get privateReader(){return privateReader;},
@@ -521,7 +530,7 @@ function openFeedMenu(anchor) {
     get saveSettings(){return saveSettings;},
     get showToast(){return showToast;},
     get stateUI(){return stateUI;}
-  },stateFacet(["blockedUsers","bookmarks","readIds","readerRevision","seenTimes","settings","thread","userTags"]));
+  },stateFacet(["blockedUsers","bookmarks","readIds","skippedIds","readerRevision","seenTimes","settings","thread","userTags"]));
   function openSettings(...args){return settingsUI.openSettings(...args);}
   function handleSettingsHash(...args){return settingsUI.handleSettingsHash(...args);}
   try { chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -536,12 +545,16 @@ function openFeedMenu(anchor) {
           !Number.isSafeInteger(message.revision) || message.revision <= state.readerRevision) return;
       state.readerRevision = message.revision;
       state.readIds = new Set(Array.isArray(message.readStoryIds) ? message.readStoryIds : []);
+      state.skippedIds = new Set(Array.isArray(message.skippedStoryIds) ? message.skippedStoryIds : []);
       state.bookmarks = new Set(Array.isArray(message.bookmarks) ? message.bookmarks : []);
       state.userTags = new Map(Object.entries(message.userTags || {}));
       state.blockedUsers = new Set(Array.isArray(message.blockedUsers) ? message.blockedUsers : []);
       state.seenTimes = new Map(Object.entries(message.seenTimes || {}).map(([id,ts]) => [Number(id),ts]));
-      document.querySelectorAll(".story-card").forEach(card =>
-        card.classList.toggle("is-read", state.readIds.has(Number(card.dataset.storyId))));
+      document.querySelectorAll(".story-card").forEach(card => {
+        const id = Number(card.dataset.storyId);
+        card.classList.toggle("is-read", state.readIds.has(id));
+        card.classList.toggle("is-skipped", state.skippedIds.has(id));
+      });
       document.querySelectorAll("[data-bookmark-id]").forEach(button =>
         button.classList.toggle("active", state.bookmarks.has(Number(button.dataset.bookmarkId))));
       return;
@@ -589,6 +602,74 @@ function openFeedMenu(anchor) {
     return true;
   }
 
+  // Scrolled-past history is recorded only for a user's downward feed scroll.
+  // A rendered card is never hidden on a future-mode scroll, so users can
+  // return to it. The snapshot is rebuilt only on a new feed load.
+  let lastFeedScrollTop = 0;
+  let userScrollUntil = 0;
+  let skipFlushTimer = 0;
+  const pendingSkipIds = new Set();
+  function flushSkipped() {
+    clearTimeout(skipFlushTimer);
+    skipFlushTimer = 0;
+    if (!pendingSkipIds.size) return;
+    const ids = [...pendingSkipIds].slice(0, 100);
+    ids.forEach(id => pendingSkipIds.delete(id));
+    markSkippedBatch(ids).then(result => {
+      if (result?.ok === false) {
+        ids.forEach(id => pendingSkipIds.add(id));
+        showToast("Could not save skipped-story history");
+        if (!skipFlushTimer) skipFlushTimer = setTimeout(flushSkipped, 1500);
+      }
+    }).catch(() => {
+      ids.forEach(id => pendingSkipIds.add(id));
+      if (!skipFlushTimer) skipFlushTimer = setTimeout(flushSkipped, 1500);
+    });
+    if (pendingSkipIds.size) skipFlushTimer = setTimeout(flushSkipped, 400);
+  }
+  function resetFeedScrollTracking() {
+    lastFeedScrollTop = 0;
+    userScrollUntil = 0;
+  }
+  function trackFeedScroll() {
+    const current = storyList.scrollTop;
+    const prior = lastFeedScrollTop;
+    lastFeedScrollTop = current;
+    const mode = state.settings.scrolledStoryBehavior;
+    if (mode === "off" || state.search.active || state.listView ||
+        current <= prior + 1 || Date.now() > userScrollUntil) return;
+    const root = storyList.getBoundingClientRect();
+    const passed = [];
+    for (const card of storyList.querySelectorAll(".story-card:not([hidden])")) {
+      const id = Number(card.dataset.storyId);
+      if (!Number.isSafeInteger(id) || id <= 0 || state.skippedIds.has(id)) continue;
+      const bounds = card.getBoundingClientRect();
+      // The card crossed the top edge during a user-driven downward scroll.
+      // Its lower edge must have been below the previous viewport top.
+      if (bounds.bottom > root.top || bounds.bottom <= root.top - (current - prior)) continue;
+      passed.push({ card, id });
+    }
+    if (!passed.length) return;
+    for (const { card, id } of passed) {
+      state.skippedIds.add(id);
+      card.classList.add("is-skipped");
+      pendingSkipIds.add(id);
+    }
+    if (!skipFlushTimer) skipFlushTimer = setTimeout(flushSkipped, 400);
+    if (pendingSkipIds.size >= 50) flushSkipped();
+    if (mode === "immediate") {
+      const before = storyList.scrollHeight;
+      storyList.style.overflowAnchor = "none";
+      for (const { card } of passed) card.remove();
+      const removed = before - storyList.scrollHeight;
+      storyList.scrollTop = Math.max(0, current - removed);
+      lastFeedScrollTop = storyList.scrollTop;
+      const removedIds = new Set(passed.map(entry => entry.id));
+      state.stories = state.stories.filter(story => !removedIds.has(story.id));
+      requestAnimationFrame(() => { if (storyList) storyList.style.overflowAnchor = ""; });
+    }
+  }
+
   function mount() {
     if (HarmoNovaContentRuntime.invalidated || !installRoundedFont()) return;
     document.body.className = "harmonova-body";
@@ -599,7 +680,17 @@ function openFeedMenu(anchor) {
     storyList = domUI.el("div", "story-list");
     if(state.recoveryNotice)setTimeout(()=>showToast("Some old reader data could not be recovered. Your source data is kept."),0);
     previewsUI.previewCleanupObserver.observe(storyList,{childList:true,subtree:true});
+    storyList.addEventListener("wheel", () => { userScrollUntil = Date.now() + 1200; }, { passive: true });
+    storyList.addEventListener("touchmove", () => { userScrollUntil = Date.now() + 1200; }, { passive: true });
+    storyList.addEventListener("pointerdown", () => { userScrollUntil = Date.now() + 1200; }, { passive: true });
+    document.addEventListener("keydown", event => {
+      if (["ArrowDown", "PageDown", "End", " "].includes(event.key) &&
+          !event.target.closest?.("input,textarea,select,[contenteditable]"))
+        userScrollUntil = Date.now() + 1200;
+    });
+    window.addEventListener("pagehide", flushSkipped);
     storyList.addEventListener("scroll", () => {
+      trackFeedScroll();
       const remaining = storyList.scrollHeight - storyList.scrollTop - storyList.clientHeight;
       if (state.search.active) {
         if (remaining < 500 && !state.search.controller && state.search.page + 1 < state.search.nbPages)
