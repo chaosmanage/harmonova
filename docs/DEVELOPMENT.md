@@ -6,7 +6,7 @@ Load the repository folder unpacked for development. Runtime entry points, polic
 
 ## Repeatable offline gate
 
-Use Node **22.23.2**, the locked `playwright-core` **1.63.0**, and its Chromium revision **1243 / 153.0.8010.12**. `npm ci` does not install browsers. Provision the matching full Chromium:
+Use Node **22.23.2**, the locked `playwright-core` **1.64.0**, and its Chromium revision **1248 / 156.0.8078.4**. `npm ci` does not install browsers. Provision the matching full Chromium:
 
 ```bash
 npm ci
