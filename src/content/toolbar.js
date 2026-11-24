@@ -6,6 +6,8 @@
   function applySettings() {
     if (!dependencies.app) return;
     dependencies.app.dataset.preview = model.settings.previewImages;
+    for (const key of ["quoteStyle","quoteSpacing","scrollCode","topLevelRails","emphasizeMetadata","showCategories","borderlessPreview"]) dependencies.app.dataset[key] = String(model.settings[key]);
+    dependencies.app.style.setProperty("--tint-intensity",model.settings.tintIntensity+"%");
     dependencies.app.dataset.tint = String(model.settings.tintedCards);
     dependencies.app.dataset.favicons = String(model.settings.showFavicons);
     dependencies.app.dataset.points = String(model.settings.showPoints);
@@ -41,8 +43,12 @@
     dependencies.app.style.setProperty("--story-comment-count-size", (19 * storyScale * contentScale) + "px");
     dependencies.app.style.setProperty("--comment-text-size", ((17 + (commentSetting - 15) * 1.2) * commentScale) + "px");
     dependencies.app.style.setProperty("--comment-meta-size", (14.5 * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-row-gap", (9 * commentScale) + "px");
-    dependencies.app.style.setProperty("--comment-indent", (12 * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-row-gap", (model.settings.commentSpacing * commentScale) + "px");
+    dependencies.app.style.setProperty("--comment-indent", (model.settings.commentIndent * commentScale) + "px");
+    dependencies.app.style.setProperty("--discussion-width", model.settings.discussionWidth + "px");
+    dependencies.app.style.setProperty("--rail-width", model.settings.railWidth + "px");
+    if (model.settings.feedPaneWidth >= 25) dependencies.app.style.setProperty("--saved-feed-width", model.settings.feedPaneWidth + "%");
+    else dependencies.app.style.removeProperty("--saved-feed-width");
     dependencies.app.style.setProperty("--comment-paragraph-gap", (12 * commentScale) + "px");
     dependencies.app.style.setProperty("--story-pad-y", Math.max(5, 15 + (contentScale - 1) * 32) + "px");
     dependencies.app.style.setProperty("--story-pad-x", (13 * contentScale) + "px");

@@ -111,3 +111,24 @@ test("P03 one active paid request per tab; duplicate cannot restart it", async (
   first.callbacks.message({ type: "cancel", requestId: "paid-one" });
   first.callbacks.disconnect();
 });
+
+test("Ask AI uses the configured model and a bounded question with public source", async () => {
+  const requests=[];
+  const {context,listeners}=loadBackground({fetchImpl:async (_url,init)=>{
+    requests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({choices:[{message:{content:"A synthetic answer"}}]}),{headers:{"content-type":"application/json"}});
+  }});
+  await context.saveAiKey("dummy-ask-key","session");
+  await ask(listeners,{type:"HARMONOVA_AI_POLICY_SAVE",policy:consent({model:"configured/model"})},options);
+  const base={type:"summarize",storyId:12,requestId:"ask-12",source:"discussion",discussionText:"Public Hacker News discussion about keyboard navigation and preserving reading position."};
+  const validate=context.HarmoNovaMessageBoundary.validateAiMessage;
+  assert.equal(validate({...base,question:"What are the trade-offs?",previousAnswer:"A previous synthetic answer."}).ok,true);
+  for(const patch of [{question:" "},{question:"x".repeat(1501)},{previousAnswer:"unpaired"},{question:"yes",previousAnswer:"x".repeat(4001)}]){
+    assert.equal(validate({...base,...patch}).ok,false);
+  }
+  await context.summarizeWithOpenRouter({postMessage(){}},{...base,question:"What are the trade-offs?",previousAnswer:"A previous synthetic answer."},new AbortController());
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].model,"configured/model");
+  assert.match(requests[0].messages[0].content,/ONLY the supplied public/);
+  assert.deepEqual(JSON.parse(requests[0].messages[1].content),{source:base.discussionText,previousAnswer:"A previous synthetic answer.",question:"What are the trade-offs?"});
+});

@@ -135,7 +135,7 @@
     return { ok: true, tabId: port.sender.tab.id, kind };
   }
   // P02 bounds the legacy AI protocol; P03 removes model/prompt/URL authority.
-  const AI_FIELDS = ["type", "requestId", "storyId", "source", "discussionText", "url", "model", "systemPrompt", "streamResponses"];
+  const AI_FIELDS = ["type", "requestId", "storyId", "source", "discussionText", "question", "previousAnswer", "url", "model", "systemPrompt", "streamResponses"];
   function validateAiMessage(message) {
     if (!message || typeof message !== "object" || Array.isArray(message)) return fail("INVALID_REQUEST");
     if (message.type === "cancel" && noFields(message, ["type", "requestId"]) &&
@@ -150,7 +150,9 @@
       (message.systemPrompt !== undefined && !text(message.systemPrompt, 8192)) ||
       (message.streamResponses !== undefined && typeof message.streamResponses !== "boolean") ||
       !["article", "discussion"].includes(message.source) ||
-      (message.discussionText !== undefined && !text(message.discussionText, 16000)))
+      (message.discussionText !== undefined && !text(message.discussionText, 16000)) ||
+      (message.question !== undefined && (!text(message.question, 1500) || !message.question.trim())) ||
+      (message.previousAnswer !== undefined && (!message.question || !text(message.previousAnswer, 4000))))
       return fail("INVALID_AI_REQUEST");
     return { ok: true };
   }

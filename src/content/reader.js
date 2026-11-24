@@ -3,6 +3,38 @@
 (() => {
   'use strict';
   function create(dependencies,model) {
+  // Bounded, tab-local reading state; no page-origin storage or private data export.
+  const readingPositions = new Map();
+  let renderedId = null;
+  let newOnly = false;
+  let searchMatchIndex = -1;
+  function rememberReadingPosition() {
+    if (!renderedId) return;
+    const pane = dependencies.threadPane;
+    const top = pane.getBoundingClientRect().top;
+    const cards = [...pane.querySelectorAll(".comment-card")];
+    const anchor = cards.find(card => card.getClientRects().length && card.getBoundingClientRect().bottom > top);
+    readingPositions.delete(renderedId);
+    readingPositions.set(renderedId,{
+      scroll: pane.scrollTop,
+      anchor: anchor?.parentElement.dataset.commentId,
+      offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
+      collapsed: [...pane.querySelectorAll(".comment-row.collapsed")].map(row=>row.dataset.commentId)
+    });
+    if (readingPositions.size > 30) readingPositions.delete(readingPositions.keys().next().value);
+    renderedId = null;
+  }
+  function restoreReadingPosition(id) {
+    renderedId = id;
+    const saved = readingPositions.get(id);
+    if (!saved) return;
+    const pane = dependencies.threadPane;
+    const collapsed = new Set(saved.collapsed);
+    for (const row of pane.querySelectorAll(".comment-row")) row.classList.toggle("collapsed",collapsed.has(row.dataset.commentId));
+    pane.scrollTop = saved.scroll;
+    const card = [...pane.querySelectorAll(".comment-card")].find(card=>card.parentElement.dataset.commentId===saved.anchor);
+    if (card?.getClientRects().length) pane.scrollTop += card.getBoundingClientRect().top - pane.getBoundingClientRect().top - saved.offset;
+  }
   function threadAction(iconName, label, action, options = {}) {
     const b = dependencies.button(iconName, label, "thread-action");
     if (options.id) b.dataset.bookmarkId = options.id;
@@ -38,6 +70,7 @@
     document.querySelector('[data-story-id="' + id + '"]')?.classList.add("selected");
     if (push) history.pushState({ harmonovaItem: id }, "", "/item?id=" + id);
     document.body.classList.add("thread-active");
+    rememberReadingPosition();
     if (scrollTop) dependencies.threadPane.scrollTop = 0;
     await loadThread(id);
   }
@@ -53,9 +86,11 @@
     // when the stale selectedId fails the guard below.
     model.selectedId = id;
     model.threadOpOnly = false;
+    newOnly = false;
     model.itemState = null;
     model.pollOptions = null;
     model.pollOptionsRenderedKey = "";
+    rememberReadingPosition();
     dependencies.threadPane.replaceChildren(dependencies.createLoading("Loading discussion…"));
     dependencies.scheduleItemState(id);
     dependencies.loadPollOptions(id);
@@ -76,6 +111,7 @@
   async function renderThread(item) {
     const scope=dependencies.threadScope;
     if(!scope.alive || model.selectedId!==item.id)return;
+    rememberReadingPosition();
     dependencies.threadPane.replaceChildren();
     document.title = (item.title || "Discussion") + " — HarmoNova";
     const header = dependencies.el("header", "thread-header");
@@ -199,12 +235,39 @@
         ...(session && storyState?.hideAvailable
           ? [{ label: storyState.hidden ? "Unhide" : "Hide", icon: "eyeOff", action: dependencies.handleStoryHide }]
           : []),
+        { label: "Ask AI", icon: "sparkle", action: () => {
+          const existing=headerBody.querySelector(".ask-ai-panel");
+          if(existing){existing.querySelector("input")?.focus();return;}
+          const panel=dependencies.el("form","ask-ai-panel");
+          const title=dependencies.el("strong","","Ask AI");
+          const notice=dependencies.el("small","","Your question, selected public source and previous answer are sent to OpenRouter. Requests may use API credits. Do not enter private information.");
+          const source=dependencies.el("select","ask-ai-source");
+          source.setAttribute("aria-label","AI source");
+          for(const [value,label] of [["discussion","Discussion"],["article","Article"]]){
+            if(value==="article"&&!item.url)continue;
+            const option=dependencies.el("option","",label);option.value=value;source.append(option);
+          }
+          const input=dependencies.el("input","ask-ai-question");input.placeholder="Ask a question or follow up…";input.maxLength=375;input.required=true;input.setAttribute("aria-label","Question for AI");
+          const send=dependencies.el("button","comments-nav-button","Ask");send.type="submit";
+          const close=dependencies.el("button","comments-nav-button","Close");close.type="button";close.addEventListener("click",e=>{if(e.isTrusted)panel.remove();});
+          const controls=dependencies.el("div","ask-ai-controls");controls.append(source,input,send,close);
+          panel.append(title,notice,controls);
+          panel.addEventListener("submit",e=>{
+            e.preventDefault();if(!e.isTrusted||!input.value.trim())return;
+            dependencies.startStorySummary(item,{source:source.value,trusted:true,question:input.value});input.value="";
+          });
+          headerBody.append(panel);input.focus();
+        }},
         { label: "Search in comments", icon: "search", action: () => {
           const heading = dependencies.threadPane.querySelector(".comments-heading");
           const input = heading?.querySelector(".comment-search");
           heading?.classList.add("searching");
           input?.focus();
         } },
+        { label: newOnly ? "Show all comments" : "Show new comments only", action: () => {
+          newOnly = !newOnly;
+          filterThreadComments(dependencies.threadPane.querySelector(".comment-search")?.value, dependencies.threadPane.querySelector(".comment-search-count"), totalComments);
+        }},
         { label: "Sort comments · " + model.settings.commentSort, action: () => openSortMenu(more) },
         { label: model.threadOpOnly ? "Show all comments" : "Show only OP comments", icon: "user", action: () => {
           model.threadOpOnly = !model.threadOpOnly;
@@ -267,7 +330,31 @@
     searchBox.placeholder = "Filter comments";
     searchBox.autocomplete = "off";
     const matchLabel = dependencies.el("span", "comment-search-count", "");
-    searchBox.addEventListener("input", () => filterThreadComments(searchBox.value, matchLabel, total));
+    const searchTools=dependencies.el("div","comment-search-tools");
+    const stepMatch=(delta)=>{
+      const matches=[...dependencies.threadPane.querySelectorAll(".comment-row.search-match")].filter(row=>!row.hidden&&!row.classList.contains("is-delayed")&&!row.classList.contains("is-blocked"));
+      if(!matches.length)return;
+      searchMatchIndex=searchMatchIndex<0 ? (delta>0?0:matches.length-1) : (searchMatchIndex+delta+matches.length)%matches.length;
+      const target=matches[searchMatchIndex];
+      for(let row=target;row;row=row.parentElement.closest(".comment-row"))row.classList.remove("collapsed");
+      dependencies.threadPane.querySelectorAll(".search-current").forEach(row=>row.classList.remove("search-current"));
+      target.classList.add("search-current");target.querySelector(":scope > .comment-card")?.scrollIntoView({block:"center"});
+      matchLabel.textContent=(searchMatchIndex+1)+" / "+matches.length+" matches";
+    };
+    const prevMatch=dependencies.el("button","comments-nav-button","‹ Match");
+    const nextMatch=dependencies.el("button","comments-nav-button","Match ›");
+    const clearSearch=dependencies.el("button","comments-nav-button","Close");
+    for(const button of [prevMatch,nextMatch,clearSearch])button.type="button";
+    prevMatch.addEventListener("click",e=>{if(e.isTrusted)stepMatch(-1);});
+    nextMatch.addEventListener("click",e=>{if(e.isTrusted)stepMatch(1);});
+    const closeSearch=()=>{searchBox.value="";filterThreadComments("",matchLabel,total);heading.classList.remove("searching");};
+    clearSearch.addEventListener("click",e=>{if(e.isTrusted)closeSearch();});
+    searchBox.addEventListener("keydown",e=>{
+      if(e.key==="Enter"){e.preventDefault();stepMatch(e.shiftKey?-1:1);}
+      if(e.key==="Escape"){e.preventDefault();e.stopPropagation();closeSearch();}
+    });
+    searchBox.addEventListener("input", () => {searchMatchIndex=-1;filterThreadComments(searchBox.value, matchLabel, total);});
+    searchTools.append(searchBox,prevMatch,nextMatch,matchLabel,clearSearch);
     const nav = dependencies.el("div", "comments-nav");
     const upButton = dependencies.el("button", "comments-nav-button", "↑ Top");
     upButton.type = "button";
@@ -304,14 +391,15 @@
       jumpTopLevel(1);
     });
     nav.append(upButton, prevButton, nextButton);
-    heading.append(nav, searchBox, matchLabel);
+    heading.append(nav, searchTools);
     dependencies.threadPane.appendChild(heading);
 
     const comments = dependencies.el("section", "comments");
     for (const comment of dependencies.commentsUI.sortedComments(item.children || [])) comments.appendChild(dependencies.renderComment(comment, 0));
     if (!comments.childElementCount) comments.appendChild(dependencies.el("div", "empty-comments", "No comments yet."));
     dependencies.threadPane.appendChild(comments);
-    if (model.threadOpOnly) filterThreadComments(searchBox.value, matchLabel, total);
+    restoreReadingPosition(item.id);
+    if (model.threadOpOnly || newOnly) filterThreadComments(searchBox.value, matchLabel, total);
     // Once the discussion has been read, its comments are never "new" again.
     if (model.settings.markNewComments && Number.isInteger(item.id)) {
       setTimeout(() => {
@@ -373,7 +461,9 @@
   function filterThreadComments(query, matchLabel, total) {
     const q = String(query || "").trim().toLowerCase();
     const rows = [...dependencies.threadPane.querySelectorAll(".comment-row")];
-    if (!q && !model.threadOpOnly) {
+    searchMatchIndex=-1;
+    rows.forEach(row=>row.classList.remove("search-match","search-current"));
+    if (!q && !model.threadOpOnly && !newOnly) {
       rows.forEach((row) => { row.hidden = false; });
       if (matchLabel) matchLabel.textContent = "";
       return;
@@ -382,16 +472,18 @@
     for (const row of rows) {
       const card = row.querySelector(":scope > .comment-card");
       const text = ((card?.textContent || "") + " " + (row.dataset.author || "")).toLowerCase();
-      ownMatch.set(row, text.includes(q) && (!model.threadOpOnly || row.dataset.author === model.threadAuthor));
+      const match=text.includes(q) && (!model.threadOpOnly || row.dataset.author === model.threadAuthor) && (!newOnly || row.classList.contains("is-new")) && !row.classList.contains("is-delayed") && !row.classList.contains("is-blocked");
+      ownMatch.set(row, match);
+      row.classList.toggle("search-match",Boolean(q)&&match);
     }
     // Children appear after their parent in DOM order, so reverse iteration
     // settles every subtree before its ancestor is decided.
     let kept = 0;
     for (const row of [...rows].reverse()) {
-      const childKept = [...row.querySelectorAll(":scope > .comment-children .comment-row")].some((child) => !child.hidden);
+      const childKept = [...(row.querySelector(":scope > .comment-children")?.children || [])].some(child=>!child.hidden);
       const keep = ownMatch.get(row) || childKept;
       row.hidden = !keep;
-      if (keep) kept++;
+      if (keep) { kept++; if (childKept && (q || newOnly)) row.classList.remove("collapsed"); }
     }
     if (matchLabel) matchLabel.textContent = kept + " of " + total + (model.threadOpOnly ? " in OP threads" : " match");
   }

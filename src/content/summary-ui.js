@@ -79,7 +79,7 @@
     const status = surface.querySelector(".story-summary-status");
     const body = surface.querySelector(".story-summary-body");
     const heading = surface.querySelector(".story-summary-heading strong");
-    if (heading) heading.textContent = current.source === "discussion" ? "Discussion summary" : "Summary";
+    if (heading) heading.textContent = current.question ? "Ask AI · "+(current.source === "discussion" ? "Discussion" : "Article") : current.source === "discussion" ? "Discussion summary" : "Summary";
     if (current.status === "extracting") status.textContent = current.source === "discussion" ? "Preparing discussion…" : "Reading provider excerpt…";
     else if (current.status === "generating") status.textContent = current.detail || "Summarizing…";
     else if (current.status === "error") status.textContent = "Summary failed";
@@ -106,6 +106,7 @@
       }
     } else {
       renderSummaryMarkdown(body, current.text);
+      if(current.question)body.prepend(dependencies.el("p","ai-question-label",current.question));
     }
     surface.hidden = current.status === "idle" && !current.text;
     const running = current.status === "extracting" || current.status === "generating";
@@ -176,6 +177,9 @@
       model.aiSelectionIntent = null; // One-use intent; rendering never reissues billing.
     } else if (!options.trusted) return;
     const source = options.source === "discussion" ? "discussion" : "article";
+    const question = !automatic && typeof options.question === "string" ? options.question.trim().slice(0,375) : "";
+    const prior = summaryStateFor(Number(item?.id));
+    const previousAnswer = question && prior.status === "success" && prior.source===source ? prior.text.slice(0,1000) : "";
     if (model.activeSummary?.storyId === Number(item?.id)) {
       if (automatic) return;
       if (model.activeSummary.source === source) { stopActiveSummary(); return; }
@@ -203,7 +207,7 @@
     }
     stopActiveSummary();
     const storyId = Number(item.id);
-    model.summaries.set(storyId, { status: "extracting", source, text: "", error: "" });
+    model.summaries.set(storyId, { status: "extracting", source, question, text: "", error: "" });
     updateSummarySurface(storyId);
     let port;
     try { port = chrome.runtime.connect({ name: "harmonova-ai" }); }
@@ -222,9 +226,9 @@
         const current = summaryStateFor(storyId);
         model.summaries.set(storyId, { ...current, status: message.status, detail: String(message.detail || ""), error: "" });
       } else if (message.type === "progress") {
-        model.summaries.set(storyId, { status: "generating", source, text: String(message.text || ""), error: "" });
+        model.summaries.set(storyId, { status: "generating", source, question, text: String(message.text || ""), error: "" });
       } else if (message.type === "success") {
-        model.summaries.set(storyId, { status: "success", source, text: String(message.text || ""), error: "" });
+        model.summaries.set(storyId, { status: "success", source, question, text: String(message.text || ""), error: "" });
         if (model.activeSummary?.port === port) model.activeSummary = null;
         try { port.disconnect(); } catch {}
       } else if (message.type === "error") {
@@ -246,6 +250,7 @@
       storyId,
       source,
       ...(source === "discussion" ? { discussionText } : {}),
+      ...(question ? {question,previousAnswer} : {}),
     }); } catch (error) {
       HarmoNovaContentRuntime.handleError(error);
       model.activeSummary = null;

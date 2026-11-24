@@ -15,7 +15,7 @@
       await dependencies.saveSettings(key);
       dependencies.applySettings();
       if (key === "tintedCards") document.querySelectorAll(".story-card").forEach((card) => card.classList.toggle("no-tint", !input.checked));
-      if (model.thread && ["markNewComments", "hideDelayed", "showAvatars", "richPreviews"].includes(key)) dependencies.renderThread(model.thread);
+      if (model.thread && ["markNewComments", "hideDelayed", "showAvatars", "richPreviews", "topLevelRails", "collectReferences", "hideDead", "hideFlagged"].includes(key)) dependencies.renderThread(model.thread);
     });
     row.append(text, input);
     return row;
@@ -97,8 +97,12 @@
     const storySection = dependencies.el("div", "settings-section");
     storySection.append(
       dependencies.el("h3", "", "Stories"),
-      settingSelect("Preview images", "previewImages", [["medium", "Medium"], ["small", "Small"], ["off", "Off"]]),
+      settingSelect("Preview images", "previewImages", [["large", "Large"], ["medium", "Medium"], ["small", "Small"], ["off", "Off"]]),
       settingToggle("Tint cards from images", "tintedCards", "Use each story preview to color its card"),
+      settingToggle("Borderless large previews", "borderlessPreview", "Extend large images to card edges"),
+      settingSlider("Card tint intensity", "tintIntensity", 0, 100, 5, "%"),
+      settingToggle("Topic labels", "showCategories", "Classify titles locally; no AI or network requests"),
+      settingSelect("Topic filter", "categoryFilter", [["all","All topics"],["ai","AI / ML"],["programming","Programming"],["science","Science"],["security","Security"],["business","Business"],["hardware","Hardware"],["web","Web"],["community","Community"],["other","Other"]]),
       settingToggle("Favicons", "showFavicons", "Show the source icon beside metadata"),
       settingToggle("Points", "showPoints", "Show story score"),
       settingToggle("Comment count", "showComments", "Show the large comments control"),
@@ -121,7 +125,19 @@
       dependencies.el("h3", "", "Comments"),
       settingSelect("Comment style", "commentStyle", [["outlined", "Outlined"], ["raised", "Raised"], ["standard", "Standard"], ["flat", "Flat"]]),
       settingSelect("Comment sorting", "commentSort", [["Default", "Default"], ["Newest first", "Newest first"], ["Oldest first", "Oldest first"], ["Reply count", "Reply count"]]),
-      settingSelect("Thread colors", "depthMode", [["theme_default", "Theme default"], ["material_you", "Material You"], ["colors", "Colorful"], ["author", "Author"], ["monochrome", "Monochrome"], ["none", "None"]]),
+      settingSelect("Thread colors", "depthMode", [["theme_default", "Harmonic Classic Dark"], ["material_you", "Harmonic theme colors"], ["colors", "Colorful (rainbow)"], ["author", "Author"], ["monochrome", "Monochrome"], ["none", "None"]]),
+      settingSlider("Indicator width", "railWidth", 1.5, 5, 0.5, " px"),
+      settingSlider("Comment spacing", "commentSpacing", 4, 20, 1, " px"),
+      settingSlider("Discussion maximum width", "discussionWidth", 720, 1800, 60, " px"),
+      settingSlider("Reply indentation", "commentIndent", 8, 24, 1, " px"),
+      settingToggle("Top-level indicators", "topLevelRails", "Show a rail on root comments"),
+      settingSelect("Quote highlighting", "quoteStyle", [["both","Rail and background"],["rail","Rail only"],["fill","Background only"],["none","None"]]),
+      settingSelect("Quote spacing", "quoteSpacing", [["compact","Compact"],["comfortable","Comfortable"],["roomy","Roomy"]]),
+      settingToggle("Scroll wide code blocks", "scrollCode", "Preserve code formatting with horizontal scrolling"),
+      settingToggle("Collect reference links", "collectReferences", "List unique comment links below the text"),
+      settingToggle("Emphasize metadata", "emphasizeMetadata", "Make comment author and age more prominent"),
+      settingToggle("Hide dead comments", "hideDead", "Hide comments explicitly marked dead"),
+      settingToggle("Hide flagged comments", "hideFlagged", "Hide comments explicitly marked flagged"),
       settingToggle("Rounded depth indicators", "roundedRails", "Round the thread indicator ends"),
       settingToggle("Continuous depth indicators", "continuousRails", "Continue ancestor rails through replies"),
       settingToggle("Mark new comments", "markNewComments", "Highlight comments posted since your last visit to a story"),

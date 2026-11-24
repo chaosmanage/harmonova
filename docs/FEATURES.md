@@ -24,9 +24,19 @@ Click the comment count to open the discussion in the right pane. Article links 
 
 The header holds the story title, link, metadata, author, and the main actions: **Add reply**, **Upvote**, **Article summary**, **Discussion summary**, and **More**. Less-frequent actions, including bookmarks and favorites, belong in the More menu.
 
-Underneath, comments form a tree. Colored depth rails make it easier to see who is answering whom. Click a branch to collapse it; expand it when you want the context back. There are also controls to collapse/expand all comments, search within the current thread, move between top-level comments, and change the comment sort order.
+Underneath, comments form a tree. Colored depth rails make it easier to see who is answering whom. The default hierarchy palette follows Harmonic Classic Dark independently of the app theme; the original rainbow remains available. Comment settings offer independent spacing, indentation and rail width controls. Click a branch to collapse it; expand it when you want the context back. There are also controls to collapse/expand all comments, search within the current thread, move between top-level comments, and change the comment sort order.
 
 Other useful touches include an **OP** marker beside comments from the story author, optional author avatars, highlighting of newly arrived comments, and collapsible `[delayed]` placeholders.
+
+### Reading tools
+
+The Comments settings include quote highlighting and spacing, horizontal code scrolling, collected references, metadata emphasis, root indicators and maximum discussion width. Search in comments (under the discussion More menu) offers previous/next match and highlights matching cards; Enter and Shift+Enter cycle matches. The More menu also offers a new-comments-only view, and each reply can peek at its parent from its own menu. Right-click a comment link and choose Preview link to fetch public metadata using the existing external-preview policy.
+
+Stories settings can show local, heuristic topic labels and filter topics, adjust card tint intensity, or use larger/borderless preview images. These settings do not change application themes.
+
+### Desktop controls
+
+Drag the divider between the panes to resize them; double-click it to reset the width. The focused divider also supports Left/Right arrows and Home. On desktop, use J/K to focus stories, Enter to open a focused story, N/P to focus comments, Enter to collapse/expand a focused comment, H to jump to its parent, and F to toggle focus reading. Escape exits focus mode. The current tab remembers reading position and collapsed branches for up to 30 recently opened discussions. These shortcuts do not run while editing a field or using a dialog.
 
 ## Search beyond the current feed
 
@@ -83,7 +93,7 @@ The **Article** and **Discussion** buttons summarize different sources: bounded 
 
 ![AI settings and OpenRouter configuration in the HarmoNova settings pane](assets/ai-settings.png)
 
-For an Article summary, HarmoNova extracts bounded readable text from the linked public page when the site permits it; provider metadata can supply an excerpt when available. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model and prompt. Saving a key alone does not enable summaries; save fresh consent in Settings → AI Summarization. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate.
+For an Article summary, HarmoNova extracts bounded readable text from the linked public page when the site permits it; provider metadata can supply an excerpt when available. Discussion summarizes public HN comments. The chosen public text is sent to OpenRouter with the saved model and prompt. Saving a key alone does not enable summaries; save fresh consent in Settings → AI Summarization. Automatic summaries need separate consent and a real selection. Private summaries are disabled. Generated summaries can be inaccurate. The discussion More menu also includes Ask AI, which sends an explicitly submitted question, bounded public source and an optional previous answer to the configured OpenRouter model. It uses the same consent and private-tab restrictions as summaries.
 
 ![AI summary presentation in HarmoNova using test-only sample output](assets/ai-summary-demo.png)
 
