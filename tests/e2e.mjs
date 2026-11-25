@@ -25,7 +25,8 @@ try {
   const page = pages[0] || await context.newPage();
   await page.goto("https://news.ycombinator.com/news", { waitUntil: "domcontentloaded" });
   await page.locator(".story-card").first().waitFor({ state: "visible", timeout: 20000 });
-  await page.locator(".thread-title").waitFor({ state: "visible", timeout: 20000 });
+  await page.locator(".thread-placeholder").waitFor({ state: "visible", timeout: 20000 });
+  assert.equal(await page.locator(".story-card.selected, .story-card.is-read").count(), 0, "no story is preselected or marked read on launch");
 
   const extensionWorker = context.serviceWorkers().find((worker) => worker.url().startsWith("chrome-extension://"))
     || await context.waitForEvent("serviceworker", { timeout: 10000 });
@@ -76,16 +77,7 @@ try {
   const loadedCount = await page.locator(".story-card").count();
   assert.ok(loadedCount > 40, "scrolling near the end should load more than 40 stories");
 
-  const right = page.locator(".thread-pane");
-  const rightBefore = await right.evaluate((e) => e.scrollTop);
-  await right.hover();
-  await page.mouse.wheel(0, 900);
-  await page.waitForTimeout(250);
-  const rightAfter = await right.evaluate((e) => e.scrollTop);
-  assert.ok(rightAfter > rightBefore, "thread pane should scroll");
-
   await left.evaluate((e) => { e.scrollTop = 0; });
-  await right.evaluate((e) => { e.scrollTop = 0; });
 
   assert.equal(await page.locator("html").getAttribute("data-font"), "rounded", "Google Sans Flex Rounded is the default");
 
@@ -107,6 +99,15 @@ try {
   await page.waitForURL(new RegExp("item\\?id=" + secondId), { timeout: 10000 });
   await page.locator(".thread-title").waitFor({ state: "visible", timeout: 15000 });
   assert.equal(new URL(page.url()).searchParams.get("id"), secondId, "comment button should select discussion");
+
+  const right = page.locator(".thread-pane");
+  const rightBefore = await right.evaluate((e) => e.scrollTop);
+  await right.hover();
+  await page.mouse.wheel(0, 900);
+  await page.waitForTimeout(250);
+  const rightAfter = await right.evaluate((e) => e.scrollTop);
+  assert.ok(rightAfter > rightBefore, "thread pane should scroll");
+  await right.evaluate((e) => { e.scrollTop = 0; });
 
   // Thread toolbar keeps its primary actions and exposes the two AI sources.
   const threadLabels = await page.locator(".thread-actions button").evaluateAll((buttons) =>
