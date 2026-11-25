@@ -23,9 +23,14 @@ await withExtension(async ({context}) => {
   await page.setViewportSize({width:1440,height:900});
   await page.goto('https://news.ycombinator.com/news');
   await page.locator('.story-card').first().waitFor();
+  assert.equal(await page.locator('.thread-placeholder').isVisible(),true,'placeholder stays visible until a story is chosen');
+  assert.equal(await page.locator('.thread-title, .comment-card').count(),0,'no story comments open automatically on launch');
+  assert.equal(await page.locator('.story-card.selected, .story-card.is-read').count(),0,'no story is preselected or greyed out on launch');
   await page.locator('.story-card').first().focus();
   await page.keyboard.press('Enter');
   await page.locator('.comment-card').first().waitFor();
+  assert.equal(await page.locator('.story-card').first().evaluate(e=>e.classList.contains('selected')&&e.classList.contains('is-read')),true,'chosen story is marked selected and read');
+  assert.equal(await page.locator('.story-card.is-read').count(),1,'only the chosen story is marked read');
   const metrics=()=>page.evaluate(()=>{
     const cards=[...document.querySelectorAll('.comment-card')].filter(c=>c.getClientRects().length);
     return {gaps:cards.slice(1).map((c,i)=>c.getBoundingClientRect().top-cards[i].getBoundingClientRect().bottom),

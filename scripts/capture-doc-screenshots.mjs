@@ -21,6 +21,7 @@ try {
   const page = context.pages()[0] || await context.newPage();
   await page.goto('https://news.ycombinator.com/news', { waitUntil: 'domcontentloaded', timeout: 24000 });
   await page.locator('.story-card').first().waitFor({ state: 'visible', timeout: 20000 });
+  await page.locator('.story-comment-button').first().click();
   await page.locator('.thread-title').waitFor({ state: 'visible', timeout: 20000 });
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(output, 'overview.png') });

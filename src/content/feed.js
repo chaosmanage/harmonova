@@ -394,8 +394,6 @@ async function refreshFeed() {
       if (model.selectedId) {
         const match = stories.find((story) => story.id === model.selectedId);
         if (match) model.selectedStory = match;
-      } else if (stories[0] && window.innerWidth >= 900 && feed.kind !== "comments") {
-        dependencies.selectStory(stories[0], false, false);
       }
     } catch (error) {
       if(!scope.alive || generation!==model.feedGeneration)return;
