@@ -363,13 +363,34 @@
       if (!event.isTrusted) return;
       dependencies.threadPane.querySelector(".thread-header")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-    let topLevelIndex = -1;
-    const topLevelRows = () => [...dependencies.threadPane.querySelectorAll(".comments > .comment-row")].filter((row) => !row.hidden);
+    let lastTopRow = null;
+    let lastJumpAt = 0;
+    let settledScrollTop = null;
+    const pane = dependencies.threadPane;
+    const clearTopAnchor = () => { lastTopRow = null; lastJumpAt = 0; settledScrollTop = null; };
+    for (const evt of ["wheel", "pointerdown", "touchstart"]) pane.addEventListener(evt, clearTopAnchor, { passive: true, signal: scope.signal });
+    pane.addEventListener("scrollend", () => { if (lastTopRow) settledScrollTop = pane.scrollTop; }, { passive: true, signal: scope.signal });
+    const topLevelRows = () => [...pane.querySelectorAll(".comments > .comment-row")].filter((row) => !row.hidden && !row.classList.contains("is-delayed") && row.getClientRects().length);
     const jumpTopLevel = (delta) => {
       const rows = topLevelRows();
       if (!rows.length) return;
-      topLevelIndex = Math.min(rows.length - 1, Math.max(0, topLevelIndex + delta));
-      const target = rows[topLevelIndex];
+      const paneTop = pane.getBoundingClientRect().top;
+      const canStepFromLast = lastTopRow && rows.includes(lastTopRow) &&
+        (Date.now() - lastJumpAt <= 650 || (settledScrollTop !== null && Math.abs(pane.scrollTop - settledScrollTop) <= 12));
+      let index;
+      if (canStepFromLast) {
+        index = Math.min(rows.length - 1, Math.max(0, rows.indexOf(lastTopRow) + delta));
+      } else if (delta > 0) {
+        index = rows.findIndex((row) => row.getBoundingClientRect().top > paneTop + 28);
+        if (index < 0) index = rows.length - 1;
+      } else {
+        index = rows.findLastIndex((row) => row.getBoundingClientRect().top < paneTop - 12);
+        if (index < 0) index = 0;
+      }
+      const target = rows[index];
+      lastTopRow = target;
+      lastJumpAt = Date.now();
+      settledScrollTop = null;
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       target.classList.remove("nav-flash");
       // restart the flash animation

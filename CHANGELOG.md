@@ -6,8 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-- Gate release publication on version-tag-triggered GitHub Actions tests and package checks.
-- Remove obsolete planning references and consolidate overlapping documentation guidance.
+## v0.14.2 — Desktop refinements, reading tools, and comment navigation
+
+### Desktop layout and navigation
+- Add a resizable split-pane divider between the story feed and discussion pane (drag, double-click or `Home` to reset, `ArrowLeft`/`ArrowRight` when focused) with saved pane width.
+- Add Focus reading mode (`F` to toggle, `Escape` or **Exit focus (F)** to exit).
+- Add desktop keyboard navigation: `ArrowLeft`/`ArrowRight` to step through story cards, `Enter` to open a focused story or collapse/expand a focused comment, `ArrowUp`/`ArrowDown` to step through top-level comments, and `H` to jump to a comment's parent.
+- Make both the on-screen **`‹ Prev` / `Next ›`** buttons and `ArrowUp`/`ArrowDown` navigate top-level comments relative to what is currently visible in the viewport instead of restarting from the top of the thread.
+- Remember scroll position and collapsed comment branches per tab for up to 30 recently opened discussions.
+
+### Comments and reading tools
+- Increase default **Reply indentation** from `12 px` to `24 px`, expand its configurable range to `8–48 px`, and lift default comment cards slightly above the background across AMOLED, Charcoal, and Navy themes.
+- Default thread depth rails to Harmonic Classic Dark, cap deep indentation at depth 8, unify visible comment card spacing, and add **Indicator width**, **Comment spacing**, **Discussion maximum width**, and **Top-level indicators** controls.
+- Add **Search in comments** (via discussion **More**) with match highlighting and `Enter`/`Shift+Enter` (`‹ Match`/`Match ›`) stepping, plus a **New comments only** thread filter.
+- Add **Peek parent** on replies, right-click **Preview link** for comment links, **Quote highlighting** and **Quote spacing**, **Scroll wide code blocks**, **Collect reference links**, **Emphasize metadata**, and **Hide dead/flagged comments** toggles.
+- Add **Ask AI** in the discussion **More** menu using existing OpenRouter consent and private-tab protections.
+
+### Stories, documentation, and release workflow
+- Keep the discussion pane on the placeholder at feed launch instead of automatically selecting or marking the first story read.
+- Add **Large** and **Borderless large previews**, **Card tint intensity**, and local heuristic **Topic labels** / **Topic filter** under **Settings → Stories**.
+- Gate release publication on version-tag-triggered GitHub Actions tests and package checks, and consolidate overlapping documentation guidance.
 
 ## v0.14.1 — Account settings, privacy controls, and release workflow
 

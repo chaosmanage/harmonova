@@ -17,7 +17,8 @@ await withExtension(async ({context}) => {
   });
   await context.route('https://hn.algolia.com/**',route=>{
     const id=Number(new URL(route.request().url()).pathname.match(/items\/(\d+)/)?.[1]);
-    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id,title:'Desktop discussion '+id,author:'fixture',created_at_i:1700000000,children})});
+    const list=id===910302?Array.from({length:14},(_,i)=>({id:910500+i,author:'fixture',text:'<p>Top-level comment '+i+' line one for scrolling verification.</p><p>Second paragraph to ensure tall thread scroll range.</p><p>Third paragraph for realistic spacing.</p>',created_at_i:1700000000,children:[]})):children;
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id,title:'Desktop discussion '+id,author:'fixture',created_at_i:1700000000,children:list})});
   });
   const page=await context.newPage();
   await page.setViewportSize({width:1440,height:900});
@@ -57,7 +58,11 @@ await withExtension(async ({context}) => {
   await page.mouse.down();await page.mouse.move(660,400,{steps:5});await page.mouse.up();
   const resized=await page.locator('.feed-pane').evaluate(e=>e.clientWidth);
   assert.ok(resized>old+30);
-  await page.keyboard.press('n');
+  await page.keyboard.press('ArrowDown');
+  assert.ok(await page.locator('.comment-card').first().evaluate(e=>e===document.activeElement));
+  await page.keyboard.press('ArrowDown');
+  assert.ok(await page.locator('.comment-row[data-comment-id="910405"] > .comment-card').evaluate(e=>e===document.activeElement));
+  await page.keyboard.press('ArrowUp');
   assert.ok(await page.locator('.comment-card').first().evaluate(e=>e===document.activeElement));
   await page.keyboard.press('Enter');
   assert.equal(await page.locator('.comment-card:visible').count(),2);
@@ -65,9 +70,25 @@ await withExtension(async ({context}) => {
   assert.equal(await page.locator('.feed-pane').isVisible(),false);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.feed-pane').isVisible(),true);
-  await page.locator('.story-card').nth(1).focus();await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowRight');
+  assert.ok(await page.locator('.story-card').nth(1).evaluate(e=>e===document.activeElement));
+  await page.keyboard.press('Enter');
   await page.locator('.thread-title').filter({hasText:'910302'}).waitFor();
-  await page.locator('.story-card').first().focus();await page.keyboard.press('Enter');
+  await page.locator('.comment-row[data-comment-id="910504"]').waitFor();
+  await page.evaluate(()=>{
+    const pane=document.querySelector('.thread-pane');
+    const target=document.querySelector('.comment-row[data-comment-id="910504"]');
+    pane.scrollTop+=target.getBoundingClientRect().top-pane.getBoundingClientRect().top-12;
+  });
+  await page.locator('.comments-nav-button',{hasText:'Next'}).click();
+  await page.waitForFunction(()=>document.querySelector('.comment-row[data-comment-id="910505"]')?.classList.contains('nav-flash'));
+  await page.locator('.comments-nav-button',{hasText:'Prev'}).click();
+  await page.waitForFunction(()=>document.querySelector('.comment-row[data-comment-id="910504"]')?.classList.contains('nav-flash'));
+  await page.keyboard.press('ArrowDown');
+  assert.ok(await page.locator('.comment-row[data-comment-id="910505"] > .comment-card').evaluate(e=>e===document.activeElement));
+  await page.keyboard.press('ArrowLeft');
+  assert.ok(await page.locator('.story-card').first().evaluate(e=>e===document.activeElement));
+  await page.keyboard.press('Enter');
   await page.locator('.thread-title').filter({hasText:'910301'}).waitFor();
   assert.ok(await page.locator('.comment-row[data-comment-id="910401"]').evaluate(e=>e.classList.contains('collapsed')));
   await page.locator('.comment-card').first().focus();await page.keyboard.press('Enter');

@@ -36,7 +36,7 @@ Stories settings can show local, heuristic topic labels and filter topics, adjus
 
 ### Desktop controls
 
-Drag the divider between the panes to resize them; double-click it to reset the width. The focused divider also supports Left/Right arrows and Home. On desktop, use J/K to focus stories, Enter to open a focused story, N/P to focus comments, Enter to collapse/expand a focused comment, H to jump to its parent, and F to toggle focus reading. Escape exits focus mode. The current tab remembers reading position and collapsed branches for up to 30 recently opened discussions. These shortcuts do not run while editing a field or using a dialog.
+Drag the divider between the panes to resize them; double-click it to reset the width. The focused divider also supports Left/Right arrows and Home. On desktop, use Left/Right arrows to focus stories, Enter to open a focused story, Up/Down arrows to move between top-level comments, Enter to collapse/expand a focused comment, H to jump to its parent, and F to toggle focus reading. Escape exits focus mode. The current tab remembers reading position and collapsed branches for up to 30 recently opened discussions. These shortcuts do not run while editing a field or using a dialog.
 
 ## Search beyond the current feed
 
