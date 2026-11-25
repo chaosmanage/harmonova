@@ -653,18 +653,33 @@ function openFeedMenu(anchor) {
       const key = event.key.toLowerCase();
       const focused = document.activeElement;
       const visible = (root, selector) => [...root.querySelectorAll(selector)].filter(node => node.getClientRects().length);
-      const move = (nodes, delta, fallback) => {
+      const move = (nodes, delta, fallback, block = "nearest") => {
         if (!nodes.length) return;
-        const index = nodes.indexOf(focused.closest(".story-card,.comment-card"));
+        const index = nodes.indexOf(focused?.closest?.(".story-card,.comment-card"));
         const current = index < 0 ? nodes.indexOf(fallback) : index;
         const node = nodes[Math.max(0, Math.min(nodes.length - 1, current < 0 ? 0 : current + delta))];
-        node.focus({preventScroll:true}); node.scrollIntoView({block:"nearest"});
+        node.focus({preventScroll:true}); node.scrollIntoView({block});
       };
       if (key === "f") toggleDesktopFocus();
       else if (key === "escape" && app.classList.contains("focus-reading")) toggleDesktopFocus();
-      else if (key === "j" || key === "k") move(visible(storyList,".story-card"),key === "j" ? 1 : -1,storyList.querySelector(".selected"));
-      else if (key === "n" || key === "p") move(visible(threadPane,".comment-card"),key === "n" ? 1 : -1);
-      else if (key === "enter" && focused.matches(".story-card")) {
+      else if (key === "arrowright" || key === "arrowleft") move(visible(storyList,".story-card"),key === "arrowright" ? 1 : -1,storyList.querySelector(".selected"));
+      else if (key === "arrowdown" || key === "arrowup") {
+        const delta = key === "arrowdown" ? 1 : -1;
+        const nodes = visible(threadPane,".comments > .comment-row > .comment-card");
+        if (!nodes.length) return;
+        const topCard = focused?.closest?.(".comments > .comment-row")?.querySelector(":scope > .comment-card");
+        const paneRect = threadPane.getBoundingClientRect();
+        const inView = topCard && topCard.getBoundingClientRect().bottom > paneRect.top && topCard.getBoundingClientRect().top < paneRect.bottom;
+        let target = null;
+        if (inView) {
+          target = nodes[Math.max(0, Math.min(nodes.length - 1, nodes.indexOf(topCard) + delta))];
+        } else if (delta > 0) {
+          target = nodes.find(card => card.getBoundingClientRect().top > paneRect.top + 28) || nodes[nodes.length - 1];
+        } else {
+          target = [...nodes].reverse().find(card => card.getBoundingClientRect().top < paneRect.top - 12) || nodes[0];
+        }
+        if (target) { target.focus({preventScroll:true}); target.scrollIntoView({block:"start"}); }
+      } else if (key === "enter" && focused.matches(".story-card")) {
         const id = Number(focused.dataset.storyId);
         if (Number.isSafeInteger(id) && id > 0) selectStory(id,true,true,event);
       } else if (key === "enter" && focused.matches(".comment-card")) {

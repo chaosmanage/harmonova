@@ -555,6 +555,7 @@ html.harmonova-hn *{box-sizing:border-box}
   position:relative;
   min-width:0;
   margin:0;
+  scroll-margin-top:12px;
 }
 .comments,.comment-children{
   display:flex;
@@ -575,6 +576,7 @@ html.harmonova-hn *{box-sizing:border-box}
   position:relative;
   min-width:0;
   overflow:hidden;
+  scroll-margin-top:12px;
   padding:var(--comment-pad-y) var(--comment-pad-x);
   border:1px solid #2a2930;
   border-radius:8px;
