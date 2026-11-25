@@ -83,7 +83,11 @@ await withExtension(async ({context}) => {
   await page.locator('.comments-nav-button',{hasText:'Next'}).click();
   await page.waitForFunction(()=>document.querySelector('.comment-row[data-comment-id="910505"]')?.classList.contains('nav-flash'));
   await page.locator('.comments-nav-button',{hasText:'Prev'}).click();
-  await page.waitForFunction(()=>document.querySelector('.comment-row[data-comment-id="910504"]')?.classList.contains('nav-flash'));
+  await page.waitForFunction(()=>{
+    const row=document.querySelector('.comment-row[data-comment-id="910504"]');
+    const pane=document.querySelector('.thread-pane');
+    return row?.classList.contains('nav-flash') && Math.abs(row.getBoundingClientRect().top-pane.getBoundingClientRect().top)<30;
+  });
   await page.keyboard.press('ArrowDown');
   assert.ok(await page.locator('.comment-row[data-comment-id="910505"] > .comment-card').evaluate(e=>e===document.activeElement));
   await page.keyboard.press('ArrowLeft');

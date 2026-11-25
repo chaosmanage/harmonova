@@ -364,19 +364,37 @@
       dependencies.threadPane.querySelector(".thread-header")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     let lastTopRow = null;
-    let lastJumpAt = 0;
     let settledScrollTop = null;
+    let programmaticScroll = false;
+    let programmaticTimer = 0;
     const pane = dependencies.threadPane;
-    const clearTopAnchor = () => { lastTopRow = null; lastJumpAt = 0; settledScrollTop = null; };
-    for (const evt of ["wheel", "pointerdown", "touchstart"]) pane.addEventListener(evt, clearTopAnchor, { passive: true, signal: scope.signal });
-    pane.addEventListener("scrollend", () => { if (lastTopRow) settledScrollTop = pane.scrollTop; }, { passive: true, signal: scope.signal });
+    const clearTopAnchor = () => {
+      lastTopRow = null;
+      settledScrollTop = null;
+      programmaticScroll = false;
+      clearTimeout(programmaticTimer);
+    };
+    pane.addEventListener("wheel", clearTopAnchor, { passive: true, signal: scope.signal });
+    pane.addEventListener("touchstart", clearTopAnchor, { passive: true, signal: scope.signal });
+    pane.addEventListener("pointerdown", (event) => {
+      if (!event.target?.closest?.(".comments-nav")) clearTopAnchor();
+    }, { passive: true, signal: scope.signal });
+    pane.addEventListener("scroll", () => {
+      if (!programmaticScroll && lastTopRow && (settledScrollTop === null || Math.abs(pane.scrollTop - settledScrollTop) > 12)) clearTopAnchor();
+    }, { passive: true, signal: scope.signal });
+    pane.addEventListener("scrollend", () => {
+      programmaticScroll = false;
+      clearTimeout(programmaticTimer);
+      if (lastTopRow) settledScrollTop = pane.scrollTop;
+    }, { passive: true, signal: scope.signal });
+    scope.signal.addEventListener("abort", () => clearTimeout(programmaticTimer), { once: true });
     const topLevelRows = () => [...pane.querySelectorAll(".comments > .comment-row")].filter((row) => !row.hidden && !row.classList.contains("is-delayed") && row.getClientRects().length);
     const jumpTopLevel = (delta) => {
       const rows = topLevelRows();
       if (!rows.length) return;
       const paneTop = pane.getBoundingClientRect().top;
       const canStepFromLast = lastTopRow && rows.includes(lastTopRow) &&
-        (Date.now() - lastJumpAt <= 650 || (settledScrollTop !== null && Math.abs(pane.scrollTop - settledScrollTop) <= 12));
+        (programmaticScroll || (settledScrollTop !== null && Math.abs(pane.scrollTop - settledScrollTop) <= 12));
       let index;
       if (canStepFromLast) {
         index = Math.min(rows.length - 1, Math.max(0, rows.indexOf(lastTopRow) + delta));
@@ -389,8 +407,13 @@
       }
       const target = rows[index];
       lastTopRow = target;
-      lastJumpAt = Date.now();
       settledScrollTop = null;
+      programmaticScroll = true;
+      clearTimeout(programmaticTimer);
+      programmaticTimer = setTimeout(() => {
+        programmaticScroll = false;
+        if (lastTopRow) settledScrollTop = pane.scrollTop;
+      }, 1200);
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       target.classList.remove("nav-flash");
       // restart the flash animation
