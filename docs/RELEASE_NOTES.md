@@ -15,6 +15,7 @@
 - **In-thread tools:** **Search in comments** with match stepping (`Enter`/`Shift+Enter`), **New comments only** view, **Peek parent** on replies, right-click **Preview link** metadata previews, and **Ask AI** (under the discussion **More** menu, honoring existing OpenRouter consent and private-tab rules).
 
 ### Stories & release automation
+- **Clean feed launch:** no longer auto-selects or marks the first story read when opening a feed; the discussion pane stays on the placeholder until you pick a story.
 - **Story display options:** **Large** and **Borderless large previews**, **Card tint intensity** slider, and local heuristic **Topic labels** & **Topic filter** (no AI or network requests).
 - **Release workflow:** tag-triggered GitHub Actions verification gates published releases.
 

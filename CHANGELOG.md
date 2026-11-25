@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add **Ask AI** in the discussion **More** menu using existing OpenRouter consent and private-tab protections.
 
 ### Stories, documentation, and release workflow
+- Keep the discussion pane on the placeholder at feed launch instead of automatically selecting or marking the first story read.
 - Add **Large** and **Borderless large previews**, **Card tint intensity**, and local heuristic **Topic labels** / **Topic filter** under **Settings → Stories**.
 - Gate release publication on version-tag-triggered GitHub Actions tests and package checks, and consolidate overlapping documentation guidance.
 
