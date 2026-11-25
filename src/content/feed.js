@@ -3,9 +3,25 @@
 (() => {
   'use strict';
   function create(dependencies,model) {
+  // Small deterministic title classifier: no external calls or reading-history profiling.
+  function storyCategory(story) {
+    const title=String(story.title||"").toLowerCase();
+    const rules=[
+      ["ai","AI / ML",/\b(ai|llm|language models?|machine learning|neural|gpt|inference)\b/],
+      ["security","Security",/\b(security|vulnerabilit\w*|malware|privacy|exploit|encryption|cve)\b/],
+      ["programming","Programming",/\b(programming|compiler|rust|python|javascript|database|sql|typescript|coding|developer|software|linux)\b/],
+      ["science","Science",/\b(science|research|physics|biology|space|climate|medicine|study|health)\b/],
+      ["hardware","Hardware",/\b(hardware|chip|cpu|gpu|semiconductor|robot|processor)\b/],
+      ["business","Business",/\b(startup|business|company|companies|market|funding|jobs|economy)\b/],
+      ["web","Web",/\b(browser|web|internet|http|html|css|website)\b/],
+      ["community","Community",/^(ask|show|launch) hn:/]
+    ];
+    return rules.find(([, ,pattern])=>pattern.test(title)) || ["other","Other"];
+  }
   function createStoryCard(story, index) {
     const card = dependencies.el("article", "story-card");
     card.dataset.storyId = String(story.id);
+    card.tabIndex = 0;
     card.dataset.search = (story.title || "") + " " + dependencies.domainOf(story.url);
     card.dataset.domain = dependencies.domainOf(story.url);
     card.dataset.type = dependencies.isJobStory(story) ? "job" : (story.type || "story");
@@ -57,7 +73,9 @@
     });
     for (const name of ["pointerup", "pointercancel", "pointerleave"])
       card.addEventListener(name, () => clearTimeout(cardHoldTimer));
-    main.append(titleLine, meta);
+    const [category,categoryLabel]=storyCategory(story);
+    card.dataset.category=category;
+    main.append(titleLine, meta, dependencies.el("span","story-category",categoryLabel));
 
     const preview = dependencies.el("a", "story-preview");
     preview.href = dependencies.articleHref(story);

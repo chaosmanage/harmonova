@@ -317,6 +317,9 @@ function openFeedMenu(anchor) {
       { label: session ? session.username + karma : "Log in", icon: "user", action: () => openAccountMenu(anchor) },
       { label: "New post", icon: "plus", action: () => startNewPost() },
       { label: "Settings", icon: "settings", action: openSettings },
+      { label: "Focus reading (F)", action: toggleDesktopFocus },
+      { label: "Reset pane width", action: resetDesktopWidth },
+      { label: "Keyboard shortcuts", action: () => showToast("J/K: stories · N/P: comments · Enter: open/collapse · H: parent · F: focus · /: search", {duration:6500}) },
       { label: "Open original Hacker News", icon: "external", action: () => openOriginalHackerNews(FEEDS[state.feed].path) },
       { label: "Disable HarmoNova", icon: "power", action: disableHarmoNova },
     ]);
@@ -589,6 +592,91 @@ function openFeedMenu(anchor) {
     return true;
   }
 
+  function toggleDesktopFocus() {
+    if (!app || window.innerWidth <= 900 || !state.selectedId) return;
+    const active = app.classList.toggle("focus-reading");
+    if (active) app.querySelector(".desktop-focus-exit")?.focus({preventScroll:true});
+    else storyList.querySelector(".story-card.selected")?.focus({preventScroll:true});
+  }
+  function resetDesktopWidth() {
+    state.settings.feedPaneWidth = 0;
+    applySettings();
+    saveSettings("feedPaneWidth");
+  }
+  function installDesktopControls() {
+    const splitter = domUI.el("div", "desktop-splitter");
+    splitter.tabIndex = 0;
+    splitter.setAttribute("role", "separator");
+    splitter.setAttribute("aria-label", "Resize story and discussion panes");
+    splitter.setAttribute("aria-orientation", "vertical");
+    splitter.setAttribute("aria-valuemin", "25");
+    splitter.setAttribute("aria-valuemax", "70");
+    const resize = (pixels) => {
+      const actual = Math.max(320, Math.min(app.clientWidth - 420, pixels));
+      const percent = Math.max(25, Math.min(70, 100 * actual / app.clientWidth));
+      state.settings.feedPaneWidth = Math.round(percent * 10) / 10;
+      app.style.setProperty("--saved-feed-width", state.settings.feedPaneWidth + "%");
+      splitter.setAttribute("aria-valuenow", String(Math.round(100 * feedPane.clientWidth / app.clientWidth)));
+    };
+    splitter.addEventListener("pointerdown", event => {
+      if (!event.isTrusted || event.button !== 0) return;
+      event.preventDefault();
+      splitter.setPointerCapture(event.pointerId);
+      splitter.classList.add("dragging");
+    });
+    splitter.addEventListener("pointermove", event => {
+      if (splitter.hasPointerCapture(event.pointerId)) resize(event.clientX - app.getBoundingClientRect().left);
+    });
+    splitter.addEventListener("lostpointercapture", () => {
+      splitter.classList.remove("dragging");
+      saveSettings("feedPaneWidth");
+    });
+    splitter.addEventListener("dblclick", event => { if (event.isTrusted) resetDesktopWidth(); });
+    splitter.addEventListener("keydown", event => {
+      if (!event.isTrusted || !["ArrowLeft","ArrowRight","Home"].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === "Home") resetDesktopWidth();
+      else {
+        resize(feedPane.clientWidth + (event.key === "ArrowRight" ? 24 : -24));
+        saveSettings("feedPaneWidth");
+      }
+    });
+    splitter.addEventListener("focus", () => splitter.setAttribute("aria-valuenow", String(Math.round(100 * feedPane.clientWidth / app.clientWidth))));
+    const exit = domUI.el("button", "desktop-focus-exit", "Exit focus (F)");
+    exit.type = "button";
+    exit.addEventListener("click", event => { if (event.isTrusted) toggleDesktopFocus(); });
+    app.append(splitter, exit);
+    document.addEventListener("keydown", event => {
+      if (!event.isTrusted || event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || window.innerWidth <= 900) return;
+      if (event.target.closest("input, textarea, select, [contenteditable], [role=separator]") ||
+          document.querySelector(".harmonova-popup, [class$=-overlay], [role=dialog]")) return;
+      const key = event.key.toLowerCase();
+      const focused = document.activeElement;
+      const visible = (root, selector) => [...root.querySelectorAll(selector)].filter(node => node.getClientRects().length);
+      const move = (nodes, delta, fallback) => {
+        if (!nodes.length) return;
+        const index = nodes.indexOf(focused.closest(".story-card,.comment-card"));
+        const current = index < 0 ? nodes.indexOf(fallback) : index;
+        const node = nodes[Math.max(0, Math.min(nodes.length - 1, current < 0 ? 0 : current + delta))];
+        node.focus({preventScroll:true}); node.scrollIntoView({block:"nearest"});
+      };
+      if (key === "f") toggleDesktopFocus();
+      else if (key === "escape" && app.classList.contains("focus-reading")) toggleDesktopFocus();
+      else if (key === "j" || key === "k") move(visible(storyList,".story-card"),key === "j" ? 1 : -1,storyList.querySelector(".selected"));
+      else if (key === "n" || key === "p") move(visible(threadPane,".comment-card"),key === "n" ? 1 : -1);
+      else if (key === "enter" && focused.matches(".story-card")) {
+        const id = Number(focused.dataset.storyId);
+        if (Number.isSafeInteger(id) && id > 0) selectStory(id,true,true,event);
+      } else if (key === "enter" && focused.matches(".comment-card")) {
+        focused.parentElement.classList.toggle("collapsed");
+      } else if (key === "h" && focused.matches(".comment-card")) {
+        const parent = focused.parentElement.parentElement.closest(".comment-row")?.querySelector(":scope > .comment-card");
+        parent?.focus({preventScroll:true}); parent?.scrollIntoView({block:"nearest"});
+      } else return;
+      event.preventDefault();
+    });
+  }
+
   function mount() {
     if (HarmoNovaContentRuntime.invalidated || !installRoundedFont()) return;
     document.body.className = "harmonova-body";
@@ -614,6 +702,7 @@ function openFeedMenu(anchor) {
     threadPane = domUI.el("section", "thread-pane");
     threadPane.appendChild(createThreadPlaceholder());
     app.append(feedPane, threadPane);
+    installDesktopControls();
     document.body.appendChild(app);
     // Phase 6: author links open the in-HarmoNova user panel (Firebase-backed)
     // instead of leaving for Hacker News.
@@ -626,6 +715,30 @@ function openFeedMenu(anchor) {
       if (!match) return;
       event.preventDefault();
       openUserPanel(decodeURIComponent(match[1]));
+    });
+    app.addEventListener("contextmenu", event => {
+      const link=event.target.closest(".comment-body a[href], .thread-story-text a[href]");
+      if (!event.isTrusted || !link || INCOGNITO || !state.settings.richPreviews) return;
+      const href=linksUI.safeHref(link.href);
+      if(!href)return;
+      event.preventDefault();event.stopPropagation();
+      openPopup(link,[
+        {label:"Preview link",icon:"link",action:async()=>{
+          const storyId=state.selectedId;
+          const requestId="linkpreview-"+crypto.randomUUID();
+          showToast("Loading link preview…");
+          const result=await stateUI.runtimeMessage({type:"HARMONOVA_PREVIEW",url:href,rich:true,requestId});
+          if(!link.isConnected||storyId!==state.selectedId)return;
+          const facts=result?.ok?result.rich:null;
+          openPopup(link,[
+            {heading:typeof facts?.title==="string"?facts.title.slice(0,300):new URL(href).hostname},
+            ...((Array.isArray(facts?.lines)?facts.lines:[]).filter(x=>typeof x==="string").slice(0,4).map(line=>({heading:line.slice(0,600)}))),
+            ...(!facts?[{heading:"Preview unavailable or disabled."}]:[]),
+            {label:"Open link",icon:"external",action:()=>window.open(href,"_blank","noopener")}
+          ]);
+        }},
+        {label:"Open link",icon:"external",action:()=>window.open(href,"_blank","noopener")}
+      ],{x:event.clientX,y:event.clientY});
     });
     document.documentElement.classList.add("harmonova-ready");
     if (!INCOGNITO) HarmoNovaContentReleaseNotice.create({app,settings:state.settings,
@@ -661,6 +774,7 @@ function openFeedMenu(anchor) {
       } else if (feed) {
         stopActiveSummary();
         document.body.classList.remove("thread-active");
+        app.classList.remove("focus-reading");
         state.feed = feed;
         feedTitle.textContent = FEEDS[feed].label;
         refreshFeed();

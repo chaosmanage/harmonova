@@ -103,6 +103,7 @@
       let hidden = false;
       if (!hidden && domains.length) hidden = domains.some((entry) => (card.dataset.domain || "").endsWith(entry));
       if (!hidden && keywords.length) hidden = keywords.some((entry) => hay.includes(entry));
+      if (!hidden && model.settings.categoryFilter !== "all" && card.dataset.category !== model.settings.categoryFilter) hidden = true;
       if (!hidden && hideJobs && card.dataset.type === "job") hidden = true;
       if (!hidden && hideRead && card.classList.contains("is-read")) hidden = true;
       card.hidden = hidden;

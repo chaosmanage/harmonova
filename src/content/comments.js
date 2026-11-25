@@ -31,7 +31,9 @@
   };
 
   const COLOR_RAILS = ["#5E97F6", "#9CCC65", "#FFB74D", "#BA68C8", "#4DD0E1", "#EF5350", "#FFD54F"];
-  const MATERIAL_RAILS = ["#526A78", "#7B94A2", "#6D7F89", "#8DA5B2", "#9AAEBB", "#41545F", "#72828B"];
+  // Harmonic v3.2.9 Classic Dark / Balanced theme-derived palette.
+  // Five roles, contrast corrected and separated in CIE Lab (upstream catalog).
+  const MATERIAL_RAILS = ["#FFB1C3", "#B98046", "#EDBD92", "#966470", "#B95946"];
 
   function authorRailColor(author) {
     let hash = 2166136261 >>> 0;
@@ -50,7 +52,7 @@
     if (mode === "none") return "transparent";
     if (mode === "mono" || mode === "monochrome") return "#808080";
     if (mode === "author") return authorRailColor(author);
-    const palette = mode === "material" || mode === "material_you" ? MATERIAL_RAILS : COLOR_RAILS;
+    const palette = mode === "colors" ? COLOR_RAILS : MATERIAL_RAILS;
     return palette[Math.abs(depth) % palette.length];
   }
 
@@ -62,7 +64,7 @@
     row.dataset.replies = String(descendantCount(comment));
     if (comment.author) row.dataset.author = comment.author;
     row.style.setProperty("--depth", String(depth));
-    row.style.setProperty("--rail", railColor(depth, comment.author || ""));
+    row.style.setProperty("--rail", railColor(Math.max(0, depth - (model.settings.topLevelRails ? 0 : 1)), comment.author || ""));
 
     // Phase 7 part 2: OP highlight, new-comment marker, [delayed] hiding.
     if (comment.author && comment.author === model.threadAuthor) row.classList.add("by-op");
@@ -71,6 +73,7 @@
     if (model.settings.markNewComments && storyId && model.seenTimes.has(storyId) && Number(comment.created_at_i || 0) > model.seenTimes.get(storyId)) {
       row.classList.add("is-new");
     }
+    if ((model.settings.hideDead && comment.dead === true) || (model.settings.hideFlagged && comment.flagged === true)) row.classList.add("is-delayed");
     const isBlockedAuthor = comment.author && model.blockedUsers.has(comment.author);
     if (isBlockedAuthor) row.classList.add("is-blocked");
 
@@ -118,6 +121,18 @@
     const body = dependencies.el("div", "comment-body");
     if (comment.text) dependencies.appendSanitizedHtml(body, comment.text);
     else body.textContent = "[deleted]";
+    if (model.settings.collectReferences) {
+      const refs = [...new Set([...body.querySelectorAll("a[href]")].map(a => a.href))].slice(0,20);
+      if (refs.length) {
+        const references = dependencies.el("div","comment-references");
+        references.append(dependencies.el("strong","","References"));
+        for (const href of refs) {
+          const link = dependencies.el("a","",new URL(href).hostname + new URL(href).pathname.slice(0,75));
+          link.href=href; link.target="_blank"; link.rel="noopener noreferrer"; references.append(link);
+        }
+        body.append(references);
+      }
+    }
 
     const collapsed = dependencies.el("div", "collapsed-comment");
     collapsed.append(
@@ -267,7 +282,14 @@
           },
         },
         ...(parentId && Number(parentId) > 0
-          ? [{ label: "Open parent", icon: "link", action: () => window.open("https://news.ycombinator.com/item?id=" + parentId, "_blank", "noopener") }]
+          ? [{ label: "Peek parent", icon: "comment", action: () => {
+              const parentCard=parentRow.querySelector(":scope > .comment-card");
+              dependencies.openPopup(moreButton,[
+                {heading:parentRow.dataset.author || "Parent comment"},
+                {heading:(parentCard?.querySelector(".comment-body")?.textContent || "").slice(0,1200)},
+                {label:"Jump to parent",action:()=>{parentCard?.focus({preventScroll:true});parentCard?.scrollIntoView({block:"center"});}}
+              ]);
+            } }, { label: "Open parent", icon: "link", action: () => window.open("https://news.ycombinator.com/item?id=" + parentId, "_blank", "noopener") }]
           : []),
         {
           label: "Open top level",
@@ -330,11 +352,12 @@
     }
 
     card.addEventListener("click", (event) => {
-      if (event.target.closest("a, button") || window.getSelection()?.toString()) return;
+      if (event.target.closest("a, button, pre, code") || window.getSelection()?.toString()) return;
       if (model.settings.swapCommentActions) showCommentActions(event);
       else row.classList.toggle("collapsed");
     });
     card.addEventListener("contextmenu", (event) => {
+      if(event.target.closest("a[href]"))return;
       event.preventDefault();
       showCommentActions(event);
     });
@@ -346,7 +369,7 @@
     });
     let held = 0;
     card.addEventListener("pointerdown", (event) => {
-      if (!event.isTrusted || event.button !== 0 || event.target.closest("a, button")) return;
+      if (!event.isTrusted || event.button !== 0 || event.target.closest("a, button, pre, code")) return;
       held = setTimeout(() => {
         if (model.settings.swapCommentActions) row.classList.toggle("collapsed");
         else showCommentActions(event);

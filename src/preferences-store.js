@@ -10,7 +10,7 @@
       const raw=await get([KEY,'harmonovaSettings','harmonicSettings']);
       if(raw[KEY] && raw[KEY].version!==1)throw new Error('UNSUPPORTED_PREFERENCES_SCHEMA');
       if(raw[KEY])return {version:1,revision:Number.isSafeInteger(raw[KEY].revision)&&raw[KEY].revision>=0?raw[KEY].revision:0,pageMigrated:raw[KEY].pageMigrated===true,
-        configuredFields:(Array.isArray(raw[KEY].configuredFields)?raw[KEY].configuredFields:[]).filter(k=>Object.hasOwn(HarmoNovaSettingsSchema.defaults,k)),enabled:raw[KEY].enabled!==false,settings:HarmoNovaSettingsSchema.normalize(raw[KEY].settings)};
+        configuredFields:(Array.isArray(raw[KEY].configuredFields)?raw[KEY].configuredFields:[]).filter(k=>Object.hasOwn(HarmoNovaSettingsSchema.defaults,k)),enabled:raw[KEY].enabled!==false,settings:HarmoNovaSettingsSchema.normalize({...raw[KEY].settings,...(!(Array.isArray(raw[KEY].configuredFields) && raw[KEY].configuredFields.includes("depthMode")) ? {depthMode:HarmoNovaSettingsSchema.defaults.depthMode} : {}),...(!(Array.isArray(raw[KEY].configuredFields) && raw[KEY].configuredFields.includes("commentIndent")) ? {commentIndent:HarmoNovaSettingsSchema.defaults.commentIndent} : {})})};
       const sync=await syncGet(['harmonovaSettings','harmonicSettings','harmonovaEnabled','harmonicEnabled']);
       const source=sync.harmonovaSettings||sync.harmonicSettings||raw.harmonovaSettings||raw.harmonicSettings;
       const known=HarmoNovaSettingsSchema.normalize(source,false);
