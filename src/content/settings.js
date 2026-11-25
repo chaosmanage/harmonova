@@ -129,7 +129,7 @@
       settingSlider("Indicator width", "railWidth", 1.5, 5, 0.5, " px"),
       settingSlider("Comment spacing", "commentSpacing", 4, 20, 1, " px"),
       settingSlider("Discussion maximum width", "discussionWidth", 720, 1800, 60, " px"),
-      settingSlider("Reply indentation", "commentIndent", 8, 24, 1, " px"),
+      settingSlider("Reply indentation", "commentIndent", 8, 48, 1, " px"),
       settingToggle("Top-level indicators", "topLevelRails", "Show a rail on root comments"),
       settingSelect("Quote highlighting", "quoteStyle", [["both","Rail and background"],["rail","Rail only"],["fill","Background only"],["none","None"]]),
       settingSelect("Quote spacing", "quoteSpacing", [["compact","Compact"],["comfortable","Comfortable"],["roomy","Roomy"]]),

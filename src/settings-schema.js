@@ -26,7 +26,7 @@
     borderlessPreview: false,
     tintIntensity: 100,
     commentSpacing: 9,
-    commentIndent: 12,
+    commentIndent: 24,
     discussionWidth: 1020,
     feedPaneWidth: 0,
     roundedRails: true,
@@ -67,7 +67,7 @@
   const backupFields=Object.freeze(['uiTheme','uiFont','storyTextSize','commentTextSize','commentZoom','contentScale']);
   const blockedKeys=new Set(['__proto__','prototype','constructor']);
   const username=v=>typeof v==='string' && /^[A-Za-z0-9_-]{1,32}$/.test(v) && !blockedKeys.has(v);
-  const ranges={discussionWidth:[720,1800],tintIntensity:[0,100],railWidth:[1.5,5],commentSpacing:[4,20],commentIndent:[8,24],feedPaneWidth:[0,70],storyTextSize:[14.5,20.5],commentTextSize:[12,18],commentZoom:[65,150],contentScale:[65,150]};
+  const ranges={discussionWidth:[720,1800],tintIntensity:[0,100],railWidth:[1.5,5],commentSpacing:[4,20],commentIndent:[8,48],feedPaneWidth:[0,70],storyTextSize:[14.5,20.5],commentTextSize:[12,18],commentZoom:[65,150],contentScale:[65,150]};
   const enums={previewImages:['small','medium','large','off'],quoteStyle:['both','rail','fill','none'],quoteSpacing:['compact','comfortable','roomy'],categoryFilter:['all','ai','programming','science','security','business','hardware','web','community','other'],commentStyle:['outlined','raised','standard','flat'],depthMode:['theme_default','material_you','colors','author','monochrome','none'],commentSort:['Default','Newest first','Oldest first','Reply count'],faviconProvider:['google','duckduckgo','direct'],uiTheme:['amoled','charcoal','navy'],uiFont:['rounded','system','serif']};
   const feeds=['top','new','best','ask','show','jobs','pool','active','bestcomments','launches','whoishiring','noobstories','classic','front'];
   function valid(key,value) {

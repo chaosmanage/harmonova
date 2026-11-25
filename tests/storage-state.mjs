@@ -179,3 +179,11 @@ test('P13 stalled tab broadcasts never hold the reader transaction lock',async()
  const repo=realm.HarmoNovaReaderStore.create({localGet:async defaults=>({...defaults,...local}),localSet:async data=>Object.assign(local,structuredClone(data)),sessionGet:async defaults=>({...defaults,...session}),sessionSet:async data=>Object.assign(session,structuredClone(data)),broadcast:()=>new Promise(()=>{})});
  await repo.setBookmark(1,true);await repo.setBookmark(2,true);assert.deepEqual(plain((await repo.stateSnapshot()).bookmarks),[1,2]);
 });
+
+test('commentIndent defaults to 24, updates unconfigured profiles, and accepts 8..48 px',async()=> {
+ const f=preferenceFixture({local:{harmonovaPreferencesV1:{version:1,revision:1,configuredFields:['uiTheme'],settings:{uiTheme:'amoled',commentIndent:12}}}});
+ assert.equal((await f.make().snapshot()).settings.commentIndent,24);
+ await f.make().patch({commentIndent:40});
+ assert.equal((await f.make().snapshot()).settings.commentIndent,40);
+ await assert.rejects(f.make().patch({commentIndent:49}),/INVALID_PREFERENCES/);
+});

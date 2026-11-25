@@ -565,7 +565,7 @@ html.harmonova-hn *{box-sizing:border-box}
 .comment-children{
   gap:var(--comment-row-gap,10px);
   margin-top:var(--comment-row-gap,10px);
-  margin-left:var(--comment-indent,12px);
+  margin-left:var(--comment-indent,24px);
 }
 .harmonova-app[data-continuous-rails="true"] .comment-row>.comment-children{
   padding-left:4px;
@@ -578,7 +578,7 @@ html.harmonova-hn *{box-sizing:border-box}
   padding:var(--comment-pad-y) var(--comment-pad-x);
   border:1px solid #2a2930;
   border-radius:8px;
-  background:var(--harmonova-void,#000);
+  background:color-mix(in srgb,var(--harmonova-surface,#14191e) 50%,var(--harmonova-void,#000));
   color:#dfdfdf;
   cursor:pointer;
 }
@@ -598,7 +598,7 @@ html.harmonova-hn *{box-sizing:border-box}
 .harmonova-app[data-comment-style="raised"] .comment-card{border-color:transparent;background:#14191e;box-shadow:0 3px 10px rgba(0,0,0,.38)}
 .harmonova-app[data-comment-style="flat"] .comment-card{border:0;border-bottom:1px solid rgba(238,238,255,.10);border-radius:0;background:var(--harmonova-void,#000)}
 .harmonova-app[data-comment-style="flat"] .comment-card::before{top:4px;bottom:4px;left:0}
-.comment-card:hover{border-color:#3a3941;background:#030304}
+.comment-card:hover{border-color:#3a3941;background:color-mix(in srgb,var(--harmonova-surface,#14191e) 72%,var(--harmonova-void,#000))}
 .comment-meta{
   display:flex;
   align-items:baseline;
@@ -630,7 +630,7 @@ html.harmonova-hn *{box-sizing:border-box}
   padding:12px;
   border:1px solid #282831;
   border-radius:7px;
-  background:#08080a;
+  background:color-mix(in srgb,var(--harmonova-void,#000) 75%,#000);
   white-space:pre-wrap;
 }
 .comment-body blockquote,

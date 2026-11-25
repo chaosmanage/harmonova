@@ -29,12 +29,18 @@ await withExtension(async ({context}) => {
   const metrics=()=>page.evaluate(()=>{
     const cards=[...document.querySelectorAll('.comment-card')].filter(c=>c.getClientRects().length);
     return {gaps:cards.slice(1).map((c,i)=>c.getBoundingClientRect().top-cards[i].getBoundingClientRect().bottom),
+      lefts:cards.map(c=>c.getBoundingClientRect().left),
+      cardBg:getComputedStyle(cards[0]).backgroundColor,
+      bodyBg:getComputedStyle(document.body).backgroundColor,
       colors:cards.map(c=>getComputedStyle(c,'::before').backgroundColor),
       widths:cards.map(c=>getComputedStyle(c,'::before').width),
       theme:document.documentElement.dataset.theme};
   });
   const initial=await metrics();
   assert.equal(initial.theme,'amoled');
+  assert.notEqual(initial.cardBg,initial.bodyBg);
+  assert.ok(initial.lefts[1]-initial.lefts[0]>=19,JSON.stringify(initial.lefts));
+  assert.ok(initial.lefts[2]-initial.lefts[1]>=19,JSON.stringify(initial.lefts));
   assert.equal(initial.colors[0],'rgb(255, 177, 195)');
   assert.equal(initial.colors[1],'rgb(185, 128, 70)');
   assert.ok(initial.widths.every(w=>w==='3px'));
